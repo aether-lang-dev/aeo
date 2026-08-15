@@ -6,8 +6,8 @@ that keep it coherent, the footguns. Re-read at the start of every session. **Fo
 an observer wanting to *use* aeo for its purpose:** the "What aeo is for" and "A
 composition, end to end" sections are your entry; the rest is the engine room.
 
-Not a CLAUDE.md. Short, opinionated, current as of ae 0.542.0 (2026-08-15).
-Suite verified on 0.542.0; `AETHER_PIN` floor is 0.541.0 (see that file for why
+Not a CLAUDE.md. Short, opinionated, current as of ae 0.543.0 (2026-08-15).
+Suite verified on 0.543.0; `AETHER_PIN` floor is 0.541.0 (see that file for why
 the two differ).
 
 ---
@@ -35,7 +35,7 @@ aeo is the third sibling to `aether` (the language) and `aeb` (the build runner)
 born spun-out. **config IS code** — the composition is a `.ae` you *run*, full
 Aether around the declarations; no YAML, ever.
 
-## Status (honest, ae 0.542.0)
+## Status (honest, ae 0.543.0)
 
 Working, with a **live-proven containment story** AND a **live-proven resident-agent
 story** (see the aeo-agent note below). Of six containment axes, **all six are
@@ -259,16 +259,19 @@ is load-bearing: Aether's module `var` had a string of cross-import soundness bu
   verified). lib/secrets uses `seal_value`/`unseal_value`.
 - **Aether's std.http.client SIGABRTs intermittently on macOS** (mid-request).
   Specs that only need transport shell out to curl.
-- **NEVER name a leading-underscore function that you pass AS A VALUE**
-  (a function pointer, e.g. an http handler). On ae 0.541.0 the compiler
-  renames the DEFINITION `_h_health` → `ae_h_health` (its MSVCRT
-  reserved-namespace fix) but rewrites only CALL sites, so the pointer
-  reference is emitted verbatim and the generated C dies with
-  `'_h_health' undeclared … did you mean 'ae_h_health'?` — an error naming a
-  symbol you never wrote. Use the trailing-underscore file-local convention
-  (`h_health_`), which is unaffected. This blocked `bin/aeo-agent.ae` +
-  `bin/aeo-supervisord.ae` on the 0.541 upgrade. Upstream: **aether#1598**
-  (3-line repro there); drop the workaround when it lands.
+- **Name http handlers with a TRAILING underscore (`h_health_`), not a
+  leading one** — and keep it that way. On ae ≤ 0.542 a leading-underscore
+  top-level function *passed as a value* (a function pointer) did not
+  compile: the DEFINITION was renamed `_h_health` → `ae_h_health` (C's
+  reserved namespace) but only CALL sites were rewritten, so the pointer
+  reference dangled — `'_h_health' undeclared … did you mean 'ae_h_health'?`,
+  an error naming a symbol you never wrote. It blocked `bin/aeo-agent.ae` +
+  `bin/aeo-supervisord.ae` on the 0.541 upgrade. **aether#1598 — FIXED in
+  0.543.0** (aeo reported it; the fix also caught a nastier twin, where an
+  extern-collision rename bound to the real libc symbol, linked clean and
+  SEGFAULTED at runtime). aeo does **not** revert to the leading form:
+  aether's own `docs/c-interop.md` names the trailing convention (#279) as
+  idiomatic, and reverting would raise our pin floor to 0.543.0 for no gain.
 - **A selective import of `std.http.client.httptest` does NOT work** —
   `import std.http.client.httptest (expect_http_get_body_eq, within, …)`
   leaves the module's own retry-state vars (`httptest_retry_poll_ns`,

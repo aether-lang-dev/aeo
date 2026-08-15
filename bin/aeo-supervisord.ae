@@ -137,13 +137,12 @@ _sleep_secs(s: int) {
 //
 // NAMING — trailing underscore, NOT leading (`h_health_`, never `_h_health`).
 // These are passed to server_get/server_post AS VALUES (function pointers).
-// On ae 0.541.0 a LEADING-underscore top-level function used as a value fails
-// to compile: the compiler renames the definition `_h_health` -> `ae_h_health`
-// (the MSVCRT reserved-namespace fix) but rewrites only CALL sites, so the
-// pointer reference is emitted verbatim and the generated C dies with
-// "'_h_health' undeclared ... did you mean 'ae_h_health'?". Upstream:
-// aether#1598. The trailing-underscore form is the file-local convention
-// (#279) and is unaffected — keep it until #1598 lands.
+// KEEP THIS SHAPE — see the fuller note in bin/aeo-agent.ae. It began as a
+// workaround for aether#1598 (leading-underscore function used as a value
+// emitted an undeclared name); #1598 is FIXED in 0.543.0, but the trailing
+// form is what aether's docs/c-interop.md calls idiomatic (#279) and it
+// compiles on every version, so reverting would raise aeo's pin floor for
+// no gain.
 
 // GET /health — open liveness (the residence probe the front-door dials to decide
 // "is a supervisor present"). Reveals nothing.

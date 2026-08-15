@@ -69,13 +69,18 @@ extern exit(code: int)
 //
 // NAMING — trailing underscore, NOT leading (`h_health_`, never `_h_health`).
 // These are passed to server_get/server_post AS VALUES (function pointers).
-// On ae 0.541.0 a LEADING-underscore top-level function used as a value fails
-// to compile: the compiler renames the definition `_h_health` -> `ae_h_health`
-// (the MSVCRT reserved-namespace fix) but rewrites only CALL sites, so the
-// pointer reference is emitted verbatim and the generated C dies with
-// "'_h_health' undeclared ... did you mean 'ae_h_health'?". Upstream:
-// aether#1598. The trailing-underscore form is the file-local convention
-// (#279) and is unaffected — keep it until #1598 lands.
+// KEEP THIS SHAPE. It began as a workaround for aether#1598 (a LEADING-
+// underscore function used as a value compiled to an undeclared name: the
+// definition was renamed `_h_health` -> `ae_h_health` for C's reserved
+// namespace, but only CALL sites were rewritten). #1598 is FIXED in ae
+// 0.543.0, so the leading form would now work — but this is not reverted,
+// deliberately, on two counts:
+//   1. aether's own docs/c-interop.md names the trailing-underscore
+//      file-local convention (#279) as THE idiomatic way to keep a handler
+//      distinct, and warns that a name which both shadows and is passed as a
+//      value cannot work in either spelling.
+//   2. Reverting would raise aeo's AETHER_PIN floor to 0.543.0 for zero
+//      functional gain. The trailing form compiles on every version.
 
 h_health_(req: ptr, res: ptr, ud: ptr) -> int {
     response_set_status(res, 200)
