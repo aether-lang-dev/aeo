@@ -6,7 +6,9 @@ that keep it coherent, the footguns. Re-read at the start of every session. **Fo
 an observer wanting to *use* aeo for its purpose:** the "What aeo is for" and "A
 composition, end to end" sections are your entry; the rest is the engine room.
 
-Not a CLAUDE.md. Short, opinionated, current as of ae 0.541.0 (2026-08-15).
+Not a CLAUDE.md. Short, opinionated, current as of ae 0.542.0 (2026-08-15).
+Suite verified on 0.542.0; `AETHER_PIN` floor is 0.541.0 (see that file for why
+the two differ).
 
 ---
 
@@ -33,7 +35,7 @@ aeo is the third sibling to `aether` (the language) and `aeb` (the build runner)
 born spun-out. **config IS code** — the composition is a `.ae` you *run*, full
 Aether around the declarations; no YAML, ever.
 
-## Status (honest, ae 0.541.0)
+## Status (honest, ae 0.542.0)
 
 Working, with a **live-proven containment story** AND a **live-proven resident-agent
 story** (see the aeo-agent note below). Of six containment axes, **all six are
@@ -291,10 +293,27 @@ is the floor** — std.spec landed in 0.538.0, so an older `ae` cannot compile
 the suite at all; run-spec.sh warns up front rather than letting you read 48
 files of `Undefined variable 'spec'`.
 
-Open ask: **aether#1576** — the fluent matchers (`to_equal_str` etc.) take no
-"why" message, so ~810 of aeo's assertions can print only `expected 'x', got
-'y'` with no statement of the rule. aeo has commented with the downstream
-evidence; if it lands, sweep the fluent sites to carry intent messages.
+**Fluent matchers take an optional "why" message (aether#1576 — LANDED in
+0.542.0).** aeo asked for this: `expected 'x', got 'y'` states the values but
+not the rule, which is what a failing-CI triager needs.
+
+```aether
+spec.expect_str(egress_fqdn_csv("python_vm")).to_equal_str(want,
+    "a node's egress FQDN set is exactly its declared whitelist")
+```
+
+It is **optional** (Aether default args resolve through UFCS chaining), so
+aeo's ~810 existing message-less sites compile and pass untouched — verified,
+48 files / 304 assertions / 0 failures on 0.542.0. **No sweep is needed or
+wanted**: add a message where it carries a rule the values can't, at whatever
+pace. `to_equal_str` also now prints the caret-aligned diff once either string
+hits 24 chars, so **78 of aeo's 477 `to_equal_str` sites got better failure
+output with no edit at all**.
+
+`AETHER_PIN` stays at **0.541.0** deliberately — the feature is backward
+compatible, so it is not yet a floor. **Raise the pin to 0.542.0 in the same
+commit that first writes a why-message into a spec** (an older `ae` would then
+hit an arity error). The reasoning is spelled out in `AETHER_PIN` itself.
 
 ### Agent / deployment footguns (operational, cost real session time)
 

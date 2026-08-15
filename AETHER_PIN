@@ -42,6 +42,21 @@
 #      aeo's whole FreeBSD line (jails, bhyve, the GhostBSD box) builds
 #      there, so this is load-bearing for a first-class substrate.
 #
+# NOT BUMPED TO 0.542.0 — and that is this file's policy working, not an
+# oversight. 0.542.0 landed the optional why-message on the fluent matchers
+# (#1576, aeo's own ask: `to_equal_str(want, "why this matters")`). It is
+# genuinely wanted, and aeo will adopt it incrementally. But it is BACKWARD
+# COMPATIBLE by construction — Aether default args, so aeo's ~810 existing
+# message-less call sites compile and pass untouched (verified against the
+# PR build before it merged: 48 files / 304 assertions / 0 failures). A
+# floor is "the oldest Aether that can build aeo", not "the newest one we
+# like". Nothing in the tree REQUIRES 0.542.0 yet, so raising it would
+# force a needless upgrade on anyone sitting between the two.
+#
+# RAISE IT to 0.542.0 in the same commit that first writes a why-message
+# into a spec — at that moment the tree really does need it. (An older ae
+# would then fail with an arity error on the 3-arg matcher call.)
+#
 # GLIBC — a SEPARATE concern worth knowing. Aether releases up to ~0.449
 # were built on ubuntu-latest and carry a GLIBC_2.38 floor, so `aetherc`
 # dies on Debian 12 (glibc 2.36) while `ae --version` still succeeds —
