@@ -66,8 +66,18 @@ extern exit(code: int)
 // locals, so they read who-am-i + the secret from std.config (stamped at boot
 // by _run_http). Each does the work INLINE via _dispatch_verb and replies
 // synchronously with the report line, so http mode needs no drain loop.
+//
+// NAMING — trailing underscore, NOT leading (`h_health_`, never `_h_health`).
+// These are passed to server_get/server_post AS VALUES (function pointers).
+// On ae 0.541.0 a LEADING-underscore top-level function used as a value fails
+// to compile: the compiler renames the definition `_h_health` -> `ae_h_health`
+// (the MSVCRT reserved-namespace fix) but rewrites only CALL sites, so the
+// pointer reference is emitted verbatim and the generated C dies with
+// "'_h_health' undeclared ... did you mean 'ae_h_health'?". Upstream:
+// aether#1598. The trailing-underscore form is the file-local convention
+// (#279) and is unaffected — keep it until #1598 lands.
 
-_h_health(req: ptr, res: ptr, ud: ptr) -> int {
+h_health_(req: ptr, res: ptr, ud: ptr) -> int {
     response_set_status(res, 200)
     response_set_body(res, "ok")           // open liveness — the residence probe
     return 0
@@ -192,7 +202,7 @@ _seal_out(token: string, rep: string, was_sealed: int) -> string {
     return sealed
 }
 
-_h_dispatch(req: ptr, res: ptr, ud: ptr) -> int {
+h_dispatch_(req: ptr, res: ptr, ud: ptr) -> int {
     me = config.get("aeo.agent.me")
     token = config.get("aeo.agent.token")
     wire = request_body(req)
@@ -231,8 +241,8 @@ _run_http(me: string, token: string, port: int) {
     // same-host localhost test where loopback is the whole point).
     bind = _env_or("AEO_BIND", "0.0.0.0")
     server_set_host(raw, bind)
-    server_get(raw, "/health", _h_health, 0)
-    server_post(raw, "/dispatch", _h_dispatch, 0)
+    server_get(raw, "/health", h_health_, 0)
+    server_post(raw, "/dispatch", h_dispatch_, 0)
     // Non-blocking start (detached thread) so this process can ALSO act as an
     // http client — the serve-and-dial property a middle agent needs.
     serr = server_start_background(raw)

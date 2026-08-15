@@ -5,47 +5,47 @@
 // real firecracker off-KVM (see the PR notes), and pinned here off-box too.
 // Live boot: test/smoke_firecracker.ae on a KVM host.
 
-import aeocha
+import std.spec
 import driver_firecracker (name, mem_mib, kernel_path, rootfs_path, config_json, pidfile_for, sockfile_for)
 import std.string (string_contains)
 
 main() {
-    fw = aeocha.init()
+    fw = spec.init()
 
-    aeocha.describe(fw, "driver_firecracker (microVM)") {
+    spec.describe(fw, "driver_firecracker (microVM)") {
 
-        aeocha.describe("identity + artifact layout") {
-            aeocha.it("name is firecracker; image() is a bundle dir") callback {
-                aeocha.expect_str(name()).to_equal_str("firecracker")
-                aeocha.expect_str(kernel_path("/srv/mvm")).to_equal_str("/srv/mvm/vmlinux")
-                aeocha.expect_str(rootfs_path("/srv/mvm")).to_equal_str("/srv/mvm/rootfs.ext4")
-                aeocha.expect_str(pidfile_for("db")).to_equal_str("/tmp/aeo-fc-db.pid")
-                aeocha.expect_str(sockfile_for("db")).to_equal_str("/tmp/aeo-fc-db.sock")
+        spec.describe("identity + artifact layout") {
+            spec.it("name is firecracker; image() is a bundle dir") callback {
+                spec.expect_str(name()).to_equal_str("firecracker")
+                spec.expect_str(kernel_path("/srv/mvm")).to_equal_str("/srv/mvm/vmlinux")
+                spec.expect_str(rootfs_path("/srv/mvm")).to_equal_str("/srv/mvm/rootfs.ext4")
+                spec.expect_str(pidfile_for("db")).to_equal_str("/tmp/aeo-fc-db.pid")
+                spec.expect_str(sockfile_for("db")).to_equal_str("/tmp/aeo-fc-db.sock")
             }
         }
 
-        aeocha.describe("mem_mib — memory string -> Firecracker mem_size_mib (int MiB)") {
-            aeocha.it("parses M/G suffixes, bare numbers, and the empty default") callback {
-                aeocha.expect_int(mem_mib("512M")).to_equal(512)
-                aeocha.expect_int(mem_mib("1G")).to_equal(1024)
-                aeocha.expect_int(mem_mib("256")).to_equal(256)
-                aeocha.expect_int(mem_mib("")).to_equal(128)
-                aeocha.expect_int(mem_mib("2g")).to_equal(2048)
+        spec.describe("mem_mib — memory string -> Firecracker mem_size_mib (int MiB)") {
+            spec.it("parses M/G suffixes, bare numbers, and the empty default") callback {
+                spec.expect_int(mem_mib("512M")).to_equal(512)
+                spec.expect_int(mem_mib("1G")).to_equal(1024)
+                spec.expect_int(mem_mib("256")).to_equal(256)
+                spec.expect_int(mem_mib("")).to_equal(128)
+                spec.expect_int(mem_mib("2g")).to_equal(2048)
             }
         }
 
-        aeocha.describe("config_json — the Firecracker config-file (schema proven vs real fc)") {
-            aeocha.it("carries boot-source, the root drive, and machine-config") callback {
+        spec.describe("config_json — the Firecracker config-file (schema proven vs real fc)") {
+            spec.it("carries boot-source, the root drive, and machine-config") callback {
                 got = config_json("/srv/mvm/vmlinux", "/srv/mvm/rootfs.ext4", 2, 256)
-                aeocha.expect_int(string_contains(got, "\"kernel_image_path\": \"/srv/mvm/vmlinux\"") == 1).to_be_truthy()
-                aeocha.expect_int(string_contains(got, "\"path_on_host\": \"/srv/mvm/rootfs.ext4\"") == 1).to_be_truthy()
-                aeocha.expect_int(string_contains(got, "\"is_root_device\": true") == 1).to_be_truthy()
-                aeocha.expect_int(string_contains(got, "\"vcpu_count\": 2") == 1).to_be_truthy()
-                aeocha.expect_int(string_contains(got, "\"mem_size_mib\": 256") == 1).to_be_truthy()
-                aeocha.expect_int(string_contains(got, "console=ttyS0") == 1).to_be_truthy()
+                spec.expect_int(string_contains(got, "\"kernel_image_path\": \"/srv/mvm/vmlinux\"") == 1).to_be_truthy()
+                spec.expect_int(string_contains(got, "\"path_on_host\": \"/srv/mvm/rootfs.ext4\"") == 1).to_be_truthy()
+                spec.expect_int(string_contains(got, "\"is_root_device\": true") == 1).to_be_truthy()
+                spec.expect_int(string_contains(got, "\"vcpu_count\": 2") == 1).to_be_truthy()
+                spec.expect_int(string_contains(got, "\"mem_size_mib\": 256") == 1).to_be_truthy()
+                spec.expect_int(string_contains(got, "console=ttyS0") == 1).to_be_truthy()
             }
         }
     }
 
-    aeocha.run_summary(fw)
+    spec.run_summary(fw)
 }

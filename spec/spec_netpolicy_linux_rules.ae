@@ -8,251 +8,251 @@
 // - Enforcement tier classification
 // - Rule generation for accept + drop
 
-import aeocha
+import std.spec
 import std.list
 import std.string (string_length, string_contains)
 import lib.netpolicy_linux.rules
 
 main() {
-    fw = aeocha.init()
+    fw = spec.init()
 
-    aeocha.describe(fw, "netpolicy_flows: parse egress->peer:port entries") {
-        aeocha.it("single flow") callback {
+    spec.describe(fw, "netpolicy_flows: parse egress->peer:port entries") {
+        spec.it("single flow") callback {
             np = "egress->db:5432"
             flows = rules.netpolicy_flows(np)
-            aeocha.expect_int(list_len(flows)).to_equal_int(1)
+            spec.expect_int(list_size(flows)).to_equal(1)
             flow = list_get_raw(flows, 0)
             target = list_get_raw(flow, 0)
             port = list_get_raw(flow, 1)
-            aeocha.expect_str(target).to_equal_str("db")
-            aeocha.expect_str(port).to_equal_str("5432")
+            spec.expect_str(target).to_equal_str("db")
+            spec.expect_str(port).to_equal_str("5432")
         }
 
-        aeocha.it("multiple flows") callback {
+        spec.it("multiple flows") callback {
             np = "egress->db:5432, egress->cache:6379, egress->queue:5671"
             flows = rules.netpolicy_flows(np)
-            aeocha.expect_int(list_len(flows)).to_equal_int(3)
+            spec.expect_int(list_size(flows)).to_equal(3)
             f0 = list_get_raw(flows, 0)
             f1 = list_get_raw(flows, 1)
             f2 = list_get_raw(flows, 2)
-            aeocha.expect_str(list_get_raw(f0, 0)).to_equal_str("db")
-            aeocha.expect_str(list_get_raw(f1, 0)).to_equal_str("cache")
-            aeocha.expect_str(list_get_raw(f2, 0)).to_equal_str("queue")
+            spec.expect_str(list_get_raw(f0, 0)).to_equal_str("db")
+            spec.expect_str(list_get_raw(f1, 0)).to_equal_str("cache")
+            spec.expect_str(list_get_raw(f2, 0)).to_equal_str("queue")
         }
 
-        aeocha.it("empty netpolicy") callback {
+        spec.it("empty netpolicy") callback {
             flows = rules.netpolicy_flows("")
-            aeocha.expect_int(list_len(flows)).to_equal_int(0)
+            spec.expect_int(list_size(flows)).to_equal(0)
         }
 
-        aeocha.it("deny_egress only (no flows)") callback {
+        spec.it("deny_egress only (no flows)") callback {
             np = "egress:DENY-ALL"
             flows = rules.netpolicy_flows(np)
-            aeocha.expect_int(list_len(flows)).to_equal_int(0)
+            spec.expect_int(list_size(flows)).to_equal(0)
         }
 
-        aeocha.it("ignores ingress entries") callback {
+        spec.it("ignores ingress entries") callback {
             np = "ingress:8080, egress->db:5432"
             flows = rules.netpolicy_flows(np)
-            aeocha.expect_int(list_len(flows)).to_equal_int(1)
+            spec.expect_int(list_size(flows)).to_equal(1)
             flow = list_get_raw(flows, 0)
-            aeocha.expect_str(list_get_raw(flow, 0)).to_equal_str("db")
+            spec.expect_str(list_get_raw(flow, 0)).to_equal_str("db")
         }
 
-        aeocha.it("ignores _internal_peer marker") callback {
+        spec.it("ignores _internal_peer marker") callback {
             np = "egress->_internal_peer:0, egress->db:5432"
             flows = rules.netpolicy_flows(np)
-            aeocha.expect_int(list_len(flows)).to_equal_int(1)
+            spec.expect_int(list_size(flows)).to_equal(1)
             flow = list_get_raw(flows, 0)
-            aeocha.expect_str(list_get_raw(flow, 0)).to_equal_str("db")
+            spec.expect_str(list_get_raw(flow, 0)).to_equal_str("db")
         }
 
-        aeocha.it("with leading/trailing spaces") callback {
+        spec.it("with leading/trailing spaces") callback {
             np = "  egress->db:5432  ,  egress->cache:6379  "
             flows = rules.netpolicy_flows(np)
-            aeocha.expect_int(list_len(flows)).to_equal_int(2)
+            spec.expect_int(list_size(flows)).to_equal(2)
         }
 
-        aeocha.it("invalid port (0)") callback {
+        spec.it("invalid port (0)") callback {
             np = "egress->db:0"
             flows = rules.netpolicy_flows(np)
-            aeocha.expect_int(list_len(flows)).to_equal_int(0)
+            spec.expect_int(list_size(flows)).to_equal(0)
         }
 
-        aeocha.it("invalid port (>65535)") callback {
+        spec.it("invalid port (>65535)") callback {
             np = "egress->db:99999"
             flows = rules.netpolicy_flows(np)
-            aeocha.expect_int(list_len(flows)).to_equal_int(0)
+            spec.expect_int(list_size(flows)).to_equal(0)
         }
 
-        aeocha.it("malformed: no colon") callback {
+        spec.it("malformed: no colon") callback {
             np = "egress->db5432"
             flows = rules.netpolicy_flows(np)
-            aeocha.expect_int(list_len(flows)).to_equal_int(0)
+            spec.expect_int(list_size(flows)).to_equal(0)
         }
 
-        aeocha.it("malformed: no port") callback {
+        spec.it("malformed: no port") callback {
             np = "egress->db:"
             flows = rules.netpolicy_flows(np)
-            aeocha.expect_int(list_len(flows)).to_equal_int(0)
+            spec.expect_int(list_size(flows)).to_equal(0)
         }
     }
 
-    aeocha.describe(fw, "netpolicy_enforcement_tier: classify enforcement capability") {
-        aeocha.it("enforced: has egress->peer:port") callback {
+    spec.describe(fw, "netpolicy_enforcement_tier: classify enforcement capability") {
+        spec.it("enforced: has egress->peer:port") callback {
             np = "egress->db:5432"
             tier = rules.netpolicy_enforcement_tier(np)
-            aeocha.expect_str(tier).to_equal_str("enforced")
+            spec.expect_str(tier).to_equal_str("enforced")
         }
 
-        aeocha.it("enforced: multiple flows") callback {
+        spec.it("enforced: multiple flows") callback {
             np = "egress->db:5432, egress->cache:6379"
             tier = rules.netpolicy_enforcement_tier(np)
-            aeocha.expect_str(tier).to_equal_str("enforced")
+            spec.expect_str(tier).to_equal_str("enforced")
         }
 
-        aeocha.it("unenforced: egress_fqdn") callback {
+        spec.it("unenforced: egress_fqdn") callback {
             np = "egress_fqdn(rubygems.org)"
             tier = rules.netpolicy_enforcement_tier(np)
-            aeocha.expect_str(tier).to_equal_str("unenforced")
+            spec.expect_str(tier).to_equal_str("unenforced")
         }
 
-        aeocha.it("none: deny_egress only") callback {
+        spec.it("none: deny_egress only") callback {
             np = "egress:DENY-ALL"
             tier = rules.netpolicy_enforcement_tier(np)
-            aeocha.expect_str(tier).to_equal_str("none")
+            spec.expect_str(tier).to_equal_str("none")
         }
 
-        aeocha.it("none: ingress only") callback {
+        spec.it("none: ingress only") callback {
             np = "ingress:8080"
             tier = rules.netpolicy_enforcement_tier(np)
-            aeocha.expect_str(tier).to_equal_str("none")
+            spec.expect_str(tier).to_equal_str("none")
         }
 
-        aeocha.it("none: empty") callback {
+        spec.it("none: empty") callback {
             tier = rules.netpolicy_enforcement_tier("")
-            aeocha.expect_str(tier).to_equal_str("none")
+            spec.expect_str(tier).to_equal_str("none")
         }
 
-        aeocha.it("ignores _internal_peer marker") callback {
+        spec.it("ignores _internal_peer marker") callback {
             np = "egress->_internal_peer:0"
             tier = rules.netpolicy_enforcement_tier(np)
-            aeocha.expect_str(tier).to_equal_str("none")
+            spec.expect_str(tier).to_equal_str("none")
         }
     }
 
-    aeocha.describe(fw, "nft_rules_for_node: generate rule command strings") {
-        aeocha.it("single flow generates accept + drop") callback {
+    spec.describe(fw, "nft_rules_for_node: generate rule command strings") {
+        spec.it("single flow generates accept + drop") callback {
             np = "egress->db:5432"
             rules_list = rules.nft_rules_for_node("app", np)
-            aeocha.expect_int(list_len(rules_list)).to_equal_int(2)
+            spec.expect_int(list_size(rules_list)).to_equal(2)
             accept_rule = list_get_raw(rules_list, 0)
             drop_rule = list_get_raw(rules_list, 1)
-            aeocha.expect_int(string_contains(accept_rule, "tcp dport 5432")).to_equal_int(1)
-            aeocha.expect_int(string_contains(accept_rule, "accept")).to_equal_int(1)
-            aeocha.expect_int(string_contains(drop_rule, "drop")).to_equal_int(1)
+            spec.expect_int(string_contains(accept_rule, "tcp dport 5432")).to_equal(1)
+            spec.expect_int(string_contains(accept_rule, "accept")).to_equal(1)
+            spec.expect_int(string_contains(drop_rule, "drop")).to_equal(1)
         }
 
-        aeocha.it("multiple flows generate one rule per flow + final drop") callback {
+        spec.it("multiple flows generate one rule per flow + final drop") callback {
             np = "egress->db:5432, egress->cache:6379"
             rules_list = rules.nft_rules_for_node("app", np)
-            aeocha.expect_int(list_len(rules_list)).to_equal_int(3)
+            spec.expect_int(list_size(rules_list)).to_equal(3)
             r0 = list_get_raw(rules_list, 0)
             r1 = list_get_raw(rules_list, 1)
             r2 = list_get_raw(rules_list, 2)
-            aeocha.expect_int(string_contains(r0, "5432")).to_equal_int(1)
-            aeocha.expect_int(string_contains(r1, "6379")).to_equal_int(1)
-            aeocha.expect_int(string_contains(r2, "drop")).to_equal_int(1)
+            spec.expect_int(string_contains(r0, "5432")).to_equal(1)
+            spec.expect_int(string_contains(r1, "6379")).to_equal(1)
+            spec.expect_int(string_contains(r2, "drop")).to_equal(1)
         }
 
-        aeocha.it("no rules for deny_egress") callback {
+        spec.it("no rules for deny_egress") callback {
             np = "egress:DENY-ALL"
             rules_list = rules.nft_rules_for_node("app", np)
-            aeocha.expect_int(list_len(rules_list)).to_equal_int(0)
+            spec.expect_int(list_size(rules_list)).to_equal(0)
         }
 
-        aeocha.it("no rules for empty netpolicy") callback {
+        spec.it("no rules for empty netpolicy") callback {
             rules_list = rules.nft_rules_for_node("app", "")
-            aeocha.expect_int(list_len(rules_list)).to_equal_int(0)
+            spec.expect_int(list_size(rules_list)).to_equal(0)
         }
 
-        aeocha.it("all rules contain 'nft add rule'") callback {
+        spec.it("all rules contain 'nft add rule'") callback {
             np = "egress->db:5432, egress->cache:6379"
             rules_list = rules.nft_rules_for_node("app", np)
             i = 0
-            while i < list_len(rules_list) {
+            while i < list_size(rules_list) {
                 rule = list_get_raw(rules_list, i)
-                aeocha.expect_int(string_contains(rule, "nft add rule")).to_equal_int(1)
+                spec.expect_int(string_contains(rule, "nft add rule")).to_equal(1)
                 i = i + 1
             }
         }
     }
 
-    aeocha.describe(fw, "nft_chain_name: generate chain identifiers") {
-        aeocha.it("node name to chain name") callback {
+    spec.describe(fw, "nft_chain_name: generate chain identifiers") {
+        spec.it("node name to chain name") callback {
             chain = rules.nft_chain_name("app")
-            aeocha.expect_str(chain).to_equal_str("aeo-app-egress")
+            spec.expect_str(chain).to_equal_str("aeo-app-egress")
         }
 
-        aeocha.it("different node names") callback {
+        spec.it("different node names") callback {
             c1 = rules.nft_chain_name("db")
             c2 = rules.nft_chain_name("cache")
             c3 = rules.nft_chain_name("queue")
-            aeocha.expect_str(c1).to_equal_str("aeo-db-egress")
-            aeocha.expect_str(c2).to_equal_str("aeo-cache-egress")
-            aeocha.expect_str(c3).to_equal_str("aeo-queue-egress")
+            spec.expect_str(c1).to_equal_str("aeo-db-egress")
+            spec.expect_str(c2).to_equal_str("aeo-cache-egress")
+            spec.expect_str(c3).to_equal_str("aeo-queue-egress")
         }
     }
 
-    aeocha.describe(fw, "nft_chain_delete: generate chain cleanup commands") {
-        aeocha.it("node and system to delete command") callback {
+    spec.describe(fw, "nft_chain_delete: generate chain cleanup commands") {
+        spec.it("node and system to delete command") callback {
             cmd = rules.nft_chain_delete("app", "netpolicy-test")
-            aeocha.expect_int(string_contains(cmd, "nft delete chain")).to_equal_int(1)
-            aeocha.expect_int(string_contains(cmd, "aeo-app-egress")).to_equal_int(1)
+            spec.expect_int(string_contains(cmd, "nft delete chain")).to_equal(1)
+            spec.expect_int(string_contains(cmd, "aeo-app-egress")).to_equal(1)
         }
     }
 
-    aeocha.describe(fw, "edge cases and robustness") {
-        aeocha.it("port 1 (minimum valid)") callback {
+    spec.describe(fw, "edge cases and robustness") {
+        spec.it("port 1 (minimum valid)") callback {
             np = "egress->db:1"
             flows = rules.netpolicy_flows(np)
-            aeocha.expect_int(list_len(flows)).to_equal_int(1)
+            spec.expect_int(list_size(flows)).to_equal(1)
         }
 
-        aeocha.it("port 65535 (maximum valid)") callback {
+        spec.it("port 65535 (maximum valid)") callback {
             np = "egress->db:65535"
             flows = rules.netpolicy_flows(np)
-            aeocha.expect_int(list_len(flows)).to_equal_int(1)
+            spec.expect_int(list_size(flows)).to_equal(1)
         }
 
-        aeocha.it("common ports") callback {
+        spec.it("common ports") callback {
             np = "egress->web:80, egress->secure:443, egress->ssh:22, egress->db:3306"
             flows = rules.netpolicy_flows(np)
-            aeocha.expect_int(list_len(flows)).to_equal_int(4)
+            spec.expect_int(list_size(flows)).to_equal(4)
         }
 
-        aeocha.it("target names with underscores") callback {
+        spec.it("target names with underscores") callback {
             np = "egress->my_db:5432, egress->my_cache:6379"
             flows = rules.netpolicy_flows(np)
-            aeocha.expect_int(list_len(flows)).to_equal_int(2)
+            spec.expect_int(list_size(flows)).to_equal(2)
             f0 = list_get_raw(flows, 0)
-            aeocha.expect_str(list_get_raw(f0, 0)).to_equal_str("my_db")
+            spec.expect_str(list_get_raw(f0, 0)).to_equal_str("my_db")
         }
 
-        aeocha.it("target names with hyphens") callback {
+        spec.it("target names with hyphens") callback {
             np = "egress->my-db:5432"
             flows = rules.netpolicy_flows(np)
-            aeocha.expect_int(list_len(flows)).to_equal_int(1)
+            spec.expect_int(list_size(flows)).to_equal(1)
             f0 = list_get_raw(flows, 0)
-            aeocha.expect_str(list_get_raw(f0, 0)).to_equal_str("my-db")
+            spec.expect_str(list_get_raw(f0, 0)).to_equal_str("my-db")
         }
 
-        aeocha.it("mixed valid and invalid entries") callback {
+        spec.it("mixed valid and invalid entries") callback {
             np = "egress->db:5432, invalid, egress->cache:6379, bad:bad:bad, egress->queue:5671"
             flows = rules.netpolicy_flows(np)
-            aeocha.expect_int(list_len(flows)).to_equal_int(3)
+            spec.expect_int(list_size(flows)).to_equal(3)
         }
     }
 
-    aeocha.run_summary(fw)
+    spec.run_summary(fw)
 }

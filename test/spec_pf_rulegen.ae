@@ -7,7 +7,7 @@
 // The headline case Paul asked for: redis (db_vm:6379) answers python_vm ONLY;
 // a 3rd/4th VM is blocked. The generated rules show exactly that.
 
-import aeocha
+import std.spec
 import compose (constrain, grant_fd, ingress_from, egress, egress_fqdn, ingress, deny_egress, pf_rules_for, get_netpolicy, has_egress_fqdn, egress_fqdn_csv)
 import std.string
 
@@ -25,57 +25,57 @@ declare() {
 }
 
 main() {
-    fw = aeocha.init()
+    fw = spec.init()
     declare()
 
-    aeocha.describe(fw, "pf rule generation enforces the network policy") {
+    spec.describe(fw, "pf rule generation enforces the network policy") {
 
-        aeocha.describe("db_vm: redis answers ONE peer; a 3rd VM is blocked") {
-            aeocha.it("emits a peer-restricted pass for 6379 from python_vm") callback {
-                aeocha.expect_int(_has(pf_rules_for("db_vm"),
+        spec.describe("db_vm: redis answers ONE peer; a 3rd VM is blocked") {
+            spec.it("emits a peer-restricted pass for 6379 from python_vm") callback {
+                spec.expect_int(_has(pf_rules_for("db_vm"),
                     "pass in proto tcp from $python_vm to $db_vm port 6379")).to_be_truthy()
             }
-            aeocha.it("blocks all OTHER inbound to db_vm (the 3rd/4th VM)") callback {
-                aeocha.expect_int(_has(pf_rules_for("db_vm"),
+            spec.it("blocks all OTHER inbound to db_vm (the 3rd/4th VM)") callback {
+                spec.expect_int(_has(pf_rules_for("db_vm"),
                     "block in proto tcp to $db_vm")).to_be_truthy()
             }
-            aeocha.it("blocks ALL egress from db_vm (compromised redis can't exfiltrate)") callback {
-                aeocha.expect_int(_has(pf_rules_for("db_vm"),
+            spec.it("blocks ALL egress from db_vm (compromised redis can't exfiltrate)") callback {
+                spec.expect_int(_has(pf_rules_for("db_vm"),
                     "block out proto tcp from $db_vm")).to_be_truthy()
             }
-            aeocha.it("db_vm has NO 'pass out' (deny_egress means no egress pass)") callback {
-                aeocha.expect_int(_absent(pf_rules_for("db_vm"), "pass out")).to_be_truthy()
+            spec.it("db_vm has NO 'pass out' (deny_egress means no egress pass)") callback {
+                spec.expect_int(_absent(pf_rules_for("db_vm"), "pass out")).to_be_truthy()
             }
         }
 
-        aeocha.describe("python_vm: may reach redis + accept 8080, nothing else") {
-            aeocha.it("passes OUT to db_vm:6379") callback {
-                aeocha.expect_int(_has(pf_rules_for("python_vm"),
+        spec.describe("python_vm: may reach redis + accept 8080, nothing else") {
+            spec.it("passes OUT to db_vm:6379") callback {
+                spec.expect_int(_has(pf_rules_for("python_vm"),
                     "pass out proto tcp from $python_vm to $db_vm port 6379")).to_be_truthy()
             }
-            aeocha.it("records FQDN egress intent in the model") callback {
-                aeocha.expect_int(has_egress_fqdn("python_vm")).to_be_truthy()
-                aeocha.expect_str(egress_fqdn_csv("python_vm")).to_equal_str("api.github.com, api.anthropic.com")
+            spec.it("records FQDN egress intent in the model") callback {
+                spec.expect_int(has_egress_fqdn("python_vm")).to_be_truthy()
+                spec.expect_str(egress_fqdn_csv("python_vm")).to_equal_str("api.github.com, api.anthropic.com")
             }
-            aeocha.it("does NOT turn FQDN egress into fake pf pass rules") callback {
-                aeocha.expect_int(_has(get_netpolicy("python_vm"), "egress_fqdn:api.github.com")).to_be_truthy()
-                aeocha.expect_int(_absent(pf_rules_for("python_vm"), "api.github.com")).to_be_truthy()
-                aeocha.expect_int(_absent(pf_rules_for("python_vm"), "api.anthropic.com")).to_be_truthy()
+            spec.it("does NOT turn FQDN egress into fake pf pass rules") callback {
+                spec.expect_int(_has(get_netpolicy("python_vm"), "egress_fqdn:api.github.com")).to_be_truthy()
+                spec.expect_int(_absent(pf_rules_for("python_vm"), "api.github.com")).to_be_truthy()
+                spec.expect_int(_absent(pf_rules_for("python_vm"), "api.anthropic.com")).to_be_truthy()
             }
-            aeocha.it("passes IN on 8080") callback {
-                aeocha.expect_int(_has(pf_rules_for("python_vm"),
+            spec.it("passes IN on 8080") callback {
+                spec.expect_int(_has(pf_rules_for("python_vm"),
                     "pass in proto tcp to $python_vm port 8080")).to_be_truthy()
             }
-            aeocha.it("blocks the rest (deny-default catch-all)") callback {
-                aeocha.expect_int(_has(pf_rules_for("python_vm"),
+            spec.it("blocks the rest (deny-default catch-all)") callback {
+                spec.expect_int(_has(pf_rules_for("python_vm"),
                     "block in proto tcp to $python_vm")).to_be_truthy()
-                aeocha.expect_int(_has(pf_rules_for("python_vm"),
+                spec.expect_int(_has(pf_rules_for("python_vm"),
                     "block out proto tcp from $python_vm")).to_be_truthy()
             }
         }
     }
 
-    aeocha.run_summary(fw)
+    spec.run_summary(fw)
 }
 
 _has(hay: string, needle: string) -> int {

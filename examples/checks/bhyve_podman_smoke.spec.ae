@@ -9,10 +9,10 @@
 // host (default localhost); on a real bhyve deploy set it to python_vm's resolved
 // address (the app's expose(8080) lands there, cross-VM from db_vm's redis).
 
-import aeocha
+import std.spec
+import std.http.client.httptest   // the HTTP-shaped matchers (bare: selective form leaves the module's retry-state vars unresolved)
 import std.os
 import std.string (string_length)
-import std.string   // bare: inlined aeocha calls bare exports unqualified
 
 _base() -> string {
     h = os.getenv("AEO_APP_HOST")
@@ -23,13 +23,13 @@ _base() -> string {
 }
 
 main() {
-    fw = aeocha.init()
-    aeocha.describe(fw, "silly_addition_bhyve_podman — post-deploy smoke") {
-        aeocha.it("the /add service answers correctly") callback {
+    fw = spec.init()
+    spec.describe(fw, "silly_addition_bhyve_podman — post-deploy smoke") {
+        spec.it("the /add service answers correctly") callback {
             base = _base()
-            aeocha.expect_http_get_body_eq("${base}/add/2/2", "4", "2 + 2 = 4")
-            aeocha.expect_http_get_body_eq("${base}/add/40/2", "42", "40 + 2 = 42")
+            httptest.expect_http_get_body_eq("${base}/add/2/2", "4", "2 + 2 = 4")
+            httptest.expect_http_get_body_eq("${base}/add/40/2", "42", "40 + 2 = 42")
         }
     }
-    aeocha.run_summary(fw)
+    spec.run_summary(fw)
 }

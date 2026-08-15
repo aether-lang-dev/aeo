@@ -4,7 +4,7 @@
 // lb_env() renders the full AEO_LB_* env; lb_net() names the backends' net.
 // No container launch here — that's the live proof (spec_driver_loadbalancer_live).
 
-import aeocha
+import std.spec
 import compose (
     system, container, load_balancer, listens, publish, balance_to, lb_health, balancer_weight,
     breaker, cache, l4,
@@ -27,15 +27,15 @@ _declare() {
 }
 
 main() {
-    fw = aeocha.init()
+    fw = spec.init()
     _declare()
 
-    aeocha.describe(fw, "driver_loadbalancer pure renderers") {
-        aeocha.it("renders backends as http://name:port|weight, weighted") callback {
-            aeocha.expect_str(backend_specs("web")).to_equal_str(
+    spec.describe(fw, "driver_loadbalancer pure renderers") {
+        spec.it("renders backends as http://name:port|weight, weighted") callback {
+            spec.expect_str(backend_specs("web")).to_equal_str(
                 "http://app-1:8080|3;http://app-2:8080|1")
         }
-        aeocha.it("defaults weight to 1 when unset") callback {
+        spec.it("defaults weight to 1 when unset") callback {
             reset_nodes()
             system("s2") {
                 lb = load_balancer("lb", "container") {
@@ -44,9 +44,9 @@ main() {
                     a = container("a") { listens(8080) }          // no weight
                 }
             }
-            aeocha.expect_str(backend_specs("lb")).to_equal_str("http://a:8080|1")
+            spec.expect_str(backend_specs("lb")).to_equal_str("http://a:8080|1")
         }
-        aeocha.it("skips a child with no listens() (not routable)") callback {
+        spec.it("skips a child with no listens() (not routable)") callback {
             reset_nodes()
             system("s3") {
                 lb = load_balancer("lb", "container") {
@@ -56,9 +56,9 @@ main() {
                     bad  = container("bad")  { }                  // no listens
                 }
             }
-            aeocha.expect_str(backend_specs("lb")).to_equal_str("http://good:8080|1")
+            spec.expect_str(backend_specs("lb")).to_equal_str("http://good:8080|1")
         }
-        aeocha.it("lb_env renders the full AEO_LB_* pool (health included)") callback {
+        spec.it("lb_env renders the full AEO_LB_* pool (health included)") callback {
             reset_nodes()
             system("s4") {
                 lb = load_balancer("web", "container") {
@@ -71,28 +71,28 @@ main() {
                 }
             }
             e = lb_env("web")
-            aeocha.expect_int(_has(e, "AEO_LB_PORT=9000")).to_be_truthy()
-            aeocha.expect_int(_has(e, "AEO_LB_ALGO=weighted_rr")).to_be_truthy()
-            aeocha.expect_int(_has(e, "AEO_LB_BACKENDS=http://app-1:8080|3;http://app-2:8080|1")).to_be_truthy()
-            aeocha.expect_int(_has(e, "AEO_LB_HEALTH_PATH=/healthz")).to_be_truthy()
-            aeocha.expect_int(_has(e, "AEO_LB_HEALTH_STATUS=200")).to_be_truthy()
+            spec.expect_int(_has(e, "AEO_LB_PORT=9000")).to_be_truthy()
+            spec.expect_int(_has(e, "AEO_LB_ALGO=weighted_rr")).to_be_truthy()
+            spec.expect_int(_has(e, "AEO_LB_BACKENDS=http://app-1:8080|3;http://app-2:8080|1")).to_be_truthy()
+            spec.expect_int(_has(e, "AEO_LB_HEALTH_PATH=/healthz")).to_be_truthy()
+            spec.expect_int(_has(e, "AEO_LB_HEALTH_STATUS=200")).to_be_truthy()
         }
-        aeocha.it("lb_net is the backends' shared aeo-<system> net") callback {
+        spec.it("lb_net is the backends' shared aeo-<system> net") callback {
             reset_nodes()
             system("mysys") {
                 lb = load_balancer("web", "container") { publish(80); balance_to(8080) }
             }
-            aeocha.expect_str(lb_net("web")).to_equal_str("aeo-mysys")
+            spec.expect_str(lb_net("web")).to_equal_str("aeo-mysys")
         }
-        aeocha.it("lb_image defaults to the aeo-lb tag (L7)") callback {
+        spec.it("lb_image defaults to the aeo-lb tag (L7)") callback {
             reset_nodes()
             system("si") { lb = load_balancer("web", "container") { publish(80); balance_to(8080) } }
-            aeocha.expect_int(_has(lb_image("web"), "aeo-lb")).to_be_truthy()
+            spec.expect_int(_has(lb_image("web"), "aeo-lb")).to_be_truthy()
         }
         // §6 "one clock, two enforcers": the system health_retry timing lowers
         // onto the pool checker. every=500ms, down_within=10s => interval 500,
         // timeout 500, unhealthy 10000/500=20, healthy=2 (readmit, fixed).
-        aeocha.it("lowers system health_retry timing onto the pool checker (§6)") callback {
+        spec.it("lowers system health_retry timing onto the pool checker (§6)") callback {
             reset_nodes()
             system("s5") {
                 health_retry() {
@@ -106,14 +106,14 @@ main() {
                     a1 = container("app-1") { listens(8080) }
                 }
             }
-            aeocha.expect_str(lb_health_timing("web")).to_equal_str("500;500;20;2")
+            spec.expect_str(lb_health_timing("web")).to_equal_str("500;500;20;2")
             e = lb_env("web")
-            aeocha.expect_int(_has(e, "AEO_LB_HEALTH_INTERVAL=500")).to_be_truthy()
-            aeocha.expect_int(_has(e, "AEO_LB_HEALTH_UNHEALTHY=20")).to_be_truthy()
+            spec.expect_int(_has(e, "AEO_LB_HEALTH_INTERVAL=500")).to_be_truthy()
+            spec.expect_int(_has(e, "AEO_LB_HEALTH_UNHEALTHY=20")).to_be_truthy()
         }
         // breaker/cache render into AEO_LB_BREAKER/AEO_LB_CACHE, comma->semicolon
         // (driver_linux's -e splitter is comma-delimited, so values are ';'-joined).
-        aeocha.it("renders breaker + cache with ';' (comma-safe for -e)") callback {
+        spec.it("renders breaker + cache with ';' (comma-safe for -e)") callback {
             reset_nodes()
             system("s7") {
                 lb = load_balancer("web", "container") {
@@ -126,12 +126,12 @@ main() {
                 }
             }
             e = lb_env("web")
-            aeocha.expect_int(_has(e, "AEO_LB_BREAKER=5;30000;1")).to_be_truthy()
-            aeocha.expect_int(_has(e, "AEO_LB_CACHE=1000;65536;60;method_url_vary")).to_be_truthy()
+            spec.expect_int(_has(e, "AEO_LB_BREAKER=5;30000;1")).to_be_truthy()
+            spec.expect_int(_has(e, "AEO_LB_CACHE=1000;65536;60;method_url_vary")).to_be_truthy()
         }
         // L4 (raw TCP): l4() -> the aeo-l4lb image + AEO_L4_* env + host:port
         // backends (no http:// scheme). §8 L4 balancer.
-        aeocha.it("l4() selects the aeo-l4lb image + AEO_L4_* env + host:port backends") callback {
+        spec.it("l4() selects the aeo-l4lb image + AEO_L4_* env + host:port backends") callback {
             reset_nodes()
             system("s8") {
                 lb = load_balancer("tcp", "container") {
@@ -141,15 +141,15 @@ main() {
                     a2 = container("redis-2") { listens(6379); balancer_weight(1) }
                 }
             }
-            aeocha.expect_str(backend_specs_l4("tcp")).to_equal_str("redis-1:6379|3;redis-2:6379|1")
-            aeocha.expect_int(_has(lb_image("tcp"), "aeo-l4lb")).to_be_truthy()
+            spec.expect_str(backend_specs_l4("tcp")).to_equal_str("redis-1:6379|3;redis-2:6379|1")
+            spec.expect_int(_has(lb_image("tcp"), "aeo-l4lb")).to_be_truthy()
             e = lb_env("tcp")
-            aeocha.expect_int(_has(e, "AEO_L4_PORT=6379")).to_be_truthy()
-            aeocha.expect_int(_has(e, "AEO_L4_BACKENDS=redis-1:6379|3;redis-2:6379|1")).to_be_truthy()
+            spec.expect_int(_has(e, "AEO_L4_PORT=6379")).to_be_truthy()
+            spec.expect_int(_has(e, "AEO_L4_BACKENDS=redis-1:6379|3;redis-2:6379|1")).to_be_truthy()
         }
         // Defaults when no health_retry window is declared: interval falls to
         // get_interval's 1000 default; down_within unset => unhealthy 3.
-        aeocha.it("falls back to sane defaults with no health_retry window") callback {
+        spec.it("falls back to sane defaults with no health_retry window") callback {
             reset_nodes()
             system("s6") {
                 lb = load_balancer("web", "container") {
@@ -158,11 +158,11 @@ main() {
                     a1 = container("app-1") { listens(8080) }
                 }
             }
-            aeocha.expect_str(lb_health_timing("web")).to_equal_str("1000;1000;3;2")
+            spec.expect_str(lb_health_timing("web")).to_equal_str("1000;1000;3;2")
         }
     }
 
-    aeocha.run_summary(fw)
+    spec.run_summary(fw)
 }
 
 _has(hay: string, needle: string) -> int {

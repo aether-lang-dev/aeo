@@ -14,64 +14,63 @@
 //   - verify is FAIL-CLOSED: an empty configured secret denies everything
 //   - mac is stable for the same secret (deterministic keyed MAC)
 
-import aeocha
+import std.spec
 import agent_auth (mint_secret, verify, mac)
 import std.string (string_length)
-import std.string   // bare form: inlined aeocha calls bare `copy` unqualified
 
 main() {
-    fw = aeocha.init()
+    fw = spec.init()
 
-    aeocha.describe(fw, "lib/agent_auth — bank-courier mint + verify") {
+    spec.describe(fw, "lib/agent_auth — bank-courier mint + verify") {
 
-        aeocha.describe("mint") {
-            aeocha.it("mints a non-empty secret") callback {
+        spec.describe("mint") {
+            spec.it("mints a non-empty secret") callback {
                 s = mint_secret()
-                aeocha.expect_int(string_length(s)).to_be_gt(0)
+                spec.expect_int(string_length(s)).to_be_gt(0)
             }
-            aeocha.it("two mints differ (it's actually random)") callback {
+            spec.it("two mints differ (it's actually random)") callback {
                 a = mint_secret()
                 b = mint_secret()
                 // no fluent str-inequality matcher (StrSubject.not_ isn't wired) —
                 // assert the equality PREDICATE is false: distinct secrets.
-                aeocha.expect_int(_eq(a, b)).to_be_falsy()
+                spec.expect_int(_eq(a, b)).to_be_falsy()
             }
         }
 
-        aeocha.describe("verify (constant-time)") {
-            aeocha.it("accepts the matching secret") callback {
+        spec.describe("verify (constant-time)") {
+            spec.it("accepts the matching secret") callback {
                 s = mint_secret()
-                aeocha.expect_int(verify(s, s)).to_be_truthy()      // match -> allow
+                spec.expect_int(verify(s, s)).to_be_truthy()      // match -> allow
             }
-            aeocha.it("rejects a wrong secret") callback {
+            spec.it("rejects a wrong secret") callback {
                 s = mint_secret()
                 w = mint_secret()
-                aeocha.expect_int(verify(s, w)).to_be_falsy()       // mismatch -> deny
+                spec.expect_int(verify(s, w)).to_be_falsy()       // mismatch -> deny
             }
-            aeocha.it("is fail-closed: empty configured secret denies all") callback {
-                aeocha.expect_int(verify("", "anything")).to_be_falsy()  // no key -> deny
-                aeocha.expect_int(verify("", "")).to_be_falsy()          // empty vs empty -> deny
+            spec.it("is fail-closed: empty configured secret denies all") callback {
+                spec.expect_int(verify("", "anything")).to_be_falsy()  // no key -> deny
+                spec.expect_int(verify("", "")).to_be_falsy()          // empty vs empty -> deny
             }
-            aeocha.it("is fail-closed: a real secret with an empty presented token denies") callback {
+            spec.it("is fail-closed: a real secret with an empty presented token denies") callback {
                 // REGRESSION (fail-open bug caught live on the aarch64 cross-built
                 // agent): a configured secret must still REJECT an empty presented
                 // token. Before the guard, an empty token that produced an empty MAC
                 // could match the compare. A blank credential is never valid.
                 s = mint_secret()
-                aeocha.expect_int(verify(s, "")).to_be_falsy()
+                spec.expect_int(verify(s, "")).to_be_falsy()
             }
         }
 
-        aeocha.describe("mac") {
-            aeocha.it("is stable for the same secret") callback {
+        spec.describe("mac") {
+            spec.it("is stable for the same secret") callback {
                 m1 = mac("courier-key-xyz")
                 m2 = mac("courier-key-xyz")
-                aeocha.expect_str(m1).to_equal_str(m2)              // same secret -> same MAC
+                spec.expect_str(m1).to_equal_str(m2)              // same secret -> same MAC
             }
         }
     }
 
-    aeocha.run_summary(fw)
+    spec.run_summary(fw)
 }
 
 // 1 if the two strings are equal (aeocha has no fluent str-inequality yet).

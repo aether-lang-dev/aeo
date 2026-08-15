@@ -8,16 +8,16 @@
 //
 //   sh test/run-spec.sh test/spec_policy.ae
 
-import aeocha
+import std.spec
 import compose (system, container, image, policy, reprobe_every, on_drift, restart_after_failures, reattest_every, get_policy_reprobe_ms, get_policy_on_drift, get_policy_max_failures, get_policy_reattest_ms, describe_tree, reset_nodes)
 import std.string
 
 main() {
-    fw = aeocha.init()
-    aeocha.describe(fw, "policy{} — per-node reconcile policy as data (§item5)") {
+    fw = spec.init()
+    spec.describe(fw, "policy{} — per-node reconcile policy as data (§item5)") {
 
-        aeocha.describe("the DSL records the policy") {
-            aeocha.it("reprobe_every / on_drift / thresholds store on the node") callback {
+        spec.describe("the DSL records the policy") {
+            spec.it("reprobe_every / on_drift / thresholds store on the node") callback {
                 reset_nodes()
                 system("p1") {
                     a = container("app") { image("alpine") }
@@ -28,56 +28,56 @@ main() {
                         reattest_every(24h)
                     }
                 }
-                aeocha.expect_int(get_policy_reprobe_ms("app")).to_equal(15000)
-                aeocha.expect_str(get_policy_on_drift("app")).to_equal_str("converge")
-                aeocha.expect_int(get_policy_max_failures("app")).to_equal(3)
-                aeocha.expect_int(get_policy_reattest_ms("app")).to_equal(86400000)
+                spec.expect_int(get_policy_reprobe_ms("app")).to_equal(15000)
+                spec.expect_str(get_policy_on_drift("app")).to_equal_str("converge")
+                spec.expect_int(get_policy_max_failures("app")).to_equal(3)
+                spec.expect_int(get_policy_reattest_ms("app")).to_equal(86400000)
             }
         }
 
-        aeocha.describe("the safe defaults (additive — no policy{} = today's behavior)") {
-            aeocha.it("on_drift defaults to ALERT (never silently mutate)") callback {
+        spec.describe("the safe defaults (additive — no policy{} = today's behavior)") {
+            spec.it("on_drift defaults to ALERT (never silently mutate)") callback {
                 reset_nodes()
                 system("p2") { container("plain") { image("alpine") } }
-                aeocha.expect_str(get_policy_on_drift("plain")).to_equal_str("alert")
+                spec.expect_str(get_policy_on_drift("plain")).to_equal_str("alert")
             }
-            aeocha.it("unset cadence/thresholds read as 0 (loop uses its default)") callback {
+            spec.it("unset cadence/thresholds read as 0 (loop uses its default)") callback {
                 reset_nodes()
                 system("p3") { container("plain") { image("alpine") } }
-                aeocha.expect_int(get_policy_reprobe_ms("plain")).to_equal(0)
-                aeocha.expect_int(get_policy_max_failures("plain")).to_equal(0)
-                aeocha.expect_int(get_policy_reattest_ms("plain")).to_equal(0)
+                spec.expect_int(get_policy_reprobe_ms("plain")).to_equal(0)
+                spec.expect_int(get_policy_max_failures("plain")).to_equal(0)
+                spec.expect_int(get_policy_reattest_ms("plain")).to_equal(0)
             }
         }
 
-        aeocha.describe("describe_tree surfaces a non-default policy") {
+        spec.describe("describe_tree surfaces a non-default policy") {
             // NB distinct node names per case: reset_nodes() zeroes the roster but
             // per-node config keys (aeo.cmp.pol.*.<name>) persist, so reusing a name
             // across cases would inherit a prior case's policy. Unique names isolate.
-            aeocha.it("shows policy{on_drift=converge}") callback {
+            spec.it("shows policy{on_drift=converge}") callback {
                 reset_nodes()
                 system("p4") {
                     a = container("app4") { image("alpine") }
                     policy(a) { on_drift("converge") }
                 }
-                aeocha.expect_str(describe_tree()).to_contain("policy{on_drift=converge}")
+                spec.expect_str(describe_tree()).to_contain("policy{on_drift=converge}")
             }
-            aeocha.it("shows a reprobe cadence when on_drift is default") callback {
+            spec.it("shows a reprobe cadence when on_drift is default") callback {
                 reset_nodes()
                 system("p5") {
                     a = container("app5") { image("alpine") }
                     policy(a) { reprobe_every(5s) }
                 }
-                aeocha.expect_str(describe_tree()).to_contain("policy{reprobe=5000ms}")
+                spec.expect_str(describe_tree()).to_contain("policy{reprobe=5000ms}")
             }
-            aeocha.it("a plain node adds no policy noise to the tree") callback {
+            spec.it("a plain node adds no policy noise to the tree") callback {
                 reset_nodes()
                 system("p6") { container("plain") { image("alpine") } }
                 tr = describe_tree()
-                aeocha.expect_str(tr).to_contain("container plain")
+                spec.expect_str(tr).to_contain("container plain")
                 // no policy{...} clause for a default node
             }
         }
     }
-    aeocha.run_summary(fw)
+    spec.run_summary(fw)
 }

@@ -1,14 +1,14 @@
 // spec_dockerfile.ae — inline-Dockerfile heredoc built + run for real, as an
 // Aeocha BDD spec. The describe/it form of demo_dockerfile.ae.
 //
-//   ae run test/spec_dockerfile.ae --lib lib --lib ../aeocha
+//   ae run test/spec_dockerfile.ae --lib lib
 //
 // Proves dockerfile(<<DOCKER…DOCKER) works end to end: aeo BUILDS the image
 // from the inline Dockerfile and runs it, then reads back something the
 // Dockerfile baked in — so the image is a real, buildable thing, not a
 // fictional registry reference. Needs podman/docker; no root.
 
-import aeocha
+import std.spec
 import driver_linux
 import std.string
 
@@ -23,51 +23,51 @@ DOCKER
 }
 
 main() {
-    fw = aeocha.init()
+    fw = spec.init()
 
-    aeocha.describe(fw, "inline Dockerfile (built + run via aeo's driver)") {
+    spec.describe(fw, "inline Dockerfile (built + run via aeo's driver)") {
 
-        aeocha.before_each() callback {
+        spec.before_each() callback {
             driver_linux.down("myapp", "")
         }
-        aeocha.after_each() callback {
+        spec.after_each() callback {
             driver_linux.down("myapp", "")
         }
 
-        aeocha.it("builds the image from the inline Dockerfile, runs it, reads the baked-in marker") callback {
+        spec.it("builds the image from the inline Dockerfile, runs it, reads the baked-in marker") callback {
             if _no_engine() == 1 {
-                aeocha.expect_int(1).to_be_truthy()
+                spec.expect_int(1).to_be_truthy()
             } else {
                 // build
                 berr = driver_linux.build("myapp", DF(), "")
-                aeocha.expect_str(berr).to_equal_str("")
+                spec.expect_str(berr).to_equal_str("")
                 tag = driver_linux.built_tag("myapp")
                 // run + alive
                 uerr = driver_linux.up("myapp", tag, "sleep 600", 0, "")
-                aeocha.expect_str(uerr).to_equal_str("")
-                aeocha.expect_int(driver_linux.probe("myapp", "", "")).to_equal(1)
+                spec.expect_str(uerr).to_equal_str("")
+                spec.expect_int(driver_linux.probe("myapp", "", "")).to_equal(1)
                 // the baked-in marker proves the image is OURS (built from the
                 // heredoc), not a pulled stock image.
                 marker = driver_linux.exec_capture("myapp", "cat /etc/aeo-marker", "")
-                aeocha.expect_str(marker).to_equal_str("aeo-built-this")
+                spec.expect_str(marker).to_equal_str("aeo-built-this")
                 // and it still computes
-                aeocha.expect_str(driver_linux.exec_capture("myapp", "echo $((2+2))", "")).to_equal_str("4")
+                spec.expect_str(driver_linux.exec_capture("myapp", "echo $((2+2))", "")).to_equal_str("4")
             }
         }
 
-        aeocha.it("is gone after driver down") callback {
+        spec.it("is gone after driver down") callback {
             if _no_engine() == 1 {
-                aeocha.expect_int(1).to_be_truthy()
+                spec.expect_int(1).to_be_truthy()
             } else {
                 driver_linux.build("myapp", DF(), "")
                 driver_linux.up("myapp", driver_linux.built_tag("myapp"), "sleep 600", 0, "")
                 driver_linux.down("myapp", "")
-                aeocha.expect_int(driver_linux.probe("myapp", "", "")).to_equal(0)
+                spec.expect_int(driver_linux.probe("myapp", "", "")).to_equal(0)
             }
         }
     }
 
-    aeocha.run_summary(fw)
+    spec.run_summary(fw)
 }
 
 _no_engine() -> int {

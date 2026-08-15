@@ -5,86 +5,86 @@
 //
 //   sh test/run-spec.sh test/spec_supervisor.ae
 
-import aeocha
+import std.spec
 import supervisor (adopt, forget_system, held_count, holds_system, system_at, nodes_of, node_count, node_name_at, node_kind_at, clear_all, _split_first)
 import std.string
 
 main() {
-    fw = aeocha.init()
-    aeocha.describe(fw, "lib/supervisor — the in-memory tree registry") {
+    fw = spec.init()
+    spec.describe(fw, "lib/supervisor — the in-memory tree registry") {
 
-        aeocha.describe("adopt — record nodes under a system") {
-            aeocha.it("holds a system + its nodes after adopt") callback {
+        spec.describe("adopt — record nodes under a system") {
+            spec.it("holds a system + its nodes after adopt") callback {
                 clear_all()
                 adopt("web", "db", "container")
                 adopt("web", "app", "container")
-                aeocha.expect_int(held_count()).to_equal(1)
-                aeocha.expect_int(holds_system("web")).to_equal(1)
-                aeocha.expect_int(node_count("web")).to_equal(2)
-                aeocha.expect_str(node_name_at("web", 0)).to_equal_str("db")
-                aeocha.expect_str(node_kind_at("web", 0)).to_equal_str("container")
-                aeocha.expect_str(node_name_at("web", 1)).to_equal_str("app")
+                spec.expect_int(held_count()).to_equal(1)
+                spec.expect_int(holds_system("web")).to_equal(1)
+                spec.expect_int(node_count("web")).to_equal(2)
+                spec.expect_str(node_name_at("web", 0)).to_equal_str("db")
+                spec.expect_str(node_kind_at("web", 0)).to_equal_str("container")
+                spec.expect_str(node_name_at("web", 1)).to_equal_str("app")
             }
-            aeocha.it("re-adopting the same node is idempotent (no dup)") callback {
+            spec.it("re-adopting the same node is idempotent (no dup)") callback {
                 clear_all()
                 adopt("s", "n", "jail")
                 adopt("s", "n", "jail")
-                aeocha.expect_int(node_count("s")).to_equal(1)
+                spec.expect_int(node_count("s")).to_equal(1)
             }
-            aeocha.it("holds multiple systems distinctly") callback {
+            spec.it("holds multiple systems distinctly") callback {
                 clear_all()
                 adopt("a", "n1", "container")
                 adopt("b", "n2", "jail")
-                aeocha.expect_int(held_count()).to_equal(2)
-                aeocha.expect_int(node_count("a")).to_equal(1)
-                aeocha.expect_int(node_count("b")).to_equal(1)
-                aeocha.expect_str(node_kind_at("b", 0)).to_equal_str("jail")
+                spec.expect_int(held_count()).to_equal(2)
+                spec.expect_int(node_count("a")).to_equal(1)
+                spec.expect_int(node_count("b")).to_equal(1)
+                spec.expect_str(node_kind_at("b", 0)).to_equal_str("jail")
             }
         }
 
-        aeocha.describe("forget_system — the daemon forgets after teardown") {
-            aeocha.it("drops one system, leaves the others") callback {
+        spec.describe("forget_system — the daemon forgets after teardown") {
+            spec.it("drops one system, leaves the others") callback {
                 clear_all()
                 adopt("a", "n1", "container")
                 adopt("b", "n2", "jail")
                 forget_system("a")
-                aeocha.expect_int(held_count()).to_equal(1)
-                aeocha.expect_int(holds_system("a")).to_equal(0)
-                aeocha.expect_int(holds_system("b")).to_equal(1)
+                spec.expect_int(held_count()).to_equal(1)
+                spec.expect_int(holds_system("a")).to_equal(0)
+                spec.expect_int(holds_system("b")).to_equal(1)
             }
-            aeocha.it("forgetting the only system empties the registry") callback {
+            spec.it("forgetting the only system empties the registry") callback {
                 clear_all()
                 adopt("only", "n", "container")
                 forget_system("only")
-                aeocha.expect_int(held_count()).to_equal(0)
+                spec.expect_int(held_count()).to_equal(0)
             }
         }
 
-        aeocha.describe("clear_all — boot-scoped: the daemon starts EMPTY") {
-            aeocha.it("wipes every system + node") callback {
+        spec.describe("clear_all — boot-scoped: the daemon starts EMPTY") {
+            spec.it("wipes every system + node") callback {
                 clear_all()
                 adopt("x", "n", "container")
                 adopt("y", "m", "jail")
                 clear_all()
-                aeocha.expect_int(held_count()).to_equal(0)
-                aeocha.expect_int(holds_system("x")).to_equal(0)
+                spec.expect_int(held_count()).to_equal(0)
+                spec.expect_int(holds_system("x")).to_equal(0)
             }
         }
 
-        aeocha.describe("_split_first — the name\\tkind parser") {
-            aeocha.it("splits on the first separator") callback {
+        spec.describe("_split_first — the name\\tkind parser") {
+            spec.it("splits on the first separator") callback {
                 // tuple-destructure lives in helpers — multi-assign mis-parses inside
                 // an aeocha callback block.
-                aeocha.expect_str(_first("db\tcontainer")).to_equal_str("db")
-                aeocha.expect_str(_second("db\tcontainer")).to_equal_str("container")
+                spec.expect_str(_first("db\tcontainer")).to_equal_str("db")
+                spec.expect_str(_second("db\tcontainer")).to_equal_str("container")
             }
-            aeocha.it("no separator -> (whole, empty)") callback {
-                aeocha.expect_str(_first("lonely")).to_equal_str("lonely")
-                aeocha.expect_str(_second("lonely")).to_equal_str("")
+            spec.it("no separator -> (whole, empty)") callback {
+                spec.expect_str(_first("lonely")).to_equal_str("lonely")
+                spec.expect_str(_second("lonely")).to_equal_str("")
             }
         }
     }
-    aeocha.run_summary(fw)
+    spec.run_summary(fw)
 }
 
 _first(s: string) -> string {

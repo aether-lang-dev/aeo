@@ -3,16 +3,16 @@
 // expresses a health-retry as WALL-CLOCK time (not a hand-computed attempt count);
 // the budget is DERIVED (window / interval). A Duration is int64 ns -> /1e6 = ms.
 
-import aeocha
+import std.spec
 import compose (system, container, image, within, every, without, health_interval, health_budget,
                 get_interval, get_budget, get_within_ms, get_without_ms)
 
 main() {
-    fw = aeocha.init()
+    fw = spec.init()
 
-    aeocha.describe(fw, "duration literals in the aeo DSL (within/every)") {
+    spec.describe(fw, "duration literals in the aeo DSL (within/every)") {
 
-        aeocha.it("within(30s) every(500ms) -> interval 500ms, derived budget 60") callback {
+        spec.it("within(30s) every(500ms) -> interval 500ms, derived budget 60") callback {
             system("d1") {
                 db = container("db") {
                     image("redis")
@@ -20,23 +20,23 @@ main() {
                     every(500ms)
                 }
             }
-            aeocha.expect_int(get_interval("db")).to_equal(500)
-            aeocha.expect_int(get_within_ms("db")).to_equal(30000)
+            spec.expect_int(get_interval("db")).to_equal(500)
+            spec.expect_int(get_within_ms("db")).to_equal(30000)
             // budget = window/interval = 30000/500 = 60 (the FluentSelenium within semantics)
-            aeocha.expect_int(get_budget("db")).to_equal(60)
+            spec.expect_int(get_budget("db")).to_equal(60)
         }
 
-        aeocha.it("within(5s) with default 1s interval -> budget 5") callback {
+        spec.it("within(5s) with default 1s interval -> budget 5") callback {
             system("d2") {
                 svc = container("svc") {
                     image("redis")
                     within(5s)
                 }
             }
-            aeocha.expect_int(get_budget("svc")).to_equal(5)
+            spec.expect_int(get_budget("svc")).to_equal(5)
         }
 
-        aeocha.it("an explicit health_budget still WINS over within (back-compat)") callback {
+        spec.it("an explicit health_budget still WINS over within (back-compat)") callback {
             system("d3") {
                 old = container("old") {
                     image("redis")
@@ -45,65 +45,65 @@ main() {
                     within(99s)
                 }
             }
-            aeocha.expect_int(get_interval("old")).to_equal(250)
-            aeocha.expect_int(get_budget("old")).to_equal(12)
+            spec.expect_int(get_interval("old")).to_equal(250)
+            spec.expect_int(get_budget("old")).to_equal(12)
         }
 
-        aeocha.it("no tuning -> the defaults (1s interval, 60 attempts)") callback {
+        spec.it("no tuning -> the defaults (1s interval, 60 attempts)") callback {
             system("d4") {
                 bare = container("bare") { image("redis") }
             }
-            aeocha.expect_int(get_interval("bare")).to_equal(1000)
-            aeocha.expect_int(get_budget("bare")).to_equal(60)
+            spec.expect_int(get_interval("bare")).to_equal(1000)
+            spec.expect_int(get_budget("bare")).to_equal(60)
         }
 
         // The FluentSelenium FLOAT: within(d) at SYSTEM scope applies to every node
         // below that doesn't set its own — frozen at each node's declaration so a
         // later sibling's within() can't leak backward.
-        aeocha.it("system-scope within(20s) every(250ms) FLOATS onto nodes below") callback {
+        spec.it("system-scope within(20s) every(250ms) FLOATS onto nodes below") callback {
             system("d5") {
                 within(20s)
                 every(250ms)
                 inherits = container("inherits") { image("redis") }     // no own -> floats
                 overrides = container("overrides") { image("redis") within(5s) }
             }
-            aeocha.expect_int(get_within_ms("inherits")).to_equal(20000)
-            aeocha.expect_int(get_interval("inherits")).to_equal(250)
+            spec.expect_int(get_within_ms("inherits")).to_equal(20000)
+            spec.expect_int(get_interval("inherits")).to_equal(250)
             // a later sibling's own within() must NOT leak back onto an earlier one:
-            aeocha.expect_int(get_within_ms("overrides")).to_equal(5000)
-            aeocha.expect_int(get_within_ms("inherits")).to_equal(20000)
+            spec.expect_int(get_within_ms("overrides")).to_equal(5000)
+            spec.expect_int(get_within_ms("inherits")).to_equal(20000)
         }
 
-        aeocha.it("the float is scoped per-system (doesn't leak across systems)") callback {
+        spec.it("the float is scoped per-system (doesn't leak across systems)") callback {
             system("d6a") { within(9s) a = container("a") { image("redis") } }
             system("d6b") { b = container("b") { image("redis") } }   // fresh system, no float
-            aeocha.expect_int(get_within_ms("a")).to_equal(9000)
-            aeocha.expect_int(get_within_ms("b")).to_be_falsy()
+            spec.expect_int(get_within_ms("a")).to_equal(9000)
+            spec.expect_int(get_within_ms("b")).to_be_falsy()
         }
 
         // without() — the FluentSelenium retry-until-GONE twin (teardown wait).
         // Same float + snapshot + per-system mechanism as within().
-        aeocha.it("without(d) floats + overrides like within (the teardown twin)") callback {
+        spec.it("without(d) floats + overrides like within (the teardown twin)") callback {
             system("d7") {
                 without(10s)                                            // floats
                 lingerable = container("lingerable") { image("redis") }
                 fast = container("fast") { image("redis") without(2s) } // own
             }
-            aeocha.expect_int(get_without_ms("lingerable")).to_equal(10000)
-            aeocha.expect_int(get_without_ms("fast")).to_equal(2000)
+            spec.expect_int(get_without_ms("lingerable")).to_equal(10000)
+            spec.expect_int(get_without_ms("fast")).to_equal(2000)
             // within and without are INDEPENDENT windows on the same node.
             system("d8") {
                 both = container("both") { image("redis") within(30s) without(8s) }
             }
-            aeocha.expect_int(get_within_ms("both")).to_equal(30000)
-            aeocha.expect_int(get_without_ms("both")).to_equal(8000)
+            spec.expect_int(get_within_ms("both")).to_equal(30000)
+            spec.expect_int(get_without_ms("both")).to_equal(8000)
         }
 
-        aeocha.it("no without() -> 0 (back-compat: the old state-flip teardown)") callback {
+        spec.it("no without() -> 0 (back-compat: the old state-flip teardown)") callback {
             system("d9") { plain = container("plain") { image("redis") } }
-            aeocha.expect_int(get_without_ms("plain")).to_be_falsy()
+            spec.expect_int(get_without_ms("plain")).to_be_falsy()
         }
     }
 
-    aeocha.run_summary(fw)
+    spec.run_summary(fw)
 }

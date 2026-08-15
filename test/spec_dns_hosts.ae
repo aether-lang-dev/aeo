@@ -5,7 +5,7 @@
 // just writes a file it reads. (Proven live on the box: dnsmasq resolves db_vm
 // -> 172.16.0.50 from this file; external names still forward.)
 
-import aeocha
+import std.spec
 import compose (system, bhyve_vm, ip, cpus, memory, dns_hosts)
 import std.string
 
@@ -17,14 +17,14 @@ declare() {
 }
 
 main() {
-    fw = aeocha.init()
+    fw = spec.init()
     declare()
-    aeocha.describe(fw, "aeo-owned naming -> dnsmasq hosts file") {
-        aeocha.describe("dns_hosts() emits the name->IP mappings") {
-            aeocha.it("maps each resource name to its IP (dnsmasq hosts format)") callback {
-                aeocha.expect_str(dns_hosts()).to_equal_str("172.16.0.50  db_vm\n172.16.0.51  python_vm")
+    spec.describe(fw, "aeo-owned naming -> dnsmasq hosts file") {
+        spec.describe("dns_hosts() emits the name->IP mappings") {
+            spec.it("maps each resource name to its IP (dnsmasq hosts format)") callback {
+                spec.expect_str(dns_hosts()).to_equal_str("172.16.0.50  db_vm\n172.16.0.51  python_vm")
             }
         }
     }
-    aeocha.run_summary(fw)
+    spec.run_summary(fw)
 }

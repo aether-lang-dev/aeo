@@ -3,53 +3,53 @@
 // only by an explicit reset. Composition stays IP-free; ipam binds name->addr
 // in ./.aeo/<system>.ips (survives `make clean`; dies on rm -rf .aeo).
 
-import aeocha
+import std.spec
 import ipam (resolve_ip, reset_bindings, bindings_dump)
 import std.string
 
 main() {
-    fw = aeocha.init()
+    fw = spec.init()
 
-    aeocha.describe(fw, "ipam: sticky per-project IP allocation (iterative-dev DX)") {
+    spec.describe(fw, "ipam: sticky per-project IP allocation (iterative-dev DX)") {
 
-        aeocha.describe("first allocation") {
-            aeocha.it("allocates lowest-free in the range, distinct per resource") callback {
+        spec.describe("first allocation") {
+            spec.it("allocates lowest-free in the range, distinct per resource") callback {
                 reset_bindings("specsys")
                 a = resolve_ip("specsys", "db_vm")
                 b = resolve_ip("specsys", "python_vm")
-                aeocha.expect_str(a).to_equal_str("172.16.0.10")
-                aeocha.expect_str(b).to_equal_str("172.16.0.11")
-                aeocha.expect_int(_ne(a, b)).to_be_truthy()
+                spec.expect_str(a).to_equal_str("172.16.0.10")
+                spec.expect_str(b).to_equal_str("172.16.0.11")
+                spec.expect_int(_ne(a, b)).to_be_truthy()
             }
         }
 
-        aeocha.describe("STICKY: re-runs reuse the same address (try-again DX)") {
-            aeocha.it("resolving the same resource again returns the SAME address") callback {
+        spec.describe("STICKY: re-runs reuse the same address (try-again DX)") {
+            spec.it("resolving the same resource again returns the SAME address") callback {
                 // the heart of it: db_vm comes back at the same IP run after run
                 first  = resolve_ip("specsys", "db_vm")
                 again  = resolve_ip("specsys", "db_vm")
                 again2 = resolve_ip("specsys", "db_vm")
-                aeocha.expect_str(again).to_equal_str(first)
-                aeocha.expect_str(again2).to_equal_str(first)
+                spec.expect_str(again).to_equal_str(first)
+                spec.expect_str(again2).to_equal_str(first)
             }
-            aeocha.it("the binding is persisted to the file (survives a fresh process)") callback {
+            spec.it("the binding is persisted to the file (survives a fresh process)") callback {
                 dump = bindings_dump("specsys")
-                aeocha.expect_int(_has(dump, "db_vm  172.16.0.10")).to_be_truthy()
-                aeocha.expect_int(_has(dump, "python_vm  172.16.0.11")).to_be_truthy()
+                spec.expect_int(_has(dump, "db_vm  172.16.0.10")).to_be_truthy()
+                spec.expect_int(_has(dump, "python_vm  172.16.0.11")).to_be_truthy()
             }
         }
 
-        aeocha.describe("RESET: the explicit 'fresh IPs' gesture") {
-            aeocha.it("reset clears the bindings; next resolve re-allocates") callback {
+        spec.describe("RESET: the explicit 'fresh IPs' gesture") {
+            spec.it("reset clears the bindings; next resolve re-allocates") callback {
                 reset_bindings("specsys")
-                aeocha.expect_str(bindings_dump("specsys")).to_equal_str("")
+                spec.expect_str(bindings_dump("specsys")).to_equal_str("")
                 fresh = resolve_ip("specsys", "db_vm")
-                aeocha.expect_str(fresh).to_equal_str("172.16.0.10")
+                spec.expect_str(fresh).to_equal_str("172.16.0.10")
             }
         }
     }
 
-    aeocha.run_summary(fw)
+    spec.run_summary(fw)
     reset_bindings("specsys")    // leave no .aeo artifact behind
 }
 

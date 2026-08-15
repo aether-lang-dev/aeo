@@ -11,7 +11,7 @@
 // so the sibling smoke/suite specs are placeholders. The grammar + these checks
 // ARE built and green (mirrors test/spec_load_balancer.ae).
 
-import aeocha
+import std.spec
 import compose (system, container, load_balancer)
 import compose (image, env, depends, health)
 import compose (publish, listens, balance_to, lb_health, balancer_weight)
@@ -61,30 +61,30 @@ _declare() {
 
 main() {
     _declare()
-    fw = aeocha.init()
+    fw = spec.init()
 
-    aeocha.describe(fw, "silly_addition_load_balanced — load-balancer model") {
-        aeocha.it("web is a container-substrate load_balancer") callback {
-            aeocha.expect_int(is_load_balancer("web")).to_be_truthy()
-            aeocha.expect_str(get_lb_substrate("web")).to_equal_str("container")
+    spec.describe(fw, "silly_addition_load_balanced — load-balancer model") {
+        spec.it("web is a container-substrate load_balancer") callback {
+            spec.expect_int(is_load_balancer("web")).to_be_truthy()
+            spec.expect_str(get_lb_substrate("web")).to_equal_str("container")
         }
-        aeocha.it("the pool is derived from the two child replicas") callback {
-            aeocha.expect_str(lb_backends("web")).to_equal_str("app-1, app-2")
+        spec.it("the pool is derived from the two child replicas") callback {
+            spec.expect_str(lb_backends("web")).to_equal_str("app-1, app-2")
         }
-        aeocha.it("publishes 9000 outward; forwards to the backends' 8080") callback {
-            aeocha.expect_str(get_publish("web")).to_equal_str("9000")
-            aeocha.expect_str(get_balance_to("web")).to_equal_str("8080")
-            aeocha.expect_str(get_listens("app-1")).to_equal_str("8080")
-            aeocha.expect_str(get_listens("app-2")).to_equal_str("8080")
+        spec.it("publishes 9000 outward; forwards to the backends' 8080") callback {
+            spec.expect_str(get_publish("web")).to_equal_str("9000")
+            spec.expect_str(get_balance_to("web")).to_equal_str("8080")
+            spec.expect_str(get_listens("app-1")).to_equal_str("8080")
+            spec.expect_str(get_listens("app-2")).to_equal_str("8080")
         }
-        aeocha.it("infers weighted_rr from the 3:1 balancer_weight, none ignored") callback {
-            aeocha.expect_str(lb_algorithm("web")).to_equal_str("weighted_rr")
-            aeocha.expect_int(lb_weight_ignored("web")).to_equal(0)
+        spec.it("infers weighted_rr from the 3:1 balancer_weight, none ignored") callback {
+            spec.expect_str(lb_algorithm("web")).to_equal_str("weighted_rr")
+            spec.expect_int(lb_weight_ignored("web")).to_equal(0)
         }
-        aeocha.it("the composition is model-clean (no LB model errors)") callback {
-            aeocha.expect_str(lb_model_errors()).to_equal_str("")
+        spec.it("the composition is model-clean (no LB model errors)") callback {
+            spec.expect_str(lb_model_errors()).to_equal_str("")
         }
     }
 
-    aeocha.run_summary(fw)
+    spec.run_summary(fw)
 }

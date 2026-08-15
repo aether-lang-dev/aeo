@@ -8,32 +8,32 @@
 //
 //   sh test/run-spec.sh test/spec_ipfw_preflight.ae
 
-import aeocha
+import std.spec
 import pf (_ipfw_warning)
 import std.string (string_contains)
 
 
 main() {
-    fw = aeocha.init()
-    aeocha.describe(fw, "lib/pf — ipfw-conflict preflight decision") {
+    fw = spec.init()
+    spec.describe(fw, "lib/pf — ipfw-conflict preflight decision") {
 
-        aeocha.describe("_ipfw_warning — warn iff ipfw is enabled") {
-            aeocha.it("enabled (sysctl=1) -> a warning naming ipfw + the fix") callback {
+        spec.describe("_ipfw_warning — warn iff ipfw is enabled") {
+            spec.it("enabled (sysctl=1) -> a warning naming ipfw + the fix") callback {
                 w = _ipfw_warning("1\n")
-                aeocha.expect_int(string_contains(w, "ipfw is ENABLED")).to_equal(1)
-                aeocha.expect_int(string_contains(w, "AEO_IPFW_OFF")).to_equal(1)
+                spec.expect_int(string_contains(w, "ipfw is ENABLED")).to_equal(1)
+                spec.expect_int(string_contains(w, "AEO_IPFW_OFF")).to_equal(1)
             }
-            aeocha.it("disabled (sysctl=0) -> no warning") callback {
-                aeocha.expect_str(_ipfw_warning("0\n")).to_equal_str("")
+            spec.it("disabled (sysctl=0) -> no warning") callback {
+                spec.expect_str(_ipfw_warning("0\n")).to_equal_str("")
             }
-            aeocha.it("absent / no ipfw (empty sysctl) -> no warning") callback {
-                aeocha.expect_str(_ipfw_warning("")).to_equal_str("")
+            spec.it("absent / no ipfw (empty sysctl) -> no warning") callback {
+                spec.expect_str(_ipfw_warning("")).to_equal_str("")
             }
-            aeocha.it("tolerates whitespace/newline around the reading") callback {
-                aeocha.expect_int(string_contains(_ipfw_warning("  1 \n"), "ENABLED")).to_equal(1)
-                aeocha.expect_str(_ipfw_warning("  0 \n")).to_equal_str("")
+            spec.it("tolerates whitespace/newline around the reading") callback {
+                spec.expect_int(string_contains(_ipfw_warning("  1 \n"), "ENABLED")).to_equal(1)
+                spec.expect_str(_ipfw_warning("  0 \n")).to_equal_str("")
             }
         }
     }
-    aeocha.run_summary(fw)
+    spec.run_summary(fw)
 }

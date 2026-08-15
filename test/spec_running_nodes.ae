@@ -3,7 +3,7 @@
 // The describe/it form of demo_running_nodes.ae.
 //
 //   sh test/run-spec.sh test/spec_running_nodes.ae    (or via --lib, see below)
-//   ae run test/spec_running_nodes.ae --lib lib --lib ../aeocha
+//   ae run test/spec_running_nodes.ae --lib lib
 //
 // Needs a container engine (podman/docker) on PATH; no root.
 //
@@ -18,7 +18,7 @@
 // ip() yet). The bhyve/nested tiers aren't exercised here — this is the
 // container tier, fully runnable today.
 
-import aeocha
+import std.spec
 import driver_linux
 import std.string
 import std.os (run_capture)
@@ -28,62 +28,62 @@ IMG() -> string { return "docker.io/library/busybox:latest" }
 NET() -> string { return "aeo-rn-net" }
 
 main() {
-    fw = aeocha.init()
+    fw = spec.init()
 
-    aeocha.describe(fw, "running nodes (real containers via aeo's driver)") {
+    spec.describe(fw, "running nodes (real containers via aeo's driver)") {
 
         // Bring up the shared net + the calc node before each scenario,
         // tear it all down after — so each it-block is independent.
-        aeocha.before_each() callback {
+        spec.before_each() callback {
             _cleanup()
             if string.length(driver_linux.engine_resolve("")) > 0 {
                 _net_create()
                 _run_on_net("aeo-calc", "sleep 600")
             }
         }
-        aeocha.after_each() callback {
+        spec.after_each() callback {
             _cleanup()
         }
 
-        aeocha.it("boots a node that is alive (up + probe)") callback {
+        spec.it("boots a node that is alive (up + probe)") callback {
             if _no_engine() == 1 {
-                aeocha.expect_int(1).to_be_truthy()
+                spec.expect_int(1).to_be_truthy()
             } else {
-                aeocha.expect_int(driver_linux.probe("aeo-calc", "", "")).to_equal(1)
+                spec.expect_int(driver_linux.probe("aeo-calc", "", "")).to_equal(1)
             }
         }
 
-        aeocha.it("a node COMPUTES: 2+2=4 and 40+2=42 (exec_capture)") callback {
+        spec.it("a node COMPUTES: 2+2=4 and 40+2=42 (exec_capture)") callback {
             if _no_engine() == 1 {
-                aeocha.expect_int(1).to_be_truthy()
+                spec.expect_int(1).to_be_truthy()
             } else {
-                aeocha.expect_str(driver_linux.exec_capture("aeo-calc", "echo $((2 + 2))", "")).to_equal_str("4")
-                aeocha.expect_str(driver_linux.exec_capture("aeo-calc", "echo $((40 + 2))", "")).to_equal_str("42")
+                spec.expect_str(driver_linux.exec_capture("aeo-calc", "echo $((2 + 2))", "")).to_equal_str("4")
+                spec.expect_str(driver_linux.exec_capture("aeo-calc", "echo $((40 + 2))", "")).to_equal_str("42")
             }
         }
 
-        aeocha.it("two nodes COMMUNICATE across the shared network") callback {
+        spec.it("two nodes COMMUNICATE across the shared network") callback {
             if _no_engine() == 1 {
-                aeocha.expect_int(1).to_be_truthy()
+                spec.expect_int(1).to_be_truthy()
             } else {
                 _run_on_net("aeo-server", "while true; do echo 42 | nc -l -p 8080; done")
                 sleep(2000)   // let the listener bind
                 got = driver_linux.exec_capture("aeo-calc", "nc aeo-server 8080", "")
-                aeocha.expect_str(got).to_equal_str("42")
+                spec.expect_str(got).to_equal_str("42")
             }
         }
 
-        aeocha.it("a node is GONE after driver down") callback {
+        spec.it("a node is GONE after driver down") callback {
             if _no_engine() == 1 {
-                aeocha.expect_int(1).to_be_truthy()
+                spec.expect_int(1).to_be_truthy()
             } else {
                 driver_linux.down("aeo-calc", "")
-                aeocha.expect_int(driver_linux.probe("aeo-calc", "", "")).to_equal(0)
+                spec.expect_int(driver_linux.probe("aeo-calc", "", "")).to_equal(0)
             }
         }
     }
 
-    aeocha.run_summary(fw)
+    spec.run_summary(fw)
 }
 
 // ---- helpers ----

@@ -1,6 +1,6 @@
 // spec_egress_gateway.ae — std.http-facing CONNECT gateway shell.
 
-import aeocha
+import std.spec
 import egress_gateway (
     set_allowlist, allowlist, probe_direct_connect_status,
     decision_status_for_http, decision_reason_for_http,
@@ -24,7 +24,7 @@ const PORT = 19876
 }
 
 main() {
-    fw = aeocha.init()
+    fw = spec.init()
     set_allowlist("api.github.com")
     raw = http_server_create(PORT)
     if raw != 0 {
@@ -34,61 +34,61 @@ main() {
         sleep(200)
     }
 
-    aeocha.describe(fw, "egress_gateway std.http CONNECT edge") {
-        aeocha.describe("HTTP request mapping") {
-            aeocha.it("maps std.http CONNECT method/path into relay request shape") callback {
+    spec.describe(fw, "egress_gateway std.http CONNECT edge") {
+        spec.describe("HTTP request mapping") {
+            spec.it("maps std.http CONNECT method/path into relay request shape") callback {
                 got = connect_request_from_http("CONNECT", "API.GitHub.com:443")
-                aeocha.expect_str(got).to_equal_str("CONNECT API.GitHub.com:443 HTTP/1.1\r\n\r\n")
+                spec.expect_str(got).to_equal_str("CONNECT API.GitHub.com:443 HTTP/1.1\r\n\r\n")
             }
-            aeocha.it("normalizes absolute-form CONNECT authorities defensively") callback {
+            spec.it("normalizes absolute-form CONNECT authorities defensively") callback {
                 got = connect_request_from_http("CONNECT", "https://api.github.com:443/ignored")
-                aeocha.expect_str(got).to_equal_str("CONNECT api.github.com:443 HTTP/1.1\r\n\r\n")
+                spec.expect_str(got).to_equal_str("CONNECT api.github.com:443 HTTP/1.1\r\n\r\n")
             }
         }
 
-        aeocha.describe("CONNECT decisions") {
-            aeocha.it("allows an allowlisted CONNECT") callback {
+        spec.describe("CONNECT decisions") {
+            spec.it("allows an allowlisted CONNECT") callback {
                 st = decision_status_for_http("CONNECT", "api.github.com:443", "api.github.com")
-                aeocha.expect_int(st).to_equal(200)
-                aeocha.expect_str(decision_reason_for_http("CONNECT", "api.github.com:443", "api.github.com")).to_equal_str("allow")
-                aeocha.expect_int(_has(response_body_for_status(st), "allowed")).to_be_truthy()
+                spec.expect_int(st).to_equal(200)
+                spec.expect_str(decision_reason_for_http("CONNECT", "api.github.com:443", "api.github.com")).to_equal_str("allow")
+                spec.expect_int(_has(response_body_for_status(st), "allowed")).to_be_truthy()
             }
-            aeocha.it("denies a non-allowlisted CONNECT") callback {
+            spec.it("denies a non-allowlisted CONNECT") callback {
                 st = decision_status_for_http("CONNECT", "example.com:443", "api.github.com")
-                aeocha.expect_int(st).to_equal(403)
-                aeocha.expect_str(decision_reason_for_http("CONNECT", "example.com:443", "api.github.com")).to_equal_str("deny:not-allowlisted")
-                aeocha.expect_int(_has(response_body_for_status(st), "denied")).to_be_truthy()
+                spec.expect_int(st).to_equal(403)
+                spec.expect_str(decision_reason_for_http("CONNECT", "example.com:443", "api.github.com")).to_equal_str("deny:not-allowlisted")
+                spec.expect_int(_has(response_body_for_status(st), "denied")).to_be_truthy()
             }
-            aeocha.it("rejects malformed and non-CONNECT requests") callback {
-                aeocha.expect_int(decision_status_for_http("CONNECT", "api.github.com", "api.github.com")).to_equal(400)
-                aeocha.expect_int(decision_status_for_http("GET", "/anything", "api.github.com")).to_equal(400)
+            spec.it("rejects malformed and non-CONNECT requests") callback {
+                spec.expect_int(decision_status_for_http("CONNECT", "api.github.com", "api.github.com")).to_equal(400)
+                spec.expect_int(decision_status_for_http("GET", "/anything", "api.github.com")).to_equal(400)
             }
         }
 
-        aeocha.describe("std.http loopback gateway") {
-            aeocha.it("returns 200 for an allowlisted CONNECT through std.http") callback {
+        spec.describe("std.http loopback gateway") {
+            spec.it("returns 200 for an allowlisted CONNECT through std.http") callback {
                 st = probe_direct_connect_status("http://127.0.0.1:${PORT}", "api.github.com:443")
-                aeocha.expect_int(st).to_equal(200)
+                spec.expect_int(st).to_equal(200)
             }
-            aeocha.it("returns 403 for a denied CONNECT through std.http") callback {
+            spec.it("returns 403 for a denied CONNECT through std.http") callback {
                 st = probe_direct_connect_status("http://127.0.0.1:${PORT}", "example.com:443")
-                aeocha.expect_int(st).to_equal(403)
+                spec.expect_int(st).to_equal(403)
             }
-            aeocha.it("returns 400 for a malformed CONNECT through std.http") callback {
+            spec.it("returns 400 for a malformed CONNECT through std.http") callback {
                 st = probe_direct_connect_status("http://127.0.0.1:${PORT}", "api.github.com")
-                aeocha.expect_int(st).to_equal(400)
+                spec.expect_int(st).to_equal(400)
             }
         }
 
-        aeocha.describe("tunnel handoff readiness") {
-            aeocha.it("claims opaque tunnel support now that std.http exposes takeover") callback {
-                aeocha.expect_int(tunnel_supported()).to_equal(1)
-                aeocha.expect_str(tunnel_blocker()).to_equal_str("")
+        spec.describe("tunnel handoff readiness") {
+            spec.it("claims opaque tunnel support now that std.http exposes takeover") callback {
+                spec.expect_int(tunnel_supported()).to_equal(1)
+                spec.expect_str(tunnel_blocker()).to_equal_str("")
             }
         }
     }
 
-    aeocha.run_summary(fw)
+    spec.run_summary(fw)
 }
 
 _has(hay: string, needle: string) -> int {

@@ -10,17 +10,16 @@
 // Closes the model->live gap: spec_pf_rulegen proved the RIGHT rules are
 // generated; this proves they're RESOLVED to real addresses ready for pfctl.
 
-import aeocha
+import std.spec
 import compose (constrain, grant_fd, ingress_from, egress, ingress, deny_egress, pf_rules_for)
 import pf (resolve, anchor_name, anchor_path)
 import ipam (resolve_ip, reset_bindings)
 import std.string (string_contains)
-import std.string   // bare: inlined aeocha calls bare exports unqualified
 
 SYS() -> string { return "pfsys" }
 
 main() {
-    fw = aeocha.init()
+    fw = spec.init()
 
     // Deterministic sticky bindings: resolve in declaration order so db_vm gets
     // the lowest IP, python_vm the next — the SAME order the runner resolves.
@@ -32,43 +31,43 @@ main() {
     constrain("db_vm")     { ingress_from(6379, "python_vm") deny_egress() }
     constrain("python_vm") { egress("db_vm", 6379) ingress(8080) }
 
-    aeocha.describe(fw, "pf enforcement seam: tokens resolve to booted IPs") {
+    spec.describe(fw, "pf enforcement seam: tokens resolve to booted IPs") {
 
-        aeocha.describe("db_vm rules") {
-            aeocha.it("substitutes $db_vm and $python_vm with their ipam IPs") callback {
+        spec.describe("db_vm rules") {
+            spec.it("substitutes $db_vm and $python_vm with their ipam IPs") callback {
                 r = resolve(SYS(), pf_rules_for("db_vm"))
                 // peer-restricted ingress: from python_vm's IP to db_vm's IP:6379
-                aeocha.expect_int(_has(r, "pass in proto tcp from ${py_ip} to ${db_ip} port 6379")).to_be_truthy()
+                spec.expect_int(_has(r, "pass in proto tcp from ${py_ip} to ${db_ip} port 6379")).to_be_truthy()
                 // deny-default catch-all on db_vm's resolved address
-                aeocha.expect_int(_has(r, "block in proto tcp to ${db_ip}")).to_be_truthy()
-                aeocha.expect_int(_has(r, "block out proto tcp from ${db_ip}")).to_be_truthy()
+                spec.expect_int(_has(r, "block in proto tcp to ${db_ip}")).to_be_truthy()
+                spec.expect_int(_has(r, "block out proto tcp from ${db_ip}")).to_be_truthy()
             }
-            aeocha.it("leaves no $ tokens behind") callback {
+            spec.it("leaves no $ tokens behind") callback {
                 r = resolve(SYS(), pf_rules_for("db_vm"))
-                aeocha.expect_int(_absent(r, "$")).to_be_truthy()
+                spec.expect_int(_absent(r, "$")).to_be_truthy()
             }
         }
 
-        aeocha.describe("python_vm rules") {
-            aeocha.it("egress + ingress resolve to real addresses") callback {
+        spec.describe("python_vm rules") {
+            spec.it("egress + ingress resolve to real addresses") callback {
                 r = resolve(SYS(), pf_rules_for("python_vm"))
-                aeocha.expect_int(_has(r, "pass out proto tcp from ${py_ip} to ${db_ip} port 6379")).to_be_truthy()
-                aeocha.expect_int(_has(r, "pass in proto tcp to ${py_ip} port 8080")).to_be_truthy()
-                aeocha.expect_int(_absent(r, "$")).to_be_truthy()
+                spec.expect_int(_has(r, "pass out proto tcp from ${py_ip} to ${db_ip} port 6379")).to_be_truthy()
+                spec.expect_int(_has(r, "pass in proto tcp to ${py_ip} port 8080")).to_be_truthy()
+                spec.expect_int(_absent(r, "$")).to_be_truthy()
             }
         }
 
-        aeocha.describe("per-VM anchor isolation") {
-            aeocha.it("each VM loads into its OWN anchor (aeo/<vm>, distinct path)") callback {
-                aeocha.expect_str(anchor_name("db_vm")).to_equal_str("aeo/db_vm")
-                aeocha.expect_str(anchor_name("python_vm")).to_equal_str("aeo/python_vm")
-                aeocha.expect_str(anchor_path("db_vm")).to_equal_str("/etc/pf.anchors/aeo-db_vm")
+        spec.describe("per-VM anchor isolation") {
+            spec.it("each VM loads into its OWN anchor (aeo/<vm>, distinct path)") callback {
+                spec.expect_str(anchor_name("db_vm")).to_equal_str("aeo/db_vm")
+                spec.expect_str(anchor_name("python_vm")).to_equal_str("aeo/python_vm")
+                spec.expect_str(anchor_path("db_vm")).to_equal_str("/etc/pf.anchors/aeo-db_vm")
             }
         }
     }
 
     reset_bindings(SYS())   // leave no .aeo artifact behind
-    aeocha.run_summary(fw)
+    spec.run_summary(fw)
 }
 
 _has(hay: string, needle: string) -> int {

@@ -9,13 +9,12 @@
 // This is the aeb pattern: the composition is a pure declaration; its assertions
 // live alongside in a real spec you can also run standalone.
 
-import aeocha
+import std.spec
 import compose (system, lxc)
 import compose (image, health, depends)
 import compose (get_image, get_depends, describe_tree)
 import std.os
 import std.string (string_length, string_concat)
-import std.string   // bare: inlined aeocha calls bare exports unqualified
 
 // the LXC image as the download-template "dist:release". AEO_LXC_IMAGE overrides.
 _image() -> string {
@@ -44,23 +43,23 @@ _declare() {
 
 main() {
     _declare()
-    fw = aeocha.init()
+    fw = spec.init()
 
-    aeocha.describe(fw, "silly_addition_lxc — data model") {
-        aeocha.it("resolves to two LXC system containers with a dependency edge") callback {
+    spec.describe(fw, "silly_addition_lxc — data model") {
+        spec.it("resolves to two LXC system containers with a dependency edge") callback {
             img = _image()
             want = string_concat(string_concat(
                 "system silly_addition_lxc:\n",
                 "  lxc db [image=${img}]\n"),
                 "  lxc app [image=${img}] -> db")
-            aeocha.expect_str(describe_tree()).to_equal_str(want)
+            spec.expect_str(describe_tree()).to_equal_str(want)
         }
-        aeocha.it("both are LXC of the same image; app depends on db") callback {
-            aeocha.expect_str(get_image("db")).to_equal_str(_image())
-            aeocha.expect_str(get_image("app")).to_equal_str(_image())
-            aeocha.expect_str(get_depends("app")).to_equal_str("db")
+        spec.it("both are LXC of the same image; app depends on db") callback {
+            spec.expect_str(get_image("db")).to_equal_str(_image())
+            spec.expect_str(get_image("app")).to_equal_str(_image())
+            spec.expect_str(get_depends("app")).to_equal_str("db")
         }
     }
 
-    aeocha.run_summary(fw)
+    spec.run_summary(fw)
 }

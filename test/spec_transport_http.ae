@@ -15,75 +15,74 @@
 //   - auth is FAIL-CLOSED: token_ok denies when no token is configured, denies a
 //     wrong token, allows the configured token
 
-import aeocha
+import std.spec
 import transport_http (default_port, set_serve_token, token_ok, queue_push, recv_one, queue_pending)
 import protocol (encode_boot, encode_halt, verb_of, token_of, arg1_of)
-import std.string   // bare form too: inlined aeocha calls the bare export `copy`
                     // unqualified, which needs std.string's bare surface in this
                     // unit. (NOT aether#870 — that qualified-surface bug is fixed
                     // in ae 0.309; this is aeocha's own bare-name use.)
 
 main() {
-    fw = aeocha.init()
+    fw = spec.init()
 
-    aeocha.describe(fw, "aeo-agent conduit (transport_http) — offline core") {
+    spec.describe(fw, "aeo-agent conduit (transport_http) — offline core") {
 
-        aeocha.describe("the inbound queue") {
-            aeocha.it("drains commands in arrival order, one per recv_one") callback {
+        spec.describe("the inbound queue") {
+            spec.it("drains commands in arrival order, one per recv_one") callback {
                 queue_push("boot tok n1")
                 queue_push("halt tok n2")
                 queue_push("probe tok n3")
                 a = recv_one("")
                 b = recv_one("")
                 c = recv_one("")
-                aeocha.expect_str(a).to_equal_str("boot tok n1")
-                aeocha.expect_str(b).to_equal_str("halt tok n2")
-                aeocha.expect_str(c).to_equal_str("probe tok n3")
+                spec.expect_str(a).to_equal_str("boot tok n1")
+                spec.expect_str(b).to_equal_str("halt tok n2")
+                spec.expect_str(c).to_equal_str("probe tok n3")
             }
 
-            aeocha.it("recv_one returns \"\" once drained") callback {
+            spec.it("recv_one returns \"\" once drained") callback {
                 d = recv_one("")
-                aeocha.expect_str(d).to_equal_str("")
-                aeocha.expect_int(queue_pending()).to_be_falsy()
+                spec.expect_str(d).to_equal_str("")
+                spec.expect_int(queue_pending()).to_be_falsy()
             }
         }
 
-        aeocha.describe("protocol round-trips through the queue INTACT") {
+        spec.describe("protocol round-trips through the queue INTACT") {
             // Regression guard: config.get hands back the STORED buffer (not a
             // copy); an over-eager slot-clear used to free it under the returned
             // string -> garbage. A real encoded line must survive + re-parse.
-            aeocha.it("an encoded boot line survives the queue and re-parses") callback {
+            spec.it("an encoded boot line survives the queue and re-parses") callback {
                 line = encode_boot("s3cret", "db_vm")
                 queue_push(line)
                 got = recv_one("")
-                aeocha.expect_str(got).to_equal_str("boot s3cret db_vm")
-                aeocha.expect_str(verb_of(got)).to_equal_str("boot")
-                aeocha.expect_str(token_of(got)).to_equal_str("s3cret")
-                aeocha.expect_str(arg1_of(got)).to_equal_str("db_vm")
+                spec.expect_str(got).to_equal_str("boot s3cret db_vm")
+                spec.expect_str(verb_of(got)).to_equal_str("boot")
+                spec.expect_str(token_of(got)).to_equal_str("s3cret")
+                spec.expect_str(arg1_of(got)).to_equal_str("db_vm")
             }
         }
 
-        aeocha.describe("auth is fail-closed (single-parent token)") {
-            aeocha.it("denies when NO token is configured") callback {
+        spec.describe("auth is fail-closed (single-parent token)") {
+            spec.it("denies when NO token is configured") callback {
                 set_serve_token("")
-                aeocha.expect_int(token_ok("boot anything n1")).to_be_falsy()
+                spec.expect_int(token_ok("boot anything n1")).to_be_falsy()
             }
-            aeocha.it("denies a WRONG token") callback {
+            spec.it("denies a WRONG token") callback {
                 set_serve_token("right")
-                aeocha.expect_int(token_ok(encode_halt("wrong", "n1"))).to_be_falsy()
+                spec.expect_int(token_ok(encode_halt("wrong", "n1"))).to_be_falsy()
             }
-            aeocha.it("allows the CONFIGURED token") callback {
+            spec.it("allows the CONFIGURED token") callback {
                 set_serve_token("right")
-                aeocha.expect_int(token_ok(encode_boot("right", "n1"))).to_be_truthy()
+                spec.expect_int(token_ok(encode_boot("right", "n1"))).to_be_truthy()
             }
         }
 
-        aeocha.describe("conduit constants") {
-            aeocha.it("listens on a port beside aeb-agent's 9440") callback {
-                aeocha.expect_int(default_port()).to_equal(9450)
+        spec.describe("conduit constants") {
+            spec.it("listens on a port beside aeb-agent's 9440") callback {
+                spec.expect_int(default_port()).to_equal(9450)
             }
         }
     }
 
-    aeocha.run_summary(fw)
+    spec.run_summary(fw)
 }

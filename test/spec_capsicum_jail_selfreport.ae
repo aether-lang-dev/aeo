@@ -20,63 +20,63 @@
 // them as "REPORT <line>". This spec runs the harness, parses the lines, and
 // asserts on them.
 //
-//   AETHER_INCLUDE_PATH=~/aeocha ae run test/spec_capsicum_jail_selfreport.ae
+//   ae run test/spec_capsicum_jail_selfreport.ae
 //   (Run on a FreeBSD host; needs jail/jexec sudo + python3.)
 
-import aeocha
+import std.spec
 import std.string
 import std.os (run_capture)
 import std.list
 import std.config
 
 main() {
-    fw = aeocha.init()
+    fw = spec.init()
 
-    aeocha.describe(fw, "Capsicum self-report from inside a FreeBSD jail (no procstat)") {
+    spec.describe(fw, "Capsicum self-report from inside a FreeBSD jail (no procstat)") {
 
         // Run the harness ONCE: listener + jailed self-confining probe. Stash
         // the captured reports in config so each it-block closure can read them
         // (Aether closures don't capture main's locals; config is the bridge).
         config.put("jail.reports", _run_harness())
 
-        aeocha.describe("the confined process reported back over its allowed channel") {
+        spec.describe("the confined process reported back over its allowed channel") {
 
-            aeocha.it("got reports at all (the ALLOWED channel delivered from inside confinement)") callback {
-                aeocha.expect_int(_r("REPORT ")).to_be_truthy()
+            spec.it("got reports at all (the ALLOWED channel delivered from inside confinement)") callback {
+                spec.expect_int(_r("REPORT ")).to_be_truthy()
             }
 
-            aeocha.it("the probe actually entered Capsicum capability mode") callback {
-                aeocha.expect_int(_r("CAP_ENTER rc=0")).to_be_truthy()
-                aeocha.expect_int(_r("IN_CAPMODE 1")).to_be_truthy()
+            spec.it("the probe actually entered Capsicum capability mode") callback {
+                spec.expect_int(_r("CAP_ENTER rc=0")).to_be_truthy()
+                spec.expect_int(_r("IN_CAPMODE 1")).to_be_truthy()
             }
         }
 
-        aeocha.describe("every escape class was BLOCKED (caught + self-reported)") {
-            aeocha.it("fs-read-breakout BLOCKED") callback {
-                aeocha.expect_int(_r("fs-read BLOCKED")).to_be_truthy()
+        spec.describe("every escape class was BLOCKED (caught + self-reported)") {
+            spec.it("fs-read-breakout BLOCKED") callback {
+                spec.expect_int(_r("fs-read BLOCKED")).to_be_truthy()
             }
-            aeocha.it("fs-write-breakout BLOCKED") callback {
-                aeocha.expect_int(_r("fs-write BLOCKED")).to_be_truthy()
+            spec.it("fs-write-breakout BLOCKED") callback {
+                spec.expect_int(_r("fs-write BLOCKED")).to_be_truthy()
             }
-            aeocha.it("tcpip-egress-breakout BLOCKED") callback {
-                aeocha.expect_int(_r("egress-newconn BLOCKED")).to_be_truthy()
+            spec.it("tcpip-egress-breakout BLOCKED") callback {
+                spec.expect_int(_r("egress-newconn BLOCKED")).to_be_truthy()
             }
-            aeocha.it("tcpip-ingress-breakout BLOCKED") callback {
-                aeocha.expect_int(_r("ingress-bind BLOCKED")).to_be_truthy()
+            spec.it("tcpip-ingress-breakout BLOCKED") callback {
+                spec.expect_int(_r("ingress-bind BLOCKED")).to_be_truthy()
             }
-            aeocha.it("NO escape reported ESCAPED (nothing slipped through)") callback {
-                aeocha.expect_int(_absent_r("ESCAPED")).to_be_truthy()
+            spec.it("NO escape reported ESCAPED (nothing slipped through)") callback {
+                spec.expect_int(_absent_r("ESCAPED")).to_be_truthy()
             }
         }
 
-        aeocha.describe("the allowed channel is the controlled exception") {
-            aeocha.it("the report socket still worked AFTER cap_enter (deny-except-this)") callback {
-                aeocha.expect_int(_r("ALLOWED-CHANNEL still-open OK")).to_be_truthy()
+        spec.describe("the allowed channel is the controlled exception") {
+            spec.it("the report socket still worked AFTER cap_enter (deny-except-this)") callback {
+                spec.expect_int(_r("ALLOWED-CHANNEL still-open OK")).to_be_truthy()
             }
         }
     }
 
-    aeocha.run_summary(fw)
+    spec.run_summary(fw)
 }
 
 // ---- helpers ----

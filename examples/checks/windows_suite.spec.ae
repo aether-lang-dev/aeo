@@ -13,13 +13,12 @@
 // here. This suite therefore re-asserts the resolved DATA MODEL — the same shape
 // the deployed tree was stood up from — as the post-deploy gate.
 
-import aeocha
+import std.spec
 import compose (system, container, engine)
 import compose (image, command, health, depends, wsl_distro)
 import compose (get_image, get_command, get_depends, describe_tree)
 import std.os
 import std.string (string_length, string_concat)
-import std.string   // bare: inlined aeocha calls bare exports unqualified
 
 _image() -> string {
     v = os.getenv("AEO_WIN_IMAGE")
@@ -58,24 +57,24 @@ _declare() {
 
 main() {
     _declare()
-    fw = aeocha.init()
+    fw = spec.init()
 
-    aeocha.describe(fw, "silly_addition_windows — post-deploy suite") {
-        aeocha.it("the deployed tree matches the declared containment shape") callback {
+    spec.describe(fw, "silly_addition_windows — post-deploy suite") {
+        spec.it("the deployed tree matches the declared containment shape") callback {
             img = _image()
             want = string_concat(string_concat(
                 "system silly_addition_windows:\n",
                 "  container db [image=${img}]\n"),
                 "  container app [image=${img}] -> db")
-            aeocha.expect_str(describe_tree()).to_equal_str(want)
+            spec.expect_str(describe_tree()).to_equal_str(want)
         }
-        aeocha.it("both run a long-lived payload; app depends on db") callback {
+        spec.it("both run a long-lived payload; app depends on db") callback {
             // live containment (each container under its OWN hostname inside WSL) is
             // proven by the windows/WSL itest driver, not from this separate process.
-            aeocha.expect_str(get_command("db")).to_equal_str("sleep 600")
-            aeocha.expect_str(get_depends("app")).to_equal_str("db")
+            spec.expect_str(get_command("db")).to_equal_str("sleep 600")
+            spec.expect_str(get_depends("app")).to_equal_str("db")
         }
     }
 
-    aeocha.run_summary(fw)
+    spec.run_summary(fw)
 }

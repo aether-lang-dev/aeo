@@ -1,7 +1,7 @@
 // spec_integration_app.ae — the container-in-host integration test as an
 // Aeocha BDD spec. The describe/it form of integration_app.ae.
 //
-//   ae run test/spec_integration_app.ae --lib lib --lib ../aeocha
+//   ae run test/spec_integration_app.ae --lib lib
 //
 // aeo builds a Python (stdlib, no pip) arithmetic service from an inline
 // Dockerfile, runs it with the port exposed, and we curl it FROM THE HOST to
@@ -9,7 +9,7 @@
 // the nested system, one level out (container-in-host vs container-in-VM).
 // Needs podman/docker; no root.
 
-import aeocha
+import std.spec
 import driver_linux
 import std.string
 import std.os (run_capture)
@@ -34,39 +34,39 @@ DOCKER
 }
 
 main() {
-    fw = aeocha.init()
+    fw = spec.init()
 
-    aeocha.describe(fw, "orchestrated Python service (build, expose, curl)") {
+    spec.describe(fw, "orchestrated Python service (build, expose, curl)") {
 
-        aeocha.after_each() callback {
+        spec.after_each() callback {
             driver_linux.down(NAME(), "")
         }
 
-        aeocha.it("builds + runs the service and computes 2+3=5, 40+2=42 over HTTP") callback {
+        spec.it("builds + runs the service and computes 2+3=5, 40+2=42 over HTTP") callback {
             if _no_engine() == 1 {
-                aeocha.expect_int(1).to_be_truthy()
+                spec.expect_int(1).to_be_truthy()
             } else {
                 driver_linux.down(NAME(), "")
                 // build the service image from the inline Dockerfile
                 berr = driver_linux.build(NAME(), DF(), "")
-                aeocha.expect_str(berr).to_equal_str("")
+                spec.expect_str(berr).to_equal_str("")
                 // run it with the port exposed to the host
                 tag = driver_linux.built_tag(NAME())
                 uerr = driver_linux.up(NAME(), tag, "", PORT(), "")
-                aeocha.expect_str(uerr).to_equal_str("")
+                spec.expect_str(uerr).to_equal_str("")
                 // wait for the http.server to bind, then curl FROM THE HOST
                 base = "http://localhost:8080"
                 // curl shell-out, NOT std.http.client: the client aborts
                 // intermittently on macOS (SIGABRT mid-request), and the
                 // spec's subject is the ORCHESTRATION, not the transport.
-                aeocha.expect_str(_wait_http("${base}/add/0/0", 40)).to_equal_str("yes")
-                aeocha.expect_str(_http_get("${base}/add/2/3")).to_equal_str("5")
-                aeocha.expect_str(_http_get("${base}/add/40/2")).to_equal_str("42")
+                spec.expect_str(_wait_http("${base}/add/0/0", 40)).to_equal_str("yes")
+                spec.expect_str(_http_get("${base}/add/2/3")).to_equal_str("5")
+                spec.expect_str(_http_get("${base}/add/40/2")).to_equal_str("42")
             }
         }
     }
 
-    aeocha.run_summary(fw)
+    spec.run_summary(fw)
 }
 
 // ---- helpers ----

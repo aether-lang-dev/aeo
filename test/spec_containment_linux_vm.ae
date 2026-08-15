@@ -12,56 +12,69 @@
 // unreachable; an UN-configured host port unreachable; the configured channel
 // (ssh:22) reachable.
 //
-//   AETHER_INCLUDE_PATH=~/aeocha ae run test/spec_containment_linux_vm.ae
+//   ae run test/spec_containment_linux_vm.ae
 //   (needs the Linux guest up + ssh-reachable; harness does run+capture.)
 
-import aeocha
+import std.spec
 import std.string
 import std.os (run_capture, getenv)
 import std.list
 import std.config
 
 main() {
-    fw = aeocha.init()
+    fw = spec.init()
 
-    aeocha.describe(fw, "containment of a NAIVE process inside a Linux bhyve-VM") {
+    spec.describe(fw, "containment of a NAIVE process inside a Linux bhyve-VM") {
 
         config.put("c.reports", _run_harness())
 
-        aeocha.describe("the contained reported back over the configured channel") {
-            aeocha.it("it is a Linux guest, and it reported") callback {
-                aeocha.expect_int(_r("GUEST uname=Linux")).to_be_truthy()
-                aeocha.expect_int(_r("CONFIGURED-CHANNEL ok")).to_be_truthy()
+        spec.describe("the contained reported back over the configured channel") {
+            spec.it("it is a Linux guest, and it reported") callback {
+                spec.expect_int(_r("GUEST uname=Linux")).to_be_truthy()
+                spec.expect_int(_r("CONFIGURED-CHANNEL ok")).to_be_truthy()
             }
         }
 
-        aeocha.describe("the VM boundary contains it (discovered by attempts, not self-imposed)") {
-            aeocha.it("cannot reach the host's bhyve binary") callback {
-                aeocha.expect_int(_r("host-bhyve-binary CONTAINED")).to_be_truthy()
+        spec.describe("the VM boundary contains it (discovered by attempts, not self-imposed)") {
+            spec.it("cannot reach the host's bhyve binary") callback {
+                spec.expect_int(_r("host-bhyve-binary CONTAINED")).to_be_truthy()
             }
-            aeocha.it("cannot reach host-only (FreeBSD) files") callback {
-                aeocha.expect_int(_r("host-freebsd-passwd CONTAINED")).to_be_truthy()
+            spec.it("cannot reach host-only (FreeBSD) files") callback {
+                spec.expect_int(_r("host-freebsd-passwd CONTAINED")).to_be_truthy()
             }
-            aeocha.it("cannot see the host's processes (only its own)") callback {
-                aeocha.expect_int(_r("host-bhyve-process CONTAINED")).to_be_truthy()
+            spec.it("cannot see the host's processes (only its own)") callback {
+                spec.expect_int(_r("host-bhyve-process CONTAINED")).to_be_truthy()
             }
         }
 
-        aeocha.describe("'cannot reach the container unless it configured you to'") {
-            aeocha.it("an UN-configured host port is unreachable") callback {
-                aeocha.expect_int(_r("host-unconfigured-port-8911 CONTAINED")).to_be_truthy()
+        spec.describe("'cannot reach the container unless it configured you to'") {
+            spec.it("an UN-configured host port is unreachable") callback {
+                spec.expect_int(_r("host-unconfigured-port-8911 CONTAINED")).to_be_truthy()
             }
-            aeocha.it("the CONFIGURED host channel IS reachable") callback {
-                aeocha.expect_int(_r("host-configured-port-22 REACHED")).to_be_truthy()
+            spec.it("the CONFIGURED host channel IS reachable") callback {
+                spec.expect_int(_r("host-configured-port-22 REACHED")).to_be_truthy()
             }
-            aeocha.it("nothing host-side was REACHED that shouldn't be") callback {
-                aeocha.expect_int(_absent_r("host-bhyve-binary REACHED")).to_be_truthy()
-                aeocha.expect_int(_absent_r("host-unconfigured-port-8911 REACHED")).to_be_truthy()
+            spec.it("nothing host-side was REACHED that shouldn't be") callback {
+                spec.expect_int(_absent_r("host-bhyve-binary REACHED")).to_be_truthy()
+                spec.expect_int(_absent_r("host-unconfigured-port-8911 REACHED")).to_be_truthy()
             }
         }
     }
 
-    aeocha.run_summary(fw)
+    spec.run_summary(fw)
+}
+
+// aeo's home (where test/ scripts live) — AEO_HOME, else $HOME-relative, so a
+// colleague's checkout works without editing source. Mirrors driver_vm's
+// _aeo_home(). (This helper was CALLED but never DEFINED: the spec had not
+// compiled since it was written — it is gated on a live Linux bhyve guest, so
+// nothing off that path ever exercised it. Found by the 0.541 build sweep.)
+_aeohome() -> string {
+    h = getenv("AEO_HOME")
+    if string.length(h) > 0 {
+        return h
+    }
+    return string.concat(getenv("HOME"), "/aeo")
 }
 
 _run_harness() -> string {

@@ -1,14 +1,23 @@
 #!/bin/sh
-# run-spec.sh — run aeo's Aeocha BDD spec(s).
+# run-spec.sh — run aeo's BDD spec(s).
 #
-# Aeocha (the BDD test framework) is a sibling checkout; we add it and aeo's
-# own lib/ to the module path. Data-model cases run anywhere; live-deployment
-# cases run only when AEO_VERIFY=1 (against a deployed system).
+# The BDD framework is `std.spec` — SHIPPED IN THE AETHER STDLIB as of ae
+# 0.538.0, so there is NO sibling checkout to find and NO extra `--lib` to
+# wire: only aeo's own lib/ goes on the module path. (The four HTTP-shaped
+# specs additionally import std.http.client.httptest, also stdlib.)
+# Data-model cases run anywhere; live-deployment cases run only when
+# AEO_VERIFY=1 (against a deployed system).
 #
 #   sh test/run-spec.sh                         # run every test/spec_*.ae
 #   sh test/run-spec.sh test/spec_running_nodes.ae   # run one spec
 #   AEO_VERIFY=1 sh test/run-spec.sh            # + live checks
-#   AEOCHA=/path/to/aeocha sh test/run-spec.sh  # override aeocha location
+#
+# HISTORY: aeo's specs used the standalone `aeocha` framework, which required
+# a sibling clone and an `AEOCHA=` override. Aether absorbed aeocha's pure
+# core into `std.spec` (0.538.0) and its process/HTTP matchers into
+# `std.os.testing` / `std.http.client.httptest`; the aeocha repo is retired.
+# The whole discovery-and-override block that used to live here is gone —
+# that is the point of the absorption.
 #
 # One spec failing to build or run does NOT abort the rest — each is reported
 # and the script exits non-zero at the end if any failed. (Some specs are
@@ -17,12 +26,22 @@
 set -u
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-AEOCHA="${AEOCHA:-$(cd "$ROOT/../aeocha" 2>/dev/null && pwd || true)}"
 
-if [ -z "$AEOCHA" ] || [ ! -f "$AEOCHA/aeocha.ae" ]; then
-    echo "aeocha not found. Clone it next to aeo, or set AEOCHA=/path/to/aeocha"
-    echo "  (expected $ROOT/../aeocha/aeocha.ae)"
-    exit 1
+# --- Toolchain floor (AETHER_PIN) ------------------------------------------
+# WARN, don't fail: a too-old `ae` shows up as a wall of E0300/E0301 errors in
+# EVERY spec ("Undefined variable 'spec'"), which reads as "aeo is broken"
+# rather than "your toolchain predates std.spec". One line up front turns a
+# confusing 78-file failure into a diagnosis. Kept non-fatal so an unreleased
+# / locally-built `ae` with an odd version string can still run the suite.
+PIN="$(grep -v '^#' "$ROOT/AETHER_PIN" 2>/dev/null | tr -d '[:space:]')"
+HAVE="$(ae --version 2>/dev/null | head -n1 | sed -n 's/^ae \([0-9][0-9.]*\).*/\1/p')"
+if [ -n "$PIN" ] && [ -n "$HAVE" ] && \
+   [ "$(printf '%s\n%s\n' "$PIN" "$HAVE" | sort -V | head -n1)" != "$PIN" ]; then
+    echo "WARNING: ae $HAVE is older than AETHER_PIN $PIN."
+    echo "  The specs import std.spec (stdlib since 0.538.0, absorbed from aeocha)."
+    echo "  Expect 'Undefined variable spec' everywhere until you upgrade:"
+    echo "    (cd ~/scm/aether && ./install.sh)   # or: ae version install $PIN"
+    echo
 fi
 
 failures=""
@@ -75,7 +94,7 @@ run_one() {
     # stale compiled dependency (e.g. an edited lib/compose) — build to a fresh
     # binary each time so edits always take.
     bin="/tmp/aeo-spec-$(basename "$1" .ae)"
-    if ! ae build "$1" -o "$bin" --lib "$ROOT/lib" --lib "$AEOCHA" $extra; then
+    if ! ae build "$1" -o "$bin" --lib "$ROOT/lib" $extra; then
         echo "  (build failed)"
         failures="$failures $1"
         return

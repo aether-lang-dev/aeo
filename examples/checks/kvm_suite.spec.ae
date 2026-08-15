@@ -12,13 +12,12 @@
 // itest driver. What this suite CAN own portably is the resolved data model, so it
 // re-asserts the same tree the model spec does (the composition is the contract).
 
-import aeocha
+import std.spec
 import compose (system, kvm_vm)
 import compose (cpus, memory, image, nic, depends)
 import compose (get_image, get_depends, describe_tree)
 import std.os
 import std.string (string_length, string_concat)
-import std.string   // bare: inlined aeocha calls bare exports unqualified
 
 _declare() {
     system("silly_addition_kvm") {
@@ -62,25 +61,25 @@ _nic(key: string) -> string {
 
 main() {
     _declare()
-    fw = aeocha.init()
+    fw = spec.init()
 
-    aeocha.describe(fw, "silly_addition_kvm — post-deploy suite") {
+    spec.describe(fw, "silly_addition_kvm — post-deploy suite") {
         // Live VM boot + qemu-pidfile liveness is proven by the kvm itest driver;
         // from a separate spec process we re-assert the resolved model (the
         // composition contract the deploy is expected to honour).
-        aeocha.it("resolves to two KVM VMs with a dependency edge") callback {
+        spec.it("resolves to two KVM VMs with a dependency edge") callback {
             d = _db_image()
             a = _app_image()
             want = string_concat(string_concat(
                 "system silly_addition_kvm:\n",
                 "  kvm db_vm [image=${d}]\n"),
                 "  kvm app_vm [image=${a}] -> db_vm")
-            aeocha.expect_str(describe_tree()).to_equal_str(want)
+            spec.expect_str(describe_tree()).to_equal_str(want)
         }
-        aeocha.it("app_vm depends on db_vm (ordering edge)") callback {
-            aeocha.expect_str(get_depends("app_vm")).to_equal_str("db_vm")
+        spec.it("app_vm depends on db_vm (ordering edge)") callback {
+            spec.expect_str(get_depends("app_vm")).to_equal_str("db_vm")
         }
     }
 
-    aeocha.run_summary(fw)
+    spec.run_summary(fw)
 }

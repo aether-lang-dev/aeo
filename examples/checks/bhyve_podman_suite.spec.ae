@@ -13,10 +13,10 @@
 // cross-VM redis cache path is exercised by the itest driver during deploy. Here
 // the suite re-asserts the arithmetic contract over the live app's HTTP surface.
 
-import aeocha
+import std.spec
+import std.http.client.httptest   // the HTTP-shaped matchers (bare: selective form leaves the module's retry-state vars unresolved)
 import std.os
 import std.string (string_length)
-import std.string   // bare: inlined aeocha calls bare exports unqualified
 
 _base() -> string {
     h = os.getenv("AEO_APP_HOST")
@@ -27,14 +27,14 @@ _base() -> string {
 }
 
 main() {
-    fw = aeocha.init()
-    aeocha.describe(fw, "silly_addition_bhyve_podman — full suite") {
-        aeocha.it("app computes arithmetic over HTTP (2+2=4, 2+3=5, 40+2=42)") callback {
+    fw = spec.init()
+    spec.describe(fw, "silly_addition_bhyve_podman — full suite") {
+        spec.it("app computes arithmetic over HTTP (2+2=4, 2+3=5, 40+2=42)") callback {
             base = _base()
-            aeocha.expect_http_get_body_eq("${base}/add/2/2", "4", "2 + 2 = 4")
-            aeocha.expect_http_get_body_eq("${base}/add/2/3", "5", "2 + 3 = 5")
-            aeocha.expect_http_get_body_eq("${base}/add/40/2", "42", "40 + 2 = 42")
+            httptest.expect_http_get_body_eq("${base}/add/2/2", "4", "2 + 2 = 4")
+            httptest.expect_http_get_body_eq("${base}/add/2/3", "5", "2 + 3 = 5")
+            httptest.expect_http_get_body_eq("${base}/add/40/2", "42", "40 + 2 = 42")
         }
     }
-    aeocha.run_summary(fw)
+    spec.run_summary(fw)
 }

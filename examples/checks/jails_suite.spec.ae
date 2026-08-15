@@ -14,13 +14,12 @@
 // the db<-app boundary. Live containment is proven by the itest driver; see the
 // example header + spec_capsicum_jail_selfreport.ae.
 
-import aeocha
+import std.spec
 import compose (system, jail)
 import compose (dataset, ip, command, health, depends)
 import compose (limit, limit_mem, limit_maxproc)
 import compose (get_dataset, get_depends, get_rctl, describe_tree)
 import std.string (string_concat)
-import std.string   // bare: inlined aeocha calls bare exports unqualified
 
 // The SAME declaration the example carries (a spec is its own process, so it can't
 // inherit the runner's in-memory tree). Kept in sync with the example.
@@ -52,26 +51,26 @@ _declare() {
 
 main() {
     _declare()
-    fw = aeocha.init()
+    fw = spec.init()
 
-    aeocha.describe(fw, "silly_addition_jails — post-deploy suite (containment model)") {
-        aeocha.it("the db <- app jail tree stands as declared") callback {
+    spec.describe(fw, "silly_addition_jails — post-deploy suite (containment model)") {
+        spec.it("the db <- app jail tree stands as declared") callback {
             want = string_concat(string_concat(
                 "system silly_addition_jails:\n",
                 "  jail db [dataset=zroot/jails/db]\n"),
                 "  jail app [dataset=zroot/jails/app] -> db")
-            aeocha.expect_str(describe_tree()).to_equal_str(want)
-            aeocha.expect_str(get_depends("app")).to_equal_str("db")
+            spec.expect_str(describe_tree()).to_equal_str(want)
+            spec.expect_str(get_depends("app")).to_equal_str("db")
         }
 
-        aeocha.it("each jail's rctl caps are in force (exhaustion-DoS guard)") callback {
+        spec.it("each jail's rctl caps are in force (exhaustion-DoS guard)") callback {
             // The exhaustion-containment axis aeo enforces at `aeo up`. The live
             // jail boundary (jexec ls / sees only the jail root) is proven by the
             // driver_bsd itest, not reproducible from this spec process.
-            aeocha.expect_str(get_rctl("db")).to_equal_str("memoryuse=512M, maxproc=32")
-            aeocha.expect_str(get_rctl("app")).to_equal_str("memoryuse=1G, maxproc=128")
+            spec.expect_str(get_rctl("db")).to_equal_str("memoryuse=512M, maxproc=32")
+            spec.expect_str(get_rctl("app")).to_equal_str("memoryuse=1G, maxproc=128")
         }
     }
 
-    aeocha.run_summary(fw)
+    spec.run_summary(fw)
 }

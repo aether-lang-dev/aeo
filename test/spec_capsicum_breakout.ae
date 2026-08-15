@@ -35,11 +35,11 @@
 // escape assertions.
 //
 // Build needs the C extern helpers (real int fds for rights_limit):
-//   ae build test/spec_capsicum_breakout.ae -o b --lib lib --lib ~/aeocha \
+//   ae build test/spec_capsicum_breakout.ae -o b --lib lib \
 //       --extra test/capfd.c
 //   AETHER_INCLUDE_PATH=~/aeocha (for ae run)
 
-import aeocha
+import std.spec
 import std.capsicum
 import std.string
 import std.list
@@ -55,17 +55,17 @@ extern aeo_try_listen(fd: int) -> int
 extern aeo_close_fd(fd: int) -> int
 
 main() {
-    fw = aeocha.init()
+    fw = spec.init()
 
-    aeocha.describe(fw, "Capsicum breakout classes (kernel mechanism; stand-in process, NOT real bhyve)") {
+    spec.describe(fw, "Capsicum breakout classes (kernel mechanism; stand-in process, NOT real bhyve)") {
 
         if capsicum.available() == 0 {
-            aeocha.describe("environment") {
-                aeocha.it("skipped — Capsicum not available (need FreeBSD)") callback {
-                    aeocha.expect_int(1).to_be_truthy()
+            spec.describe("environment") {
+                spec.it("skipped — Capsicum not available (need FreeBSD)") callback {
+                    spec.expect_int(1).to_be_truthy()
                 }
             }
-            aeocha.run_summary(fw)
+            spec.run_summary(fw)
             return
         }
 
@@ -84,41 +84,41 @@ main() {
         capsicum.rights_limit(bind_fd, capsicum.R_READ)   // deliberately NOT R_BIND
 
         // ---- THE IRREVERSIBLE STEP ----
-        aeocha.describe("enter() — confine the process") {
-            aeocha.it("cap_enter() succeeds; now in capability mode") callback {
+        spec.describe("enter() — confine the process") {
+            spec.it("cap_enter() succeeds; now in capability mode") callback {
                 rc = capsicum.enter()
-                aeocha.expect_int(rc).to_equal(capsicum.CAP_OK)   // enter() succeeded
-                aeocha.expect_int(capsicum.in_mode()).to_be_truthy()
+                spec.expect_int(rc).to_equal(capsicum.CAP_OK)   // enter() succeeded
+                spec.expect_int(capsicum.in_mode()).to_be_truthy()
             }
         }
 
         // ================= fs-read-breakout =================
-        aeocha.describe("fs-read-breakout") {
-            aeocha.it("(global) open a NEW path to read -> DENIED") callback {
+        spec.describe("fs-read-breakout") {
+            spec.it("(global) open a NEW path to read -> DENIED") callback {
                 fd = aeo_open_fd("/etc/rc.conf", 0)
-                aeocha.expect_int(fd).to_equal(-1)
+                spec.expect_int(fd).to_equal(-1)
             }
-            aeocha.it("(held-rights) a WRITE-only fd refuses READ") callback {
+            spec.it("(held-rights) a WRITE-only fd refuses READ") callback {
                 // wo_fd was granted R_WRITE only — reading it must fail.
                 e = aeo_try_read(wo_fd)
-                aeocha.expect_int(_ne0(e)).to_be_truthy()
+                spec.expect_int(_ne0(e)).to_be_truthy()
             }
-            aeocha.it("(held-rights) the granted READ fd CAN still read (grant honored)") callback {
+            spec.it("(held-rights) the granted READ fd CAN still read (grant honored)") callback {
                 e = aeo_try_read(ro_fd)
-                aeocha.expect_int(e).to_be_falsy()
+                spec.expect_int(e).to_be_falsy()
             }
         }
 
         // ================= fs-write-breakout =================
-        aeocha.describe("fs-write-breakout") {
-            aeocha.it("(global) open/creat a NEW path to write -> DENIED") callback {
+        spec.describe("fs-write-breakout") {
+            spec.it("(global) open/creat a NEW path to write -> DENIED") callback {
                 fd = aeo_open_fd("/tmp/aeo-escape-write", 1)
-                aeocha.expect_int(fd).to_equal(-1)
+                spec.expect_int(fd).to_equal(-1)
             }
-            aeocha.it("(held-rights) a READ-only fd refuses WRITE") callback {
+            spec.it("(held-rights) a READ-only fd refuses WRITE") callback {
                 // ro_fd was granted R_READ only — writing it must fail.
                 e = aeo_try_write(ro_fd)
-                aeocha.expect_int(_ne0(e)).to_be_truthy()
+                spec.expect_int(_ne0(e)).to_be_truthy()
             }
         }
 
@@ -128,49 +128,49 @@ main() {
         // which reaches an ADDRESS (the global namespace) — that's what's
         // denied. (Verified empirically: this test originally expected socket()
         // to fail; it doesn't, and shouldn't. The egress boundary is connect.)
-        aeocha.describe("tcpip-egress-breakout") {
-            aeocha.it("(global) connect() a fresh socket OUT -> DENIED") callback {
+        spec.describe("tcpip-egress-breakout") {
+            spec.it("(global) connect() a fresh socket OUT -> DENIED") callback {
                 // socket() is fine; connect() to an address is the egress escape.
                 s = aeo_socket_fd()
                 e = aeo_try_connect(s, 0x01010101, 80)   // 1.1.1.1:80, network order
                 aeo_close_fd(s)
-                aeocha.expect_int(_ne0(e)).to_be_truthy()
+                spec.expect_int(_ne0(e)).to_be_truthy()
             }
-            aeocha.it("(held-rights) a CONNECT-granted socket may NOT bind (ingress)") callback {
+            spec.it("(held-rights) a CONNECT-granted socket may NOT bind (ingress)") callback {
                 // conn_fd has R_CONNECT only — bind (an ingress op) must fail.
                 e = aeo_try_bind(conn_fd, 18080)
-                aeocha.expect_int(_ne0(e)).to_be_truthy()
+                spec.expect_int(_ne0(e)).to_be_truthy()
             }
         }
 
         // ================= tcpip-ingress-breakout =================
-        aeocha.describe("tcpip-ingress-breakout") {
-            aeocha.it("(global) bind() a fresh socket to a port -> DENIED") callback {
+        spec.describe("tcpip-ingress-breakout") {
+            spec.it("(global) bind() a fresh socket to a port -> DENIED") callback {
                 // socket() is allowed; bind() to a port is the ingress escape.
                 s = aeo_socket_fd()
                 e = aeo_try_bind(s, 18079)
                 aeo_close_fd(s)
-                aeocha.expect_int(_ne0(e)).to_be_truthy()
+                spec.expect_int(_ne0(e)).to_be_truthy()
             }
-            aeocha.it("(held-rights) a non-BIND socket refuses bind") callback {
+            spec.it("(held-rights) a non-BIND socket refuses bind") callback {
                 // bind_fd was granted R_READ (not R_BIND) — bind must fail.
                 e = aeo_try_bind(bind_fd, 18081)
-                aeocha.expect_int(_ne0(e)).to_be_truthy()
+                spec.expect_int(_ne0(e)).to_be_truthy()
             }
-            aeocha.it("(held-rights) a non-LISTEN socket refuses listen") callback {
+            spec.it("(held-rights) a non-LISTEN socket refuses listen") callback {
                 e = aeo_try_listen(bind_fd)
-                aeocha.expect_int(_ne0(e)).to_be_truthy()
+                spec.expect_int(_ne0(e)).to_be_truthy()
             }
         }
 
-        aeocha.describe("confinement is durable") {
-            aeocha.it("still in capability mode at end (irreversible)") callback {
-                aeocha.expect_int(capsicum.in_mode()).to_be_truthy()
+        spec.describe("confinement is durable") {
+            spec.it("still in capability mode at end (irreversible)") callback {
+                spec.expect_int(capsicum.in_mode()).to_be_truthy()
             }
         }
     }
 
-    aeocha.run_summary(fw)
+    spec.run_summary(fw)
 }
 
 _ne0(n: int) -> int { if n == 0 { return 0 } return 1 }

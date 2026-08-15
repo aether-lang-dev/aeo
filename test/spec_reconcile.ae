@@ -9,87 +9,87 @@
 //
 //   sh test/run-spec.sh test/spec_reconcile.ae
 
-import aeocha
+import std.spec
 import reconcile (render_desired, field_of, mem_to_bytes, state_diff, has_drift)
 import std.string
 
 main() {
-    fw = aeocha.init()
-    aeocha.describe(fw, "lib/reconcile — desired-vs-actual property diff") {
+    fw = spec.init()
+    spec.describe(fw, "lib/reconcile — desired-vs-actual property diff") {
 
-        aeocha.describe("mem_to_bytes — canonicalise the human memory string") {
-            aeocha.it("M/G/k suffixes -> bytes (1024 powers, case-insensitive)") callback {
-                aeocha.expect_str(mem_to_bytes("512M")).to_equal_str("536870912")
-                aeocha.expect_str(mem_to_bytes("256m")).to_equal_str("268435456")
-                aeocha.expect_str(mem_to_bytes("1G")).to_equal_str("1073741824")
-                aeocha.expect_str(mem_to_bytes("2g")).to_equal_str("2147483648")
-                aeocha.expect_str(mem_to_bytes("1024k")).to_equal_str("1048576")
+        spec.describe("mem_to_bytes — canonicalise the human memory string") {
+            spec.it("M/G/k suffixes -> bytes (1024 powers, case-insensitive)") callback {
+                spec.expect_str(mem_to_bytes("512M")).to_equal_str("536870912")
+                spec.expect_str(mem_to_bytes("256m")).to_equal_str("268435456")
+                spec.expect_str(mem_to_bytes("1G")).to_equal_str("1073741824")
+                spec.expect_str(mem_to_bytes("2g")).to_equal_str("2147483648")
+                spec.expect_str(mem_to_bytes("1024k")).to_equal_str("1048576")
             }
-            aeocha.it("a bare byte count passes through (already podman's form)") callback {
-                aeocha.expect_str(mem_to_bytes("134217728")).to_equal_str("134217728")
+            spec.it("a bare byte count passes through (already podman's form)") callback {
+                spec.expect_str(mem_to_bytes("134217728")).to_equal_str("134217728")
             }
-            aeocha.it("empty / zero -> 0 (no cap)") callback {
-                aeocha.expect_str(mem_to_bytes("")).to_equal_str("0")
-                aeocha.expect_str(mem_to_bytes("0")).to_equal_str("0")
+            spec.it("empty / zero -> 0 (no cap)") callback {
+                spec.expect_str(mem_to_bytes("")).to_equal_str("0")
+                spec.expect_str(mem_to_bytes("0")).to_equal_str("0")
             }
         }
 
-        aeocha.describe("render_desired — the composition side, canonical shape") {
-            aeocha.it("assembles img|mem(bytes)|pids|nanocpus|net") callback {
+        spec.describe("render_desired — the composition side, canonical shape") {
+            spec.it("assembles img|mem(bytes)|pids|nanocpus|net") callback {
                 d = render_desired("alpine:latest", "128M", "16", "2000000000", "aeo-sys,")
-                aeocha.expect_str(field_of(d, "img")).to_equal_str("alpine:latest")
-                aeocha.expect_str(field_of(d, "mem")).to_equal_str("134217728")
-                aeocha.expect_str(field_of(d, "pids")).to_equal_str("16")
-                aeocha.expect_str(field_of(d, "net")).to_equal_str("aeo-sys,")
+                spec.expect_str(field_of(d, "img")).to_equal_str("alpine:latest")
+                spec.expect_str(field_of(d, "mem")).to_equal_str("134217728")
+                spec.expect_str(field_of(d, "pids")).to_equal_str("16")
+                spec.expect_str(field_of(d, "net")).to_equal_str("aeo-sys,")
             }
-            aeocha.it("unset pids/nanocpus default to 0 (no cap)") callback {
+            spec.it("unset pids/nanocpus default to 0 (no cap)") callback {
                 d = render_desired("alpine", "", "", "", "")
-                aeocha.expect_str(field_of(d, "pids")).to_equal_str("0")
-                aeocha.expect_str(field_of(d, "nanocpus")).to_equal_str("0")
-                aeocha.expect_str(field_of(d, "mem")).to_equal_str("0")
+                spec.expect_str(field_of(d, "pids")).to_equal_str("0")
+                spec.expect_str(field_of(d, "nanocpus")).to_equal_str("0")
+                spec.expect_str(field_of(d, "mem")).to_equal_str("0")
             }
         }
 
-        aeocha.describe("state_diff — canonicalised, deterministic field diff") {
-            aeocha.it("no drift when desired == actual (mem in different units)") callback {
+        spec.describe("state_diff — canonicalised, deterministic field diff") {
+            spec.it("no drift when desired == actual (mem in different units)") callback {
                 desired = render_desired("alpine:latest", "128M", "16", "0", "")
                 actual  = "img=alpine:latest|mem=134217728|pids=16|nanocpus=0|net="
-                aeocha.expect_str(state_diff(desired, actual)).to_equal_str("")
-                aeocha.expect_int(has_drift(desired, actual)).to_equal(0)
+                spec.expect_str(state_diff(desired, actual)).to_equal_str("")
+                spec.expect_int(has_drift(desired, actual)).to_equal(0)
             }
-            aeocha.it("reports a memory cap that shrank (a drifted envelope)") callback {
+            spec.it("reports a memory cap that shrank (a drifted envelope)") callback {
                 desired = render_desired("alpine:latest", "256M", "16", "0", "")
                 actual  = "img=alpine:latest|mem=134217728|pids=16|nanocpus=0|net="
-                aeocha.expect_str(state_diff(desired, actual)).to_contain("mem: 134217728 -> 268435456")
-                aeocha.expect_int(has_drift(desired, actual)).to_equal(1)
+                spec.expect_str(state_diff(desired, actual)).to_contain("mem: 134217728 -> 268435456")
+                spec.expect_int(has_drift(desired, actual)).to_equal(1)
             }
-            aeocha.it("reports an image swapped underneath a running node") callback {
+            spec.it("reports an image swapped underneath a running node") callback {
                 desired = render_desired("alpine:3.21", "0", "0", "0", "")
                 actual  = "img=alpine:3.19|mem=0|pids=0|nanocpus=0|net="
-                aeocha.expect_str(state_diff(desired, actual)).to_contain("img: alpine:3.19 -> alpine:3.21")
+                spec.expect_str(state_diff(desired, actual)).to_contain("img: alpine:3.19 -> alpine:3.21")
             }
-            aeocha.it("reports a pids-limit that was hand-relaxed (confinement drift)") callback {
+            spec.it("reports a pids-limit that was hand-relaxed (confinement drift)") callback {
                 desired = render_desired("alpine", "0", "16", "0", "")
                 actual  = "img=alpine|mem=0|pids=512|nanocpus=0|net="
-                aeocha.expect_str(state_diff(desired, actual)).to_contain("pids: 512 -> 16")
+                spec.expect_str(state_diff(desired, actual)).to_contain("pids: 512 -> 16")
             }
-            aeocha.it("an UNSET cap is NOT drift (desired pids=0 vs podman's default 2048)") callback {
+            spec.it("an UNSET cap is NOT drift (desired pids=0 vs podman's default 2048)") callback {
                 // the composition declared no limit_maxproc -> desired pids=0 (unmanaged).
                 // podman defaults PidsLimit to 2048; that must NOT read as drift.
                 desired = render_desired("alpine", "128M", "", "", "")
                 actual  = "img=alpine|mem=134217728|pids=2048|nanocpus=0|net="
-                aeocha.expect_str(state_diff(desired, actual)).to_equal_str("")
-                aeocha.expect_int(has_drift(desired, actual)).to_equal(0)
+                spec.expect_str(state_diff(desired, actual)).to_equal_str("")
+                spec.expect_int(has_drift(desired, actual)).to_equal(0)
             }
-            aeocha.it("reports MULTIPLE changed fields, semicolon-joined, in order") callback {
+            spec.it("reports MULTIPLE changed fields, semicolon-joined, in order") callback {
                 desired = render_desired("alpine:3.21", "256M", "16", "0", "")
                 actual  = "img=alpine:3.19|mem=134217728|pids=512|nanocpus=0|net="
                 d = state_diff(desired, actual)
-                aeocha.expect_str(d).to_contain("img:")
-                aeocha.expect_str(d).to_contain("mem:")
-                aeocha.expect_str(d).to_contain("pids:")
+                spec.expect_str(d).to_contain("img:")
+                spec.expect_str(d).to_contain("mem:")
+                spec.expect_str(d).to_contain("pids:")
             }
         }
     }
-    aeocha.run_summary(fw)
+    spec.run_summary(fw)
 }

@@ -4,91 +4,91 @@
 // Substrate-portable confinement. The live podman flags are proven on Bazzite
 // (fork-bomb refused under --pids-limit); this pins the pure rendering off-box.
 
-import aeocha
+import std.spec
 import confine_linux (cgroup_flags, security_flags, net_flags, net_flags2, net_kind, confine_string, _kv_value)
 
 main() {
-    fw = aeocha.init()
+    fw = spec.init()
 
-    aeocha.describe(fw, "confine_linux (Linux confinement renderers)") {
+    spec.describe(fw, "confine_linux (Linux confinement renderers)") {
 
-        aeocha.describe("axis 1 — cgroup caps (the rctl peer, from limit{})") {
-            aeocha.it("renders memoryuse/maxproc/openfiles to podman flags") callback {
+        spec.describe("axis 1 — cgroup caps (the rctl peer, from limit{})") {
+            spec.it("renders memoryuse/maxproc/openfiles to podman flags") callback {
                 got = cgroup_flags("memoryuse=512M, maxproc=32, openfiles=4096")
-                aeocha.expect_str(got).to_equal_str("--memory 512M --pids-limit 32 --ulimit nofile=4096:4096")
+                spec.expect_str(got).to_equal_str("--memory 512M --pids-limit 32 --ulimit nofile=4096:4096")
             }
-            aeocha.it("empty caps -> no flags") callback {
-                aeocha.expect_str(cgroup_flags("")).to_equal_str("")
+            spec.it("empty caps -> no flags") callback {
+                spec.expect_str(cgroup_flags("")).to_equal_str("")
             }
-            aeocha.it("_kv_value extracts a single cap from the list") callback {
-                aeocha.expect_str(_kv_value("memoryuse=1G, maxproc=8", "maxproc")).to_equal_str("8")
-                aeocha.expect_str(_kv_value("memoryuse=1G", "maxproc")).to_equal_str("")
+            spec.it("_kv_value extracts a single cap from the list") callback {
+                spec.expect_str(_kv_value("memoryuse=1G, maxproc=8", "maxproc")).to_equal_str("8")
+                spec.expect_str(_kv_value("memoryuse=1G", "maxproc")).to_equal_str("")
             }
-            aeocha.it("pcpu (rctl %) renders to --cpus cores, integer math") callback {
-                aeocha.expect_str(cgroup_flags("pcpu=150")).to_equal_str("--cpus 1.5")
-                aeocha.expect_str(cgroup_flags("pcpu=100")).to_equal_str("--cpus 1")
-                aeocha.expect_str(cgroup_flags("pcpu=50")).to_equal_str("--cpus 0.5")
-                aeocha.expect_str(cgroup_flags("pcpu=25")).to_equal_str("--cpus 0.25")
-                aeocha.expect_str(cgroup_flags("pcpu=5")).to_equal_str("--cpus 0.05")
-                aeocha.expect_str(cgroup_flags("pcpu=175")).to_equal_str("--cpus 1.75")
+            spec.it("pcpu (rctl %) renders to --cpus cores, integer math") callback {
+                spec.expect_str(cgroup_flags("pcpu=150")).to_equal_str("--cpus 1.5")
+                spec.expect_str(cgroup_flags("pcpu=100")).to_equal_str("--cpus 1")
+                spec.expect_str(cgroup_flags("pcpu=50")).to_equal_str("--cpus 0.5")
+                spec.expect_str(cgroup_flags("pcpu=25")).to_equal_str("--cpus 0.25")
+                spec.expect_str(cgroup_flags("pcpu=5")).to_equal_str("--cpus 0.05")
+                spec.expect_str(cgroup_flags("pcpu=175")).to_equal_str("--cpus 1.75")
             }
-            aeocha.it("bogus pcpu renders NO cpu flag (never a garbage cap)") callback {
-                aeocha.expect_str(cgroup_flags("pcpu=abc")).to_equal_str("")
-                aeocha.expect_str(cgroup_flags("pcpu=0")).to_equal_str("")
+            spec.it("bogus pcpu renders NO cpu flag (never a garbage cap)") callback {
+                spec.expect_str(cgroup_flags("pcpu=abc")).to_equal_str("")
+                spec.expect_str(cgroup_flags("pcpu=0")).to_equal_str("")
             }
-            aeocha.it("pcpu composes with the other caps") callback {
+            spec.it("pcpu composes with the other caps") callback {
                 got = cgroup_flags("memoryuse=512M, pcpu=150, maxproc=32")
-                aeocha.expect_str(got).to_equal_str("--memory 512M --pids-limit 32 --cpus 1.5")
+                spec.expect_str(got).to_equal_str("--memory 512M --pids-limit 32 --cpus 1.5")
             }
         }
 
-        aeocha.describe("axis 2 — seccomp/cap-drop (the Capsicum peer)") {
-            aeocha.it("a constrained node drops caps + no-new-privileges") callback {
+        spec.describe("axis 2 — seccomp/cap-drop (the Capsicum peer)") {
+            spec.it("a constrained node drops caps + no-new-privileges") callback {
                 got = security_flags("net(tap0)=rd", "")
-                aeocha.expect_str(got).to_equal_str("--cap-drop ALL --security-opt no-new-privileges")
+                spec.expect_str(got).to_equal_str("--cap-drop ALL --security-opt no-new-privileges")
             }
-            aeocha.it("a deny_egress node also gets --read-only") callback {
+            spec.it("a deny_egress node also gets --read-only") callback {
                 got = security_flags("", "egress:DENY-ALL")
-                aeocha.expect_str(got).to_equal_str("--cap-drop ALL --security-opt no-new-privileges --read-only")
+                spec.expect_str(got).to_equal_str("--cap-drop ALL --security-opt no-new-privileges --read-only")
             }
-            aeocha.it("an unconstrained node gets no hardening") callback {
-                aeocha.expect_str(security_flags("", "")).to_equal_str("")
-            }
-        }
-
-        aeocha.describe("axis 3 — netpolicy (the pf peer), THREE per-flow tiers") {
-            aeocha.it("net_kind classifies none / internal / shared") callback {
-                aeocha.expect_str(net_kind("egress:DENY-ALL")).to_equal_str("none")
-                aeocha.expect_str(net_kind("egress->db:6379")).to_equal_str("internal")
-                aeocha.expect_str(net_kind("egress_fqdn:api.github.com")).to_equal_str("internal")
-                aeocha.expect_str(net_kind("ingress:6379")).to_equal_str("shared")
-                aeocha.expect_str(net_kind("")).to_equal_str("shared")
-            }
-            aeocha.it("deny_egress -> --network none (no outbound at all)") callback {
-                aeocha.expect_str(net_flags("egress:DENY-ALL", "aeo-sys")).to_equal_str("--network none")
-            }
-            aeocha.it("peer egress -> the INTERNAL net (intra-only, no phone-home)") callback {
-                aeocha.expect_str(net_flags2("egress->db:6379", "aeo-sys", "aeo-sys-int")).to_equal_str("--network aeo-sys-int")
-            }
-            aeocha.it("FQDN egress -> the INTERNAL net until the gateway opens one path") callback {
-                aeocha.expect_str(net_flags2("egress_fqdn:api.github.com", "aeo-sys", "aeo-sys-int")).to_equal_str("--network aeo-sys-int")
-            }
-            aeocha.it("ingress/no-policy -> the shared aeo net (intra + egress)") callback {
-                aeocha.expect_str(net_flags("ingress:6379", "aeo-sys")).to_equal_str("--network aeo-sys")
+            spec.it("an unconstrained node gets no hardening") callback {
+                spec.expect_str(security_flags("", "")).to_equal_str("")
             }
         }
 
-        aeocha.describe("all three composed (confine_string)") {
-            aeocha.it("full confinement renders every axis") callback {
+        spec.describe("axis 3 — netpolicy (the pf peer), THREE per-flow tiers") {
+            spec.it("net_kind classifies none / internal / shared") callback {
+                spec.expect_str(net_kind("egress:DENY-ALL")).to_equal_str("none")
+                spec.expect_str(net_kind("egress->db:6379")).to_equal_str("internal")
+                spec.expect_str(net_kind("egress_fqdn:api.github.com")).to_equal_str("internal")
+                spec.expect_str(net_kind("ingress:6379")).to_equal_str("shared")
+                spec.expect_str(net_kind("")).to_equal_str("shared")
+            }
+            spec.it("deny_egress -> --network none (no outbound at all)") callback {
+                spec.expect_str(net_flags("egress:DENY-ALL", "aeo-sys")).to_equal_str("--network none")
+            }
+            spec.it("peer egress -> the INTERNAL net (intra-only, no phone-home)") callback {
+                spec.expect_str(net_flags2("egress->db:6379", "aeo-sys", "aeo-sys-int")).to_equal_str("--network aeo-sys-int")
+            }
+            spec.it("FQDN egress -> the INTERNAL net until the gateway opens one path") callback {
+                spec.expect_str(net_flags2("egress_fqdn:api.github.com", "aeo-sys", "aeo-sys-int")).to_equal_str("--network aeo-sys-int")
+            }
+            spec.it("ingress/no-policy -> the shared aeo net (intra + egress)") callback {
+                spec.expect_str(net_flags("ingress:6379", "aeo-sys")).to_equal_str("--network aeo-sys")
+            }
+        }
+
+        spec.describe("all three composed (confine_string)") {
+            spec.it("full confinement renders every axis") callback {
                 got = confine_string("memoryuse=512M, maxproc=32", "net(x)=rd", "egress:DENY-ALL", "aeo-sys")
                 want = "--memory 512M --pids-limit 32 --cap-drop ALL --security-opt no-new-privileges --read-only --network none"
-                aeocha.expect_str(got).to_equal_str(want)
+                spec.expect_str(got).to_equal_str(want)
             }
-            aeocha.it("no confinement -> just the shared net") callback {
-                aeocha.expect_str(confine_string("", "", "", "aeo-sys")).to_equal_str("--network aeo-sys")
+            spec.it("no confinement -> just the shared net") callback {
+                spec.expect_str(confine_string("", "", "", "aeo-sys")).to_equal_str("--network aeo-sys")
             }
         }
     }
 
-    aeocha.run_summary(fw)
+    spec.run_summary(fw)
 }

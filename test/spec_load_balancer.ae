@@ -7,7 +7,7 @@
 // fire (and stay silent when the tree is well-formed).
 // See docs/built_in_load_balancing.md.
 
-import aeocha
+import std.spec
 import compose (
     load_balancer, container, listens, publish, publish_map,
     balance_to, algorithm, lb_health, balancer_weight, breaker, cache,
@@ -32,42 +32,42 @@ declare_ok() {
 }
 
 main() {
-    fw = aeocha.init()
+    fw = spec.init()
     reset_nodes()
     declare_ok()
 
-    aeocha.describe(fw, "load_balancer model + grammar") {
+    spec.describe(fw, "load_balancer model + grammar") {
 
-        aeocha.describe("shape: the balancer contains its backends") {
-            aeocha.it("marks web as a load_balancer with its substrate") callback {
-                aeocha.expect_int(is_load_balancer("web")).to_be_truthy()
-                aeocha.expect_str(get_lb_substrate("web")).to_equal_str("container")
-                aeocha.expect_int(is_load_balancer("app-1")).to_equal(0)
+        spec.describe("shape: the balancer contains its backends") {
+            spec.it("marks web as a load_balancer with its substrate") callback {
+                spec.expect_int(is_load_balancer("web")).to_be_truthy()
+                spec.expect_str(get_lb_substrate("web")).to_equal_str("container")
+                spec.expect_int(is_load_balancer("app-1")).to_equal(0)
             }
-            aeocha.it("derives the pool from the children (membership can't drift)") callback {
-                aeocha.expect_str(lb_backends("web")).to_equal_str("app-1, app-2")
+            spec.it("derives the pool from the children (membership can't drift)") callback {
+                spec.expect_str(lb_backends("web")).to_equal_str("app-1, app-2")
             }
         }
 
-        aeocha.describe("directional port verbs (publish / listens)") {
-            aeocha.it("publish(9000) collapses ext==inner on the LB") callback {
-                aeocha.expect_str(get_publish("web")).to_equal_str("9000")
-                aeocha.expect_str(get_publish_inner("web")).to_equal_str("9000")
+        spec.describe("directional port verbs (publish / listens)") {
+            spec.it("publish(9000) collapses ext==inner on the LB") callback {
+                spec.expect_str(get_publish("web")).to_equal_str("9000")
+                spec.expect_str(get_publish_inner("web")).to_equal_str("9000")
             }
-            aeocha.it("listens is recorded per backend") callback {
-                aeocha.expect_str(get_listens("app-1")).to_equal_str("8080")
-                aeocha.expect_str(get_listens("app-2")).to_equal_str("8080")
-            }
-        }
-
-        aeocha.describe("balance_to is the SPEC, listens is the CLAIM") {
-            aeocha.it("records the forward port on the LB") callback {
-                aeocha.expect_str(get_balance_to("web")).to_equal_str("8080")
+            spec.it("listens is recorded per backend") callback {
+                spec.expect_str(get_listens("app-1")).to_equal_str("8080")
+                spec.expect_str(get_listens("app-2")).to_equal_str("8080")
             }
         }
 
-        aeocha.describe("circuit breaker + response cache") {
-            aeocha.it("records breaker() and cache() on the LB, comma-joined") callback {
+        spec.describe("balance_to is the SPEC, listens is the CLAIM") {
+            spec.it("records the forward port on the LB") callback {
+                spec.expect_str(get_balance_to("web")).to_equal_str("8080")
+            }
+        }
+
+        spec.describe("circuit breaker + response cache") {
+            spec.it("records breaker() and cache() on the LB, comma-joined") callback {
                 reset_nodes()
                 load_balancer("web", "container") {
                     publish(9000)
@@ -77,44 +77,44 @@ main() {
                     }
                     container("app-1") { listens(8080) }
                 }
-                aeocha.expect_str(get_lb_breaker("web")).to_equal_str("5,30000,1")
-                aeocha.expect_str(get_lb_cache("web")).to_equal_str("1000,65536,60,method_url_vary")
+                spec.expect_str(get_lb_breaker("web")).to_equal_str("5,30000,1")
+                spec.expect_str(get_lb_cache("web")).to_equal_str("1000,65536,60,method_url_vary")
             }
-            aeocha.it("are absent (empty) when not declared") callback {
+            spec.it("are absent (empty) when not declared") callback {
                 reset_nodes()
                 load_balancer("web", "container") {
                     publish(9000)
                     balance_to(8080)
                     container("app-1") { listens(8080) }
                 }
-                aeocha.expect_str(get_lb_breaker("web")).to_equal_str("")
-                aeocha.expect_str(get_lb_cache("web")).to_equal_str("")
+                spec.expect_str(get_lb_breaker("web")).to_equal_str("")
+                spec.expect_str(get_lb_cache("web")).to_equal_str("")
             }
         }
 
-        aeocha.describe("algorithm inference (§5)") {
-            aeocha.it("infers weighted_rr because backends carry weights") callback {
+        spec.describe("algorithm inference (§5)") {
+            spec.it("infers weighted_rr because backends carry weights") callback {
                 reset_nodes(); declare_ok()   // independent of suite ordering
-                aeocha.expect_str(lb_algorithm("web")).to_equal_str("weighted_rr")
+                spec.expect_str(lb_algorithm("web")).to_equal_str("weighted_rr")
             }
-            aeocha.it("no weight is ignored (inferred algo honours them)") callback {
+            spec.it("no weight is ignored (inferred algo honours them)") callback {
                 reset_nodes(); declare_ok()
-                aeocha.expect_int(lb_weight_ignored("web")).to_equal(0)
+                spec.expect_int(lb_weight_ignored("web")).to_equal(0)
             }
         }
 
-        aeocha.describe("a well-formed tree has NO model errors") {
-            aeocha.it("lb_model_errors is empty") callback {
+        spec.describe("a well-formed tree has NO model errors") {
+            spec.it("lb_model_errors is empty") callback {
                 reset_nodes(); declare_ok()
-                aeocha.expect_str(lb_model_errors()).to_equal_str("")
+                spec.expect_str(lb_model_errors()).to_equal_str("")
             }
         }
 
         // ---- negative cases: each rebuilds a BROKEN tree and asserts the check
         // fires. reset_nodes() clears the global model between trees.
 
-        aeocha.describe("model error (§4): backend listens() disagrees with balance_to()") {
-            aeocha.it("flags the mismatched backend by name and port") callback {
+        spec.describe("model error (§4): backend listens() disagrees with balance_to()") {
+            spec.it("flags the mismatched backend by name and port") callback {
                 reset_nodes()
                 load_balancer("web", "container") {
                     publish(9000)
@@ -123,12 +123,12 @@ main() {
                     container("app-2") { listens(9090) }   // WRONG port
                 }
                 errs = lb_model_errors()
-                aeocha.expect_int(_has(errs, "forwards to 8080 but backend 'app-2' listens on 9090")).to_be_truthy()
+                spec.expect_int(_has(errs, "forwards to 8080 but backend 'app-2' listens on 9090")).to_be_truthy()
             }
         }
 
-        aeocha.describe("model error (§7): unsupported substrate") {
-            aeocha.it("flags a :vm balancer (only :container is realized today)") callback {
+        spec.describe("model error (§7): unsupported substrate") {
+            spec.it("flags a :vm balancer (only :container is realized today)") callback {
                 reset_nodes()
                 load_balancer("web", "vm") {
                     publish(9000)
@@ -136,21 +136,21 @@ main() {
                     container("app-1") { listens(8080) }
                 }
                 errs = lb_model_errors()
-                aeocha.expect_int(_has(errs, "substrate 'vm' is not yet supported")).to_be_truthy()
+                spec.expect_int(_has(errs, "substrate 'vm' is not yet supported")).to_be_truthy()
             }
-            aeocha.it("a :container balancer is clean") callback {
+            spec.it("a :container balancer is clean") callback {
                 reset_nodes()
                 load_balancer("web", "container") {
                     publish(9000)
                     balance_to(8080)
                     container("app-1") { listens(8080) }
                 }
-                aeocha.expect_str(lb_model_errors()).to_equal_str("")
+                spec.expect_str(lb_model_errors()).to_equal_str("")
             }
         }
 
-        aeocha.describe("model error (§3): publish() on a non-boundary node") {
-            aeocha.it("flags a backend that tries to publish") callback {
+        spec.describe("model error (§3): publish() on a non-boundary node") {
+            spec.it("flags a backend that tries to publish") callback {
                 reset_nodes()
                 load_balancer("web", "container") {
                     publish(9000)
@@ -158,21 +158,21 @@ main() {
                     container("app-1") { listens(8080); publish(8443) }   // ILLEGAL
                 }
                 errs = lb_model_errors()
-                aeocha.expect_int(_has(errs, "node 'app-1' declares publish() but is not a load_balancer")).to_be_truthy()
+                spec.expect_int(_has(errs, "node 'app-1' declares publish() but is not a load_balancer")).to_be_truthy()
             }
         }
 
-        aeocha.describe("model error (§3): balancer_weight outside a load_balancer") {
-            aeocha.it("flags a weight on a node whose parent is not an LB") callback {
+        spec.describe("model error (§3): balancer_weight outside a load_balancer") {
+            spec.it("flags a weight on a node whose parent is not an LB") callback {
                 reset_nodes()
                 container("loner") { listens(8080); balancer_weight(5) }   // no LB parent
                 errs = lb_model_errors()
-                aeocha.expect_int(_has(errs, "node 'loner' declares balancer_weight() but its parent is not a load_balancer")).to_be_truthy()
+                spec.expect_int(_has(errs, "node 'loner' declares balancer_weight() but its parent is not a load_balancer")).to_be_truthy()
             }
         }
 
-        aeocha.describe("weight/algorithm mismatch (§5): surfaced, not a hard error") {
-            aeocha.it("flags a weight ignored by an explicit round_robin, but NOT as a model error") callback {
+        spec.describe("weight/algorithm mismatch (§5): surfaced, not a hard error") {
+            spec.it("flags a weight ignored by an explicit round_robin, but NOT as a model error") callback {
                 reset_nodes()
                 load_balancer("web", "container") {
                     publish(9000)
@@ -182,14 +182,14 @@ main() {
                     container("app-1") { listens(8080); balancer_weight(3) }
                     container("app-2") { listens(8080); balancer_weight(1) }
                 }
-                aeocha.expect_int(lb_weight_ignored("web")).to_be_truthy()   // surfaced at up
-                aeocha.expect_str(lb_algorithm("web")).to_equal_str("round_robin")
-                aeocha.expect_str(lb_model_errors()).to_equal_str("")        // NOT a hard error
+                spec.expect_int(lb_weight_ignored("web")).to_be_truthy()   // surfaced at up
+                spec.expect_str(lb_algorithm("web")).to_equal_str("round_robin")
+                spec.expect_str(lb_model_errors()).to_equal_str("")        // NOT a hard error
             }
         }
     }
 
-    aeocha.run_summary(fw)
+    spec.run_summary(fw)
 }
 
 _has(hay: string, needle: string) -> int {

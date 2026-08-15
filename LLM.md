@@ -6,7 +6,7 @@ that keep it coherent, the footguns. Re-read at the start of every session. **Fo
 an observer wanting to *use* aeo for its purpose:** the "What aeo is for" and "A
 composition, end to end" sections are your entry; the rest is the engine room.
 
-Not a CLAUDE.md. Short, opinionated, current as of ae 0.452 (2026-07-27).
+Not a CLAUDE.md. Short, opinionated, current as of ae 0.541.0 (2026-08-15).
 
 ---
 
@@ -33,7 +33,7 @@ aeo is the third sibling to `aether` (the language) and `aeb` (the build runner)
 born spun-out. **config IS code** — the composition is a `.ae` you *run*, full
 Aether around the declarations; no YAML, ever.
 
-## Status (honest, ae 0.452)
+## Status (honest, ae 0.541.0)
 
 Working, with a **live-proven containment story** AND a **live-proven resident-agent
 story** (see the aeo-agent note below). Of six containment axes, **all six are
@@ -139,7 +139,7 @@ The `examples/silly_addition_*.ae` are the canonical surface — the same `db �
 app across every substrate (the "substrate grid"). Read one, diff another. They are
 **PURE COMPOSITIONS** — declaration only, no `main()`, no self-test scaffold (like
 aeb's `.build.ae`). Each declares its nodes AND its own verification via first-class
-`check()`/`smoke()`/`suite()` verbs that NAME external aeocha specs:
+`check()`/`smoke()`/`suite()` verbs that NAME external `std.spec` specs:
 
 ```
 system("silly_addition_containers") {
@@ -155,7 +155,7 @@ system("silly_addition_containers") {
 `aeo up|down|check|smoke|suite <compose.ae>`. `check` runs the spec(s) with NO
 deploy (anywhere); `smoke` deploys then runs the spec(s), leaves standing; `suite`
 deploys, runs, then tears down (CI shape). The runner runs each spec as a SUBPROCESS
-(`ae run <spec>`), so aeocha stays OUT of the lean orchestration binary. Application
+(`ae run <spec>`), so the test framework stays OUT of the lean orchestration binary. Application
 source lives in `examples/silly_addition_app/` (a prebuilt image the compositions
 reference by tag) — NOT inline: the composition is orchestration, not an app.
 
@@ -257,6 +257,44 @@ is load-bearing: Aether's module `var` had a string of cross-import soundness bu
   verified). lib/secrets uses `seal_value`/`unseal_value`.
 - **Aether's std.http.client SIGABRTs intermittently on macOS** (mid-request).
   Specs that only need transport shell out to curl.
+- **NEVER name a leading-underscore function that you pass AS A VALUE**
+  (a function pointer, e.g. an http handler). On ae 0.541.0 the compiler
+  renames the DEFINITION `_h_health` → `ae_h_health` (its MSVCRT
+  reserved-namespace fix) but rewrites only CALL sites, so the pointer
+  reference is emitted verbatim and the generated C dies with
+  `'_h_health' undeclared … did you mean 'ae_h_health'?` — an error naming a
+  symbol you never wrote. Use the trailing-underscore file-local convention
+  (`h_health_`), which is unaffected. This blocked `bin/aeo-agent.ae` +
+  `bin/aeo-supervisord.ae` on the 0.541 upgrade. Upstream: **aether#1598**
+  (3-line repro there); drop the workaround when it lands.
+- **A selective import of `std.http.client.httptest` does NOT work** —
+  `import std.http.client.httptest (expect_http_get_body_eq, within, …)`
+  leaves the module's own retry-state vars (`httptest_retry_poll_ns`,
+  `httptest_retry_budget_ns`, `httptest_retry_without`) unresolved at
+  E0300. Use the BARE `import std.http.client.httptest`. (Bit the four
+  HTTP-shaped example checks during the aeocha→std.spec migration.)
+
+### Testing: `std.spec`, not aeocha (changed 2026-08-15)
+
+**aeocha is GONE — absorbed into the Aether stdlib; the repo is retired.**
+There is no sibling checkout, no `AEOCHA=` env var, no extra `--lib`:
+
+| was | now |
+|---|---|
+| `import aeocha` | `import std.spec` (then `spec.init`, `spec.describe`, `spec.it`, …) |
+| `aeocha.expect_http_*` | bare `import std.http.client.httptest` → `httptest.expect_http_*` |
+| process matchers | `std.os.testing` |
+| `--lib ~/aeocha` | nothing — it's stdlib |
+
+`sh test/run-spec.sh` needs only aeo's own `lib/`. **`AETHER_PIN` (0.541.0)
+is the floor** — std.spec landed in 0.538.0, so an older `ae` cannot compile
+the suite at all; run-spec.sh warns up front rather than letting you read 48
+files of `Undefined variable 'spec'`.
+
+Open ask: **aether#1576** — the fluent matchers (`to_equal_str` etc.) take no
+"why" message, so ~810 of aeo's assertions can print only `expected 'x', got
+'y'` with no statement of the rule. aeo has commented with the downstream
+evidence; if it lands, sweep the fluent sites to carry intent messages.
 
 ### Agent / deployment footguns (operational, cost real session time)
 
@@ -347,7 +385,7 @@ Don't over-engineer this into an in-process binding.
 ~/scm/aether   the language; produces `ae`, `aetherc`, libaether.a
 ~/scm/aeb      build runner; built from Aether
 ~/scm/aeo      THIS repo; its own binary; built BY aeb (or `ae build`); calls aeb at runtime
-~/scm/aeocha   the test framework aeo's specs use (aeocha.assert_*)
+(no aeocha checkout — the test framework is `std.spec`, IN the Aether stdlib)
 ```
 
 - aeo's binary is emitted from THIS repo, never aeb's (keeps infra backends out of

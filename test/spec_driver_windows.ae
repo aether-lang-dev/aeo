@@ -16,63 +16,62 @@
 //   - the inner podman argv (a real ps builder) is spliced token-for-token
 //   - name() identifies the tier
 
-import aeocha
+import std.spec
 import driver_windows (name, wsl_argv)
 import driver_linux (ps_running_argv)
 import std.string
-import std.string   // bare form: inlined aeocha calls bare `copy` unqualified
 
 main() {
-    fw = aeocha.init()
+    fw = spec.init()
 
-    aeocha.describe(fw, "lib/driver_windows — podman-through-WSL argv") {
+    spec.describe(fw, "lib/driver_windows — podman-through-WSL argv") {
 
-        aeocha.describe("wsl_argv wrapping") {
-            aeocha.it("prepends -d DISTRO -- podman when a distro is named") callback {
+        spec.describe("wsl_argv wrapping") {
+            spec.it("prepends -d DISTRO -- podman when a distro is named") callback {
                 inner = list_new()
                 list_add_raw(inner, "ps")
                 list_add_raw(inner, "-a")
                 av = wsl_argv("Ubuntu", inner)
                 // [-d, Ubuntu, --, podman, ps, -a] = 6 tokens
-                aeocha.expect_int(list_size(av)).to_equal(6)
-                aeocha.expect_str(list_get_raw(av, 0)).to_equal_str("-d")
-                aeocha.expect_str(list_get_raw(av, 1)).to_equal_str("Ubuntu")
-                aeocha.expect_str(list_get_raw(av, 2)).to_equal_str("--")
-                aeocha.expect_str(list_get_raw(av, 3)).to_equal_str("podman")
-                aeocha.expect_str(list_get_raw(av, 4)).to_equal_str("ps")
-                aeocha.expect_str(list_get_raw(av, 5)).to_equal_str("-a")
+                spec.expect_int(list_size(av)).to_equal(6)
+                spec.expect_str(list_get_raw(av, 0)).to_equal_str("-d")
+                spec.expect_str(list_get_raw(av, 1)).to_equal_str("Ubuntu")
+                spec.expect_str(list_get_raw(av, 2)).to_equal_str("--")
+                spec.expect_str(list_get_raw(av, 3)).to_equal_str("podman")
+                spec.expect_str(list_get_raw(av, 4)).to_equal_str("ps")
+                spec.expect_str(list_get_raw(av, 5)).to_equal_str("-a")
             }
 
-            aeocha.it("omits -d for the default distro (empty)") callback {
+            spec.it("omits -d for the default distro (empty)") callback {
                 inner = list_new()
                 list_add_raw(inner, "ps")
                 av = wsl_argv("", inner)
                 // [--, podman, ps] = 3 tokens, no -d
-                aeocha.expect_int(list_size(av)).to_equal(3)
-                aeocha.expect_str(list_get_raw(av, 0)).to_equal_str("--")
-                aeocha.expect_str(list_get_raw(av, 1)).to_equal_str("podman")
-                aeocha.expect_str(list_get_raw(av, 2)).to_equal_str("ps")
+                spec.expect_int(list_size(av)).to_equal(3)
+                spec.expect_str(list_get_raw(av, 0)).to_equal_str("--")
+                spec.expect_str(list_get_raw(av, 1)).to_equal_str("podman")
+                spec.expect_str(list_get_raw(av, 2)).to_equal_str("ps")
             }
 
-            aeocha.it("splices a real driver_linux ps builder verbatim") callback {
+            spec.it("splices a real driver_linux ps builder verbatim") callback {
                 // ps_running_argv("web") -> [ps, --filter, name=^web$, --filter,
                 //   status=running, --format, {{.Names}}] = 7 inner tokens.
                 inner = ps_running_argv("web")
                 av = wsl_argv("Ubuntu", inner)
                 // 4 wsl-prefix tokens (-d Ubuntu -- podman) + 7 inner = 11
-                aeocha.expect_int(list_size(av)).to_equal(11)
-                aeocha.expect_str(list_get_raw(av, 3)).to_equal_str("podman")
-                aeocha.expect_str(list_get_raw(av, 4)).to_equal_str("ps")
-                aeocha.expect_str(list_get_raw(av, 6)).to_equal_str("name=^web$")
+                spec.expect_int(list_size(av)).to_equal(11)
+                spec.expect_str(list_get_raw(av, 3)).to_equal_str("podman")
+                spec.expect_str(list_get_raw(av, 4)).to_equal_str("ps")
+                spec.expect_str(list_get_raw(av, 6)).to_equal_str("name=^web$")
             }
         }
 
-        aeocha.describe("identity") {
-            aeocha.it("names the windows tier") callback {
-                aeocha.expect_str(name()).to_equal_str("windows")
+        spec.describe("identity") {
+            spec.it("names the windows tier") callback {
+                spec.expect_str(name()).to_equal_str("windows")
             }
         }
     }
 
-    aeocha.run_summary(fw)
+    spec.run_summary(fw)
 }

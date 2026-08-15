@@ -16,7 +16,7 @@
 // stays green anywhere (like spec_driver_loadbalancer_live). Overrides via env:
 // PVE_HOST / PVE_NODE / PVE_STORAGE / PVE_BRIDGE / PVE_TEMPLATE (same as the example).
 
-import aeocha
+import std.spec
 import compose (system, proxmox_vm, host, node, auth_token, storage, bridge, template, cpus, memory, reset_nodes)
 import driver_proxmox (reachable, preflight)
 import std.config
@@ -46,7 +46,7 @@ _declare() {
 }
 
 main() {
-    fw = aeocha.init()
+    fw = spec.init()
     _declare()
 
     tok = getenv("PVE_TOKEN")
@@ -79,35 +79,35 @@ main() {
         }
     }
 
-    aeocha.describe(fw, "PVE host live — deploy-ready + least-privilege") {
+    spec.describe(fw, "PVE host live — deploy-ready + least-privilege") {
 
-        aeocha.describe("(A) deploy readiness (driver preflight)") {
-            aeocha.it("the host is deploy-ready: token OK, template in pool, storage+bridge present") callback {
+        spec.describe("(A) deploy readiness (driver preflight)") {
+            spec.it("the host is deploy-ready: token OK, template in pool, storage+bridge present") callback {
                 if _skip() == 1 {
-                    aeocha.expect_int(1).to_equal(1)   // skipped: no token / unreachable
+                    spec.expect_int(1).to_equal(1)   // skipped: no token / unreachable
                 } else {
-                    aeocha.expect_str(config.get("pve.preflight")).to_equal_str("")
+                    spec.expect_str(config.get("pve.preflight")).to_equal_str("")
                 }
             }
         }
 
-        aeocha.describe("(B) least-privilege: dangerous mutations are DENIED (403)") {
-            aeocha.it("cannot create a user (no User.Modify)") callback {
-                if _skip() == 1 { aeocha.expect_int(1).to_equal(1) }
-                else { aeocha.expect_str(config.get("pve.denied_user")).to_equal_str("1") }
+        spec.describe("(B) least-privilege: dangerous mutations are DENIED (403)") {
+            spec.it("cannot create a user (no User.Modify)") callback {
+                if _skip() == 1 { spec.expect_int(1).to_equal(1) }
+                else { spec.expect_str(config.get("pve.denied_user")).to_equal_str("1") }
             }
-            aeocha.it("cannot self-escalate via ACL (the token-escape)") callback {
-                if _skip() == 1 { aeocha.expect_int(1).to_equal(1) }
-                else { aeocha.expect_str(config.get("pve.denied_acl")).to_equal_str("1") }
+            spec.it("cannot self-escalate via ACL (the token-escape)") callback {
+                if _skip() == 1 { spec.expect_int(1).to_equal(1) }
+                else { spec.expect_str(config.get("pve.denied_acl")).to_equal_str("1") }
             }
-            aeocha.it("cannot reboot the node (no Sys.PowerMgmt)") callback {
-                if _skip() == 1 { aeocha.expect_int(1).to_equal(1) }
-                else { aeocha.expect_str(config.get("pve.denied_reboot")).to_equal_str("1") }
+            spec.it("cannot reboot the node (no Sys.PowerMgmt)") callback {
+                if _skip() == 1 { spec.expect_int(1).to_equal(1) }
+                else { spec.expect_str(config.get("pve.denied_reboot")).to_equal_str("1") }
             }
         }
     }
 
-    aeocha.run_summary(fw)
+    spec.run_summary(fw)
 }
 
 _skip() -> int {

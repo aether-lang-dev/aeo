@@ -41,7 +41,7 @@ netpolicy_flows(netpolicy: string) -> ptr {
         return flows
     }
     entries = _split_entries(netpolicy)
-    n = list_len(entries)
+    n = list_size(entries)
     i = 0
     while i < n {
         entry = list_get_raw(entries, i)
@@ -93,7 +93,7 @@ nft_rules_for_node(node_name: string, netpolicy: string) -> ptr {
     }
     flows = netpolicy_flows(netpolicy)
     chain_name = nft_chain_name(node_name)
-    n = list_len(flows)
+    n = list_size(flows)
     i = 0
     while i < n {
         flow = list_get_raw(flows, i)

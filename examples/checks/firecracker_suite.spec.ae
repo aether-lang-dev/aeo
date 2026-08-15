@@ -13,13 +13,12 @@
 // This suite therefore RE-ASSERTS the resolved data model (same as the model check),
 // documenting that live containment is proven by the itest driver, not from here.
 
-import aeocha
+import std.spec
 import compose (system, firecracker)
 import compose (image, cpus, memory, depends)
 import compose (get_image, get_depends, describe_tree)
 import std.os
 import std.string (string_length, string_concat)
-import std.string   // bare: inlined aeocha calls bare exports unqualified
 
 // the microVM bundle directory for a node. AEO_FC_BUNDLEDIR overrides the base.
 _bundle(node: string) -> string {
@@ -50,21 +49,21 @@ _declare() {
 
 main() {
     _declare()
-    fw = aeocha.init()
+    fw = spec.init()
 
-    aeocha.describe(fw, "silly_addition_firecracker — post-deploy suite") {
-        aeocha.it("both microVMs are declared with the dependency edge (booted + torn down live by the itest driver)") callback {
+    spec.describe(fw, "silly_addition_firecracker — post-deploy suite") {
+        spec.it("both microVMs are declared with the dependency edge (booted + torn down live by the itest driver)") callback {
             bdb = _bundle("db")
             bapp = _bundle("app")
             want = string_concat(string_concat(
                 "system silly_addition_firecracker:\n",
                 "  firecracker db [image=${bdb}]\n"),
                 "  firecracker app [image=${bapp}] -> db")
-            aeocha.expect_str(describe_tree()).to_equal_str(want)
-            aeocha.expect_str(get_image("db")).to_equal_str(_bundle("db"))
-            aeocha.expect_str(get_depends("app")).to_equal_str("db")
+            spec.expect_str(describe_tree()).to_equal_str(want)
+            spec.expect_str(get_image("db")).to_equal_str(_bundle("db"))
+            spec.expect_str(get_depends("app")).to_equal_str("db")
         }
     }
 
-    aeocha.run_summary(fw)
+    spec.run_summary(fw)
 }

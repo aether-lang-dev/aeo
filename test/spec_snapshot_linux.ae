@@ -4,36 +4,36 @@
 // proven on the box (container round-trip validated on Bazzite 2026-06-27); this
 // pins the pure logic off-box.
 
-import aeocha
+import std.spec
 import snapshot_linux (supports, snap_image, backup_file)
 
 main() {
-    fw = aeocha.init()
+    fw = spec.init()
 
-    aeocha.describe(fw, "snapshot_linux (Linux operability, pure surface)") {
+    spec.describe(fw, "snapshot_linux (Linux operability, pure surface)") {
 
-        aeocha.it("supports the Linux kinds; not the ZFS ones") callback {
-            aeocha.expect_int(supports("container")).to_be_truthy()
-            aeocha.expect_int(supports("docker")).to_be_truthy()
-            aeocha.expect_int(supports("kvm")).to_be_truthy()
-            aeocha.expect_int(supports("lxc")).to_be_truthy()
+        spec.it("supports the Linux kinds; not the ZFS ones") callback {
+            spec.expect_int(supports("container")).to_be_truthy()
+            spec.expect_int(supports("docker")).to_be_truthy()
+            spec.expect_int(supports("kvm")).to_be_truthy()
+            spec.expect_int(supports("lxc")).to_be_truthy()
             // jail/bhyve are lib/snapshot's (ZFS) job — NOT this module's.
-            aeocha.expect_int(supports("jail")).to_be_falsy()
-            aeocha.expect_int(supports("bhyve")).to_be_falsy()
+            spec.expect_int(supports("jail")).to_be_falsy()
+            spec.expect_int(supports("bhyve")).to_be_falsy()
         }
 
-        aeocha.it("snap_image tags a committed container aeo-snap/<node>:<tag>") callback {
-            aeocha.expect_str(snap_image("db", "v1")).to_equal_str("aeo-snap/db:v1")
-            aeocha.expect_str(snap_image("app", "nightly")).to_equal_str("aeo-snap/app:nightly")
+        spec.it("snap_image tags a committed container aeo-snap/<node>:<tag>") callback {
+            spec.expect_str(snap_image("db", "v1")).to_equal_str("aeo-snap/db:v1")
+            spec.expect_str(snap_image("app", "nightly")).to_equal_str("aeo-snap/app:nightly")
         }
 
-        aeocha.it("backup_file uses the right extension per kind") callback {
+        spec.it("backup_file uses the right extension per kind") callback {
             // kvm: a qcow2 copy (carries internal snapshots). else: a tar (save).
-            aeocha.expect_str(backup_file("/b", "db", "v1", "kvm")).to_equal_str("/b/db-v1.qcow2")
-            aeocha.expect_str(backup_file("/b", "db", "v1", "container")).to_equal_str("/b/db-v1.tar")
-            aeocha.expect_str(backup_file("/b", "x", "t", "lxc")).to_equal_str("/b/x-t.tar")
+            spec.expect_str(backup_file("/b", "db", "v1", "kvm")).to_equal_str("/b/db-v1.qcow2")
+            spec.expect_str(backup_file("/b", "db", "v1", "container")).to_equal_str("/b/db-v1.tar")
+            spec.expect_str(backup_file("/b", "x", "t", "lxc")).to_equal_str("/b/x-t.tar")
         }
     }
 
-    aeocha.run_summary(fw)
+    spec.run_summary(fw)
 }

@@ -13,32 +13,31 @@
 //   - encode_delegate produces a line whose verb/token/arg1 re-parse INTACT
 //   - delegate is distinct from boot (same node+token, different verb)
 
-import aeocha
+import std.spec
 import protocol (encode_delegate, encode_boot, verb_of, token_of, arg1_of)
-import std.string   // bare form: inlined aeocha calls bare `copy` unqualified
 
 main() {
-    fw = aeocha.init()
+    fw = spec.init()
 
-    aeocha.describe(fw, "lib/protocol — the delegate (recursion) verb") {
+    spec.describe(fw, "lib/protocol — the delegate (recursion) verb") {
 
-        aeocha.describe("encode/parse round-trip") {
-            aeocha.it("a delegate line re-parses intact") callback {
+        spec.describe("encode/parse round-trip") {
+            spec.it("a delegate line re-parses intact") callback {
                 line = encode_delegate("courier-secret", "inner")
-                aeocha.expect_str(verb_of(line)).to_equal_str("delegate")
-                aeocha.expect_str(token_of(line)).to_equal_str("courier-secret")
-                aeocha.expect_str(arg1_of(line)).to_equal_str("inner")
+                spec.expect_str(verb_of(line)).to_equal_str("delegate")
+                spec.expect_str(token_of(line)).to_equal_str("courier-secret")
+                spec.expect_str(arg1_of(line)).to_equal_str("inner")
             }
 
-            aeocha.it("delegate is distinct from boot (parent recurses, not self-boots)") callback {
+            spec.it("delegate is distinct from boot (parent recurses, not self-boots)") callback {
                 d = encode_delegate("t", "child")
                 b = encode_boot("t", "child")
-                aeocha.expect_str(verb_of(d)).to_equal_str("delegate")
-                aeocha.expect_str(verb_of(b)).to_equal_str("boot")
-                aeocha.expect_str(arg1_of(d)).to_equal_str(arg1_of(b))
+                spec.expect_str(verb_of(d)).to_equal_str("delegate")
+                spec.expect_str(verb_of(b)).to_equal_str("boot")
+                spec.expect_str(arg1_of(d)).to_equal_str(arg1_of(b))
             }
         }
     }
 
-    aeocha.run_summary(fw)
+    spec.run_summary(fw)
 }

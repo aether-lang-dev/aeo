@@ -11,13 +11,12 @@
 // containers model spec (which snapshots describe_tree), confinement asserts the
 // three axes: limit{} caps (rctl), the constrain{} block, and netpolicy egress.
 
-import aeocha
+import std.spec
 import compose (system, container)
 import compose (image, expose, health, depends)
 import compose (limit, limit_mem, limit_maxproc, constrain, grant_fd, deny_egress)
 import compose (get_rctl, get_constraints, get_netpolicy)
 import std.string (string_length, string_from_int, string_contains)
-import std.string   // bare: inlined aeocha calls bare exports unqualified
 
 // The SAME declaration the example carries. Kept in sync with
 // examples/silly_addition_confined.ae (the confinement assertion is exactly this).
@@ -62,23 +61,23 @@ _has_s(s: string, sub: string) -> string {
 
 main() {
     _declare()
-    fw = aeocha.init()
+    fw = spec.init()
 
-    aeocha.describe(fw, "silly_addition_confined — confinement data model") {
-        aeocha.describe("confinement is declared (data model)") {
-            aeocha.it("db declares limit caps, a constrain block, and deny_egress") callback {
-                aeocha.expect_str(get_rctl("db")).to_equal_str("memoryuse=256m, maxproc=32")
+    spec.describe(fw, "silly_addition_confined — confinement data model") {
+        spec.describe("confinement is declared (data model)") {
+            spec.it("db declares limit caps, a constrain block, and deny_egress") callback {
+                spec.expect_str(get_rctl("db")).to_equal_str("memoryuse=256m, maxproc=32")
                 // constrain block recorded + netpolicy has deny_egress.
-                aeocha.assert_true(string_length(get_constraints("db")) > 0, "db is constrained")
-                aeocha.assert_true(_has(get_netpolicy("db"), "egress:DENY-ALL"), "db deny_egress (no outbound)")
+                spec.assert_true(string_length(get_constraints("db")) > 0, "db is constrained")
+                spec.assert_true(_has(get_netpolicy("db"), "egress:DENY-ALL"), "db deny_egress (no outbound)")
             }
-            aeocha.it("app is capped + constrained (but may serve)") callback {
-                aeocha.expect_str(get_rctl("app")).to_equal_str("memoryuse=256m, maxproc=64")
-                aeocha.assert_true(string_length(get_constraints("app")) > 0, "app is constrained")
-                aeocha.expect_str(_has_s(get_netpolicy("app"), "egress:DENY-ALL")).to_equal_str("0")
+            spec.it("app is capped + constrained (but may serve)") callback {
+                spec.expect_str(get_rctl("app")).to_equal_str("memoryuse=256m, maxproc=64")
+                spec.assert_true(string_length(get_constraints("app")) > 0, "app is constrained")
+                spec.expect_str(_has_s(get_netpolicy("app"), "egress:DENY-ALL")).to_equal_str("0")
             }
         }
     }
 
-    aeocha.run_summary(fw)
+    spec.run_summary(fw)
 }

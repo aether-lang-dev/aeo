@@ -20,10 +20,10 @@
 // process. It closes the loop "does a grant_fd() grant actually enforce?"
 // without needing root on the live hypervisor.
 //
-//   ae build test/spec_capsicum_bhyve_model.ae -o b --lib lib --lib ~/aeocha \
+//   ae build test/spec_capsicum_bhyve_model.ae -o b --lib lib \
 //       --lib ~/aether/std --extra test/capfd.c
 
-import aeocha
+import std.spec
 import std.capsicum
 import compose (system, bhyve_vm, container, cpus, memory, guest_image, network, ssh_key, expose, suspend, constrain, grant_fd, start, get_constraints)
 import std.string
@@ -55,25 +55,25 @@ declare() {
 }
 
 main() {
-    fw = aeocha.init()
+    fw = spec.init()
     declare()
 
-    aeocha.describe(fw, "grant_fd() grants enforce via Capsicum (models bhyve self-confinement)") {
+    spec.describe(fw, "grant_fd() grants enforce via Capsicum (models bhyve self-confinement)") {
 
         // The DSL grant string the rest of the spec must honor.
-        aeocha.describe("the DSL records the grant set") {
-            aeocha.it("db_vm's constraints name disk(rd,wr) + console(rd)") callback {
-                aeocha.expect_str(get_constraints("db_vm")).to_equal_str("disk(/tmp/aeo-cap-disk)=rd,wr, console(/tmp/aeo-cap-console)=rd")
+        spec.describe("the DSL records the grant set") {
+            spec.it("db_vm's constraints name disk(rd,wr) + console(rd)") callback {
+                spec.expect_str(get_constraints("db_vm")).to_equal_str("disk(/tmp/aeo-cap-disk)=rd,wr, console(/tmp/aeo-cap-console)=rd")
             }
         }
 
         if capsicum.available() == 0 {
-            aeocha.describe("enforcement") {
-                aeocha.it("skipped — Capsicum not available (need FreeBSD)") callback {
-                    aeocha.expect_int(1).to_be_truthy()
+            spec.describe("enforcement") {
+                spec.it("skipped — Capsicum not available (need FreeBSD)") callback {
+                    spec.expect_int(1).to_be_truthy()
                 }
             }
-            aeocha.run_summary(fw)
+            spec.run_summary(fw)
             return
         }
 
@@ -86,46 +86,46 @@ main() {
         console_fd = aeo_open_fd("/tmp/aeo-cap-console", 1)   // opened rw, but granted rd only
         capsicum.rights_limit(console_fd, capsicum.R_READ)
 
-        aeocha.describe("cap_enter — bhyve drops into capability mode") {
-            aeocha.it("confined, holding only the granted fds") callback {
+        spec.describe("cap_enter — bhyve drops into capability mode") {
+            spec.it("confined, holding only the granted fds") callback {
                 rc = capsicum.enter()
-                aeocha.expect_str(_i(rc)).to_equal_str(_i(capsicum.CAP_OK))
-                aeocha.expect_str(_i(capsicum.in_mode())).to_equal_str("1")
+                spec.expect_str(_i(rc)).to_equal_str(_i(capsicum.CAP_OK))
+                spec.expect_str(_i(capsicum.in_mode())).to_equal_str("1")
             }
         }
 
-        aeocha.describe("granted operations still work (least-privilege, not all-deny)") {
-            aeocha.it("disk fd (rd,wr) CAN write") callback {
+        spec.describe("granted operations still work (least-privilege, not all-deny)") {
+            spec.it("disk fd (rd,wr) CAN write") callback {
                 e = aeo_try_write(disk_fd)
-                aeocha.expect_str(_i(e)).to_equal_str("0")
+                spec.expect_str(_i(e)).to_equal_str("0")
             }
-            aeocha.it("disk fd (rd,wr) CAN read") callback {
+            spec.it("disk fd (rd,wr) CAN read") callback {
                 e = aeo_try_read(disk_fd)
-                aeocha.expect_str(_i(e)).to_equal_str("0")
+                spec.expect_str(_i(e)).to_equal_str("0")
             }
-            aeocha.it("console fd (rd) CAN read") callback {
+            spec.it("console fd (rd) CAN read") callback {
                 e = aeo_try_read(console_fd)
-                aeocha.expect_str(_i(e)).to_equal_str("0")
+                spec.expect_str(_i(e)).to_equal_str("0")
             }
         }
 
-        aeocha.describe("escapes beyond the grant are DENIED by the kernel") {
-            aeocha.it("console fd (rd only) may NOT write — exceeds its grant") callback {
+        spec.describe("escapes beyond the grant are DENIED by the kernel") {
+            spec.it("console fd (rd only) may NOT write — exceeds its grant") callback {
                 // console was declared "rd"; even though we opened the file rw,
                 // cap_rights_limit narrowed it to R_READ. Writing must fail.
                 e = aeo_try_write(console_fd)
-                aeocha.expect_int(_ne0(e)).to_be_truthy()
+                spec.expect_int(_ne0(e)).to_be_truthy()
             }
-            aeocha.it("opening a NEW path (a disk it was NOT granted) -> DENIED") callback {
+            spec.it("opening a NEW path (a disk it was NOT granted) -> DENIED") callback {
                 // The headline confined-bhyve escape: reach a disk image outside
                 // its grant set.
                 fd = aeo_open_fd("/tmp/aeo-cap-OTHER", 0)
-                aeocha.expect_str(_i(fd)).to_equal_str("-1")
+                spec.expect_str(_i(fd)).to_equal_str("-1")
             }
         }
     }
 
-    aeocha.run_summary(fw)
+    spec.run_summary(fw)
 }
 
 _i(n: int) -> string { return string.from_int(n) }

@@ -7,57 +7,63 @@
 //
 //   sh test/run-spec.sh test/spec_driver_kata.ae
 
-import aeocha
+import std.spec
 import driver_kata (name, kata_runtime, run_argv, rm_argv, ps_argv)
 import std.string
 import std.list
 
 main() {
-    fw = aeocha.init()
-    aeocha.describe(fw, "lib/driver_kata — Kata microVM argv (shim-v2 via nerdctl)") {
+    fw = spec.init()
+    spec.describe(fw, "lib/driver_kata — Kata microVM argv (shim-v2 via nerdctl)") {
 
-        aeocha.describe("identity") {
-            aeocha.it("name is 'kata'; runtime is the containerd shim-v2") callback {
-                aeocha.expect_str(name()).to_equal_str("kata")
-                aeocha.expect_str(kata_runtime()).to_equal_str("io.containerd.kata.v2")
+        spec.describe("identity") {
+            spec.it("name is 'kata'; runtime is the containerd shim-v2") callback {
+                spec.expect_str(name()).to_equal_str("kata")
+                spec.expect_str(kata_runtime()).to_equal_str("io.containerd.kata.v2")
             }
         }
 
-        aeocha.describe("run_argv — nerdctl run -d --runtime <kata> --name NAME IMAGE [cmd]") {
-            aeocha.it("carries `run` first, then the kata runtime + name + image") callback {
+        spec.describe("run_argv — nerdctl run -d --runtime <kata> --name NAME IMAGE [cmd]") {
+            spec.it("carries `run` first, then the kata runtime + name + image") callback {
                 av = run_argv("web", "docker.io/library/alpine:latest", "")
                 // --runtime is a `run` SUBCOMMAND flag: it comes AFTER `run`.
-                aeocha.expect_str(list_get_raw(av, 0)).to_equal_str("run")
-                aeocha.expect_str(list_get_raw(av, 1)).to_equal_str("-d")
-                aeocha.expect_str(list_get_raw(av, 2)).to_equal_str("--runtime")
-                aeocha.expect_str(list_get_raw(av, 3)).to_equal_str("io.containerd.kata.v2")
-                aeocha.expect_str(list_get_raw(av, 4)).to_equal_str("--name")
-                aeocha.expect_str(list_get_raw(av, 5)).to_equal_str("web")
-                aeocha.expect_str(list_get_raw(av, 6)).to_equal_str("docker.io/library/alpine:latest")
+                spec.expect_str(list_get_raw(av, 0)).to_equal_str("run")
+                spec.expect_str(list_get_raw(av, 1)).to_equal_str("-d")
+                spec.expect_str(list_get_raw(av, 2)).to_equal_str("--runtime")
+                spec.expect_str(list_get_raw(av, 3)).to_equal_str("io.containerd.kata.v2")
+                spec.expect_str(list_get_raw(av, 4)).to_equal_str("--name")
+                spec.expect_str(list_get_raw(av, 5)).to_equal_str("web")
+                spec.expect_str(list_get_raw(av, 6)).to_equal_str("docker.io/library/alpine:latest")
             }
-            aeocha.it("a command runs under /bin/sh -c") callback {
+            spec.it("a command runs under /bin/sh -c") callback {
                 av = run_argv("web", "alpine", "sleep 300")
-                aeocha.expect_int(list_size(av)).to_equal(10)
-                aeocha.expect_str(list_get_raw(av, 7)).to_equal_str("/bin/sh")
-                aeocha.expect_str(list_get_raw(av, 8)).to_equal_str("-c")
-                aeocha.expect_str(list_get_raw(av, 9)).to_equal_str("sleep 300")
+                spec.expect_int(list_size(av)).to_equal(10)
+                spec.expect_str(list_get_raw(av, 7)).to_equal_str("/bin/sh")
+                spec.expect_str(list_get_raw(av, 8)).to_equal_str("-c")
+                spec.expect_str(list_get_raw(av, 9)).to_equal_str("sleep 300")
             }
         }
 
-        aeocha.describe("rm_argv / ps_argv") {
-            aeocha.it("rm -f NAME (idempotent teardown)") callback {
+        spec.describe("rm_argv / ps_argv") {
+            spec.it("rm -f NAME (idempotent teardown)") callback {
                 av = rm_argv("web")
-                aeocha.expect_str(list_get_raw(av, 0)).to_equal_str("rm")
-                aeocha.expect_str(list_get_raw(av, 1)).to_equal_str("-f")
-                aeocha.expect_str(list_get_raw(av, 2)).to_equal_str("web")
+                spec.expect_str(list_get_raw(av, 0)).to_equal_str("rm")
+                spec.expect_str(list_get_raw(av, 1)).to_equal_str("-f")
+                spec.expect_str(list_get_raw(av, 2)).to_equal_str("web")
             }
-            aeocha.it("ps filters name + running") callback {
+            spec.it("ps filters name + running") callback {
                 av = ps_argv("web")
-                aeocha.expect_str(list_get_raw(av, 0)).to_equal_str("ps")
-                aeocha.expect_str(list_get_raw(av, 2)).to_equal_str("name=^web$")
-                aeocha.expect_str(list_get_raw(av, 4)).to_equal_str("status=running")
+                spec.expect_str(list_get_raw(av, 0)).to_equal_str("ps")
+                // UNANCHORED on purpose. `name=^web$` returns NOTHING on
+                // nerdctl 2.x (it no longer honours the regex-anchor form the
+                // older CLI did) — caught live on the Pi, where a running kata
+                // microVM was invisible to probe() so up() always "failed".
+                // The driver filters by SUBSTRING and exact-matches in probe();
+                // this spec had gone stale against that fix.
+                spec.expect_str(list_get_raw(av, 2)).to_equal_str("name=web")
+                spec.expect_str(list_get_raw(av, 4)).to_equal_str("status=running")
             }
         }
     }
-    aeocha.run_summary(fw)
+    spec.run_summary(fw)
 }

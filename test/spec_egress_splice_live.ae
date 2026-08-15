@@ -18,7 +18,7 @@
 // Reports HARNESS_UNAVAILABLE (a skip, not a failure) if the binary or python is
 // missing — the run-spec.sh wrapper builds the binary and stages the harness.
 
-import aeocha
+import std.spec
 import std.os (run_capture)
 import std.config
 import std.string
@@ -30,7 +30,7 @@ const GW_BIN  = "/tmp/aeo-egress-gateway-live"
 const HARNESS = "/tmp/egress_splice_harness.py"
 
 main() {
-    fw = aeocha.init()
+    fw = spec.init()
     out = _run_harness()
     config.put("splice.out", out)
 
@@ -42,19 +42,19 @@ main() {
         println("  (egress_splice_live: HARNESS_UNAVAILABLE — skipped; build gateway + python3 to run live)")
     }
 
-    aeocha.describe(fw, "egress_relay.splice — live full-duplex tunnel via the gateway binary") {
-        aeocha.it("full-duplex: relays a write-burst-then-drain the half-duplex pump would stall on") callback {
-            aeocha.expect_int(_ok("RESULT fullduplex PASS")).to_be_truthy()
+    spec.describe(fw, "egress_relay.splice — live full-duplex tunnel via the gateway binary") {
+        spec.it("full-duplex: relays a write-burst-then-drain the half-duplex pump would stall on") callback {
+            spec.expect_int(_ok("RESULT fullduplex PASS")).to_be_truthy()
         }
-        aeocha.it("deny: a non-allowlisted CONNECT is 403'd before the splice") callback {
-            aeocha.expect_int(_ok("RESULT deny PASS")).to_be_truthy()
+        spec.it("deny: a non-allowlisted CONNECT is 403'd before the splice") callback {
+            spec.expect_int(_ok("RESULT deny PASS")).to_be_truthy()
         }
-        aeocha.it("the harness reports overall PASS") callback {
-            aeocha.expect_int(_ok("RESULT summary PASS")).to_be_truthy()
+        spec.it("the harness reports overall PASS") callback {
+            spec.expect_int(_ok("RESULT summary PASS")).to_be_truthy()
         }
     }
 
-    aeocha.run_summary(fw)
+    spec.run_summary(fw)
 }
 
 // Run the python harness, passing the gateway binary path + ports. Capture stdout.

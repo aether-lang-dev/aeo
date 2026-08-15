@@ -18,7 +18,7 @@
 //
 //   sh test/run-spec.sh test/spec_driver_conformance.ae
 
-import aeocha
+import std.spec
 import driver_linux
 import driver_lxc
 import driver_vm
@@ -32,27 +32,27 @@ import std.string (string_length, string_index_of, string_substring)
 
 
 main() {
-    fw = aeocha.init()
-    aeocha.describe(fw, "driver conformance — the substrate contract (§item4)") {
+    fw = spec.init()
+    spec.describe(fw, "driver conformance — the substrate contract (§item4)") {
 
         // Every driver whole-imported above MUST expose name()/up/down/probe or this
         // file would not compile — so reaching this point already proves the shape.
-        aeocha.describe("identity: name() is non-empty for every driver") {
-            aeocha.it("all seven substrate drivers + stub report a name") callback {
-                aeocha.expect_str(driver_linux.name()).to_equal_str("linux")
-                aeocha.expect_str(driver_lxc.name()).to_equal_str("lxc")
-                aeocha.expect_str(driver_vm.name()).to_equal_str("vm")
-                aeocha.expect_str(driver_bsd.name()).to_equal_str("bsd")
-                aeocha.expect_str(driver_bwrap.name()).to_equal_str("bwrap")
-                aeocha.expect_str(driver_nspawn.name()).to_equal_str("nspawn")
-                aeocha.expect_str(driver_firecracker.name()).to_equal_str("firecracker")
-                aeocha.expect_str(driver_kata.name()).to_equal_str("kata")
-                aeocha.expect_str(driver_stub.name()).to_equal_str("stub")
+        spec.describe("identity: name() is non-empty for every driver") {
+            spec.it("all seven substrate drivers + stub report a name") callback {
+                spec.expect_str(driver_linux.name()).to_equal_str("linux")
+                spec.expect_str(driver_lxc.name()).to_equal_str("lxc")
+                spec.expect_str(driver_vm.name()).to_equal_str("vm")
+                spec.expect_str(driver_bsd.name()).to_equal_str("bsd")
+                spec.expect_str(driver_bwrap.name()).to_equal_str("bwrap")
+                spec.expect_str(driver_nspawn.name()).to_equal_str("nspawn")
+                spec.expect_str(driver_firecracker.name()).to_equal_str("firecracker")
+                spec.expect_str(driver_kata.name()).to_equal_str("kata")
+                spec.expect_str(driver_stub.name()).to_equal_str("stub")
             }
         }
 
-        aeocha.describe("identity: names are DISTINCT (no two drivers collide)") {
-            aeocha.it("each driver's name is unique across the fleet") callback {
+        spec.describe("identity: names are DISTINCT (no two drivers collide)") {
+            spec.it("each driver's name is unique across the fleet") callback {
                 // pairwise-distinct check: concatenate + assert each name appears once.
                 // (a collision would mean the kind->driver routing is ambiguous.)
                 // NB names hoisted to locals — a driver.name() call inside a ${} string
@@ -66,26 +66,26 @@ main() {
                 nf = driver_firecracker.name()
                 ns = driver_stub.name()
                 all = "|${nl}|${nx}|${nv}|${nb}|${nw}|${nn}|${nf}|${ns}|"
-                aeocha.expect_int(_count_occurrences(all, "|linux|")).to_equal(1)
-                aeocha.expect_int(_count_occurrences(all, "|bsd|")).to_equal(1)
-                aeocha.expect_int(_count_occurrences(all, "|firecracker|")).to_equal(1)
-                aeocha.expect_int(_count_occurrences(all, "|stub|")).to_equal(1)
+                spec.expect_int(_count_occurrences(all, "|linux|")).to_equal(1)
+                spec.expect_int(_count_occurrences(all, "|bsd|")).to_equal(1)
+                spec.expect_int(_count_occurrences(all, "|firecracker|")).to_equal(1)
+                spec.expect_int(_count_occurrences(all, "|stub|")).to_equal(1)
             }
         }
 
-        aeocha.describe("the stub driver is fail-loud (the contract's fallback arm)") {
-            aeocha.it("stub.up errors + stub.probe reports NOT alive — never pretends") callback {
+        spec.describe("the stub driver is fail-loud (the contract's fallback arm)") {
+            spec.it("stub.up errors + stub.probe reports NOT alive — never pretends") callback {
                 // driver_stub is selected for an unsupported host/kind; every entry
                 // point must fail clearly rather than pretend. up() returns non-"";
                 // probe() returns 0 (never falsely "up") — same int-probe signature as
                 // every real driver (a uniformity the conformance kit forced: the stub
                 // used to return a malformed tuple).
-                aeocha.expect_int(string_length(driver_stub.up("container", "x"))).to_be_gt(0)
-                aeocha.expect_int(driver_stub.probe("container", "x")).to_equal(0)
+                spec.expect_int(string_length(driver_stub.up("container", "x"))).to_be_gt(0)
+                spec.expect_int(driver_stub.probe("container", "x")).to_equal(0)
             }
         }
     }
-    aeocha.run_summary(fw)
+    spec.run_summary(fw)
 }
 
 // count non-overlapping occurrences of `needle` in `hay`.

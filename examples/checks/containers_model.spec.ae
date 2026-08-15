@@ -9,13 +9,12 @@
 // This is the aeb pattern: the composition is a pure declaration; its assertions
 // live alongside in a real spec you can also run standalone.
 
-import aeocha
+import std.spec
 import compose (system, container)
 import compose (image, expose, health, depends, env)
 import compose (health_retry, every, up_within, down_within)
 import compose (get_image, get_expose, get_depends, describe_tree)
 import std.string (string_from_int, string_concat)
-import std.string   // bare: inlined aeocha calls bare exports unqualified
 
 // The SAME declaration the example carries. Kept in sync with
 // examples/silly_addition_containers.ae (the model assertion is exactly this).
@@ -46,23 +45,23 @@ _declare() {
 
 main() {
     _declare()
-    fw = aeocha.init()
+    fw = spec.init()
 
-    aeocha.describe(fw, "silly_addition_containers — data model") {
-        aeocha.it("resolves to db + app with a dependency edge") callback {
+    spec.describe(fw, "silly_addition_containers — data model") {
+        spec.it("resolves to db + app with a dependency edge") callback {
             want = string_concat(string_concat(
                 "system silly_addition_containers:\n",
                 "  container db [image=docker.io/library/redis:alpine, expose=6379]\n"),
                 "  container app [image=localhost/aeo-examples/silly-add:latest, expose=8080] -> db")
-            aeocha.expect_str(describe_tree()).to_equal_str(want)
+            spec.expect_str(describe_tree()).to_equal_str(want)
         }
-        aeocha.it("db is redis on 6379; app exposes 8080 + depends on db") callback {
-            aeocha.expect_str(get_image("db")).to_equal_str("docker.io/library/redis:alpine")
-            aeocha.expect_str(string_from_int(get_expose("db"))).to_equal_str("6379")
-            aeocha.expect_str(string_from_int(get_expose("app"))).to_equal_str("8080")
-            aeocha.expect_str(get_depends("app")).to_equal_str("db")
+        spec.it("db is redis on 6379; app exposes 8080 + depends on db") callback {
+            spec.expect_str(get_image("db")).to_equal_str("docker.io/library/redis:alpine")
+            spec.expect_str(string_from_int(get_expose("db"))).to_equal_str("6379")
+            spec.expect_str(string_from_int(get_expose("app"))).to_equal_str("8080")
+            spec.expect_str(get_depends("app")).to_equal_str("db")
         }
     }
 
-    aeocha.run_summary(fw)
+    spec.run_summary(fw)
 }

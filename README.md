@@ -52,7 +52,7 @@ aeo pasta    compose.ae on   # rootless source-IP fidelity: switch the port forw
 The composition file is a **pure declaration** (no `main`, no self-test scaffold) —
 `aeo` is the executor, exactly as `aeb <target>.build.ae` runs a build declaration.
 A composition declares its OWN verification with first-class `check()`/`smoke()`/
-`suite()` verbs that name external aeocha specs; `aeo <phase> compose.ae` runs them.
+`suite()` verbs that name external `std.spec` specs; `aeo <phase> compose.ae` runs them.
 
 aeo is **not** a build system and **not** an aeb SDK. It is a third sibling to
 [`aether`](https://github.com/aether-lang-org/aether) (the language) and
@@ -441,13 +441,13 @@ lib/ipam/  lib/images/  IP allocation + the golden-image recipe/realizer
 lib/resource/         the actor↔main state bridge
 lib/driver_windows/  lib/driver_wslc/   Windows OCI engines (podman-in-WSL2 / MSFT's native wslc.exe)
 examples/             the substrate grid — twelve `db ◄ app` compositions (see examples/README.md)
-examples/checks/      the per-example check()/smoke()/suite() aeocha specs
+examples/checks/      the per-example check()/smoke()/suite() std.spec specs
 lib/reconcile/        desired-vs-actual property diff (drift detection under `aeo watch`/`reconcile`)
 lib/extract/          reality->code emitter (`aeo extract`/`inventory` — live containers to a composition)
 lib/supervisor/       the in-memory tree registry the aeo-supervisord daemon holds (this-boot's trees)
 bin/aeo-supervisord   resident holder of this-boot's trees; `aeo up` adopts by default (`--no-supervisor` opts out)
 bin/aeo-supervisor-install.sh  install aeo-supervisord as a boot service per init (systemd/OpenRC/rc.d, Restart=no)
-test/                 ~37 specs (fluent-aeocha style): driver/confinement/attest/audit/lifecycle/gpu/pasta/reconcile/policy/extract/conformance/ipfw/supervisor/kata + real-jail
+test/                 ~48 specs (fluent std.spec style): driver/confinement/attest/audit/lifecycle/gpu/pasta/reconcile/policy/extract/conformance/ipfw/supervisor/kata + real-jail
 test/conformance-behavioral.sh  the live driver-conformance lifecycle (create->probe->confine->stop->verify-gone) per substrate
 ```
 

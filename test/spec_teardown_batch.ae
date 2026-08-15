@@ -5,33 +5,33 @@
 // SIGTERM-ignoring docker containers on the dev box, 2026-07-06). The exec'ing
 // halves (down_many, the runner's reverse-level engine) are exercised live.
 
-import aeocha
+import std.spec
 import driver_linux (down_many_command)
 import std.string (string_contains)
 
 main() {
-    fw = aeocha.init()
+    fw = spec.init()
 
-    aeocha.describe(fw, "teardown batch (down_many_command)") {
+    spec.describe(fw, "teardown batch (down_many_command)") {
 
-        aeocha.it("backgrounds each node's stop+rm and waits for all") callback {
+        spec.it("backgrounds each node's stop+rm and waits for all") callback {
             got = down_many_command("db app", "podman")
             want = "for n in db app; do { podman stop -t 5 \"$n\"; podman rm -f \"$n\"; } >/dev/null 2>&1 & done; wait"
-            aeocha.assert_str_eq(got, want, "the one-sweep shell line")
+            spec.assert_str_eq(got, want, "the one-sweep shell line")
         }
 
-        aeocha.it("pins the chosen engine into every per-node job") callback {
+        spec.it("pins the chosen engine into every per-node job") callback {
             got = down_many_command("web", "docker")
-            aeocha.assert_true(string_contains(got, "docker stop -t 5"), "docker stop")
-            aeocha.assert_true(string_contains(got, "docker rm -f"), "docker rm")
+            spec.assert_true(string_contains(got, "docker stop -t 5"), "docker stop")
+            spec.assert_true(string_contains(got, "docker rm -f"), "docker rm")
         }
 
-        aeocha.it("keeps the stop grace bounded (-t 5) so a hung node can't stall the sweep past it") callback {
+        spec.it("keeps the stop grace bounded (-t 5) so a hung node can't stall the sweep past it") callback {
             got = down_many_command("a b c", "podman")
-            aeocha.assert_true(string_contains(got, "stop -t 5"), "bounded grace")
-            aeocha.assert_true(string_contains(got, "; wait"), "barrier at the end")
+            spec.assert_true(string_contains(got, "stop -t 5"), "bounded grace")
+            spec.assert_true(string_contains(got, "; wait"), "barrier at the end")
         }
     }
 
-    aeocha.run_summary(fw)
+    spec.run_summary(fw)
 }

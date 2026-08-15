@@ -11,7 +11,7 @@
 // run-spec.sh builds the binary but NOT the image, so this spec typically skips
 // under the plain suite and is exercised by the live `aeo up` proof instead.
 
-import aeocha
+import std.spec
 import compose (system, container, load_balancer, listens, publish, balance_to, reset_nodes)
 import driver_loadbalancer (up, down, probe, available)
 import std.config
@@ -33,7 +33,7 @@ _declare() {
 }
 
 main() {
-    fw = aeocha.init()
+    fw = spec.init()
     _declare()
 
     avail = available()
@@ -55,32 +55,32 @@ main() {
         config.put("lb.down_alive", "${pd}")
     }
 
-    aeocha.describe(fw, "driver_loadbalancer live lifecycle") {
-        aeocha.it("up() starts a tracked LB process") callback {
+    spec.describe(fw, "driver_loadbalancer live lifecycle") {
+        spec.it("up() starts a tracked LB process") callback {
             if _skip() == 1 {
-                aeocha.expect_int(1).to_equal(1)
+                spec.expect_int(1).to_equal(1)
             } else {
-                aeocha.expect_str(config.get("lb.up_err")).to_equal_str("")
-                aeocha.expect_str(config.get("lb.up_alive")).to_equal_str("1")
+                spec.expect_str(config.get("lb.up_err")).to_equal_str("")
+                spec.expect_str(config.get("lb.up_alive")).to_equal_str("1")
             }
         }
-        aeocha.it("the LB answers on its publish() port") callback {
+        spec.it("the LB answers on its publish() port") callback {
             if _skip() == 1 {
-                aeocha.expect_int(1).to_equal(1)
+                spec.expect_int(1).to_equal(1)
             } else {
-                aeocha.expect_str(config.get("lb.answers")).to_equal_str("1")
+                spec.expect_str(config.get("lb.answers")).to_equal_str("1")
             }
         }
-        aeocha.it("down() stops the tracked process") callback {
+        spec.it("down() stops the tracked process") callback {
             if _skip() == 1 {
-                aeocha.expect_int(1).to_equal(1)
+                spec.expect_int(1).to_equal(1)
             } else {
-                aeocha.expect_str(config.get("lb.down_alive")).to_equal_str("0")
+                spec.expect_str(config.get("lb.down_alive")).to_equal_str("0")
             }
         }
     }
 
-    aeocha.run_summary(fw)
+    spec.run_summary(fw)
 }
 
 _skip() -> int {

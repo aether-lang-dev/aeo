@@ -3,49 +3,49 @@
 // (each entry's prev = the prior entry's hash). The live record/verify (file +
 // sha256sum + tamper detection) is proven on the box; this pins the pure shape.
 
-import aeocha
+import std.spec
 import audit (line_for, _sha, _jq)
 import std.string (string_length, string_contains, string_index_of, string_substring)
 
 main() {
-    fw = aeocha.init()
+    fw = spec.init()
 
-    aeocha.describe(fw, "audit (tamper-evident trail, pure chain logic)") {
+    spec.describe(fw, "audit (tamper-evident trail, pure chain logic)") {
 
-        aeocha.it("_sha is real sha256 (known vector)") callback {
-            aeocha.expect_str(_sha("hello")).to_equal_str("2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824")
+        spec.it("_sha is real sha256 (known vector)") callback {
+            spec.expect_str(_sha("hello")).to_equal_str("2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824")
         }
 
-        aeocha.it("line_for embeds the payload + prev + a hash") callback {
+        spec.it("line_for embeds the payload + prev + a hash") callback {
             l = line_for("GENESIS", "db", "container", "attest-pass", "sha256:abc")
-            aeocha.expect_int(string_contains(l, "\"node\":\"db\"") == 1).to_be_truthy()
-            aeocha.expect_int(string_contains(l, "\"event\":\"attest-pass\"") == 1).to_be_truthy()
-            aeocha.expect_int(string_contains(l, "prev=GENESIS") == 1).to_be_truthy()
-            aeocha.expect_int(string_contains(l, "hash=") == 1).to_be_truthy()
+            spec.expect_int(string_contains(l, "\"node\":\"db\"") == 1).to_be_truthy()
+            spec.expect_int(string_contains(l, "\"event\":\"attest-pass\"") == 1).to_be_truthy()
+            spec.expect_int(string_contains(l, "prev=GENESIS") == 1).to_be_truthy()
+            spec.expect_int(string_contains(l, "hash=") == 1).to_be_truthy()
         }
 
-        aeocha.it("the chain LINKS — entry N's prev is entry N-1's hash") callback {
+        spec.it("the chain LINKS — entry N's prev is entry N-1's hash") callback {
             l1 = line_for("GENESIS", "db", "container", "attest-pass", "x")
             h1 = _hash_of(l1)
             l2 = line_for(h1, "app", "container", "up", "ok")
-            aeocha.expect_int(string_contains(l2, "prev=${h1}") == 1).to_be_truthy()
+            spec.expect_int(string_contains(l2, "prev=${h1}") == 1).to_be_truthy()
         }
 
-        aeocha.it("a changed payload yields a different hash (tamper sensitivity)") callback {
+        spec.it("a changed payload yields a different hash (tamper sensitivity)") callback {
             a = _sha("GENESIS-attest-pass")
             b = _sha("GENESIS-attest-FAKE")
             same = "1"
             if string_length(a) != string_length(b) { same = "0" }
             else { if string_contains(a, b) == 0 { same = "0" } }
-            aeocha.expect_str(same).to_equal_str("0")
+            spec.expect_str(same).to_equal_str("0")
         }
 
-        aeocha.it("_jq escapes quotes (the JSON payload is safe)") callback {
-            aeocha.expect_str(_jq("a\"b")).to_equal_str("a\\\"b")
+        spec.it("_jq escapes quotes (the JSON payload is safe)") callback {
+            spec.expect_str(_jq("a\"b")).to_equal_str("a\\\"b")
         }
     }
 
-    aeocha.run_summary(fw)
+    spec.run_summary(fw)
 }
 
 // pull the hash= field out of a line (test helper).

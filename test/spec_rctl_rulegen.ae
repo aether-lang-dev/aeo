@@ -9,14 +9,13 @@
 // Where pf (spec_pf_rulegen) stops a node REACHING peers, rctl stops it
 // STARVING the host — the exhaustion-DoS half of containment.
 
-import aeocha
+import std.spec
 import compose (limit, limit_mem, limit_cpu, limit_maxproc, limit_openfiles, get_rctl)
 import rctl (rules_for, apply)
 import std.string (string_contains)
-import std.string   // bare: inlined aeocha calls bare exports unqualified
 
 main() {
-    fw = aeocha.init()
+    fw = spec.init()
 
     // A node with a full set of caps (the apex db_vm could carry these).
     limit("db_vm") {
@@ -26,35 +25,35 @@ main() {
         limit_openfiles(4096)
     }
 
-    aeocha.describe(fw, "limit{} -> rctl deny rules (exhaustion-DoS caps)") {
+    spec.describe(fw, "limit{} -> rctl deny rules (exhaustion-DoS caps)") {
 
-        aeocha.describe("the caps are recorded") {
-            aeocha.it("get_rctl accumulates every limit_* setter") callback {
-                aeocha.expect_str(get_rctl("db_vm")).to_equal_str("memoryuse=2G, pcpu=150, maxproc=512, openfiles=4096")
+        spec.describe("the caps are recorded") {
+            spec.it("get_rctl accumulates every limit_* setter") callback {
+                spec.expect_str(get_rctl("db_vm")).to_equal_str("memoryuse=2G, pcpu=150, maxproc=512, openfiles=4096")
             }
         }
 
-        aeocha.describe("rendered as rctl rules for a jail subject") {
-            aeocha.it("each cap becomes jail:<vm>:RES:deny=AMT") callback {
+        spec.describe("rendered as rctl rules for a jail subject") {
+            spec.it("each cap becomes jail:<vm>:RES:deny=AMT") callback {
                 r = rules_for("db_vm", "jail")
-                aeocha.expect_int(_has(r, "jail:db_vm:memoryuse:deny=2G")).to_be_truthy()
-                aeocha.expect_int(_has(r, "jail:db_vm:pcpu:deny=150")).to_be_truthy()
-                aeocha.expect_int(_has(r, "jail:db_vm:maxproc:deny=512")).to_be_truthy()
-                aeocha.expect_int(_has(r, "jail:db_vm:openfiles:deny=4096")).to_be_truthy()
+                spec.expect_int(_has(r, "jail:db_vm:memoryuse:deny=2G")).to_be_truthy()
+                spec.expect_int(_has(r, "jail:db_vm:pcpu:deny=150")).to_be_truthy()
+                spec.expect_int(_has(r, "jail:db_vm:maxproc:deny=512")).to_be_truthy()
+                spec.expect_int(_has(r, "jail:db_vm:openfiles:deny=4096")).to_be_truthy()
             }
         }
 
-        aeocha.describe("the subject is parameterized (bhyve VM = a process)") {
-            aeocha.it("renders for a process subject too") callback {
+        spec.describe("the subject is parameterized (bhyve VM = a process)") {
+            spec.it("renders for a process subject too") callback {
                 r = rules_for("db_vm", "process")
-                aeocha.expect_int(_has(r, "process:db_vm:memoryuse:deny=2G")).to_be_truthy()
+                spec.expect_int(_has(r, "process:db_vm:memoryuse:deny=2G")).to_be_truthy()
             }
         }
 
-        aeocha.describe("a node with no limits") {
-            aeocha.it("renders nothing (no caps -> no rules)") callback {
+        spec.describe("a node with no limits") {
+            spec.it("renders nothing (no caps -> no rules)") callback {
                 r = rules_for("unlimited_vm", "jail")
-                aeocha.expect_str(r).to_equal_str("")
+                spec.expect_str(r).to_equal_str("")
             }
         }
 
@@ -62,27 +61,27 @@ main() {
         // can hit the orchestrator's own identity and starve the control plane
         // (a user:<operator>:vmemoryuse:deny blocks sshd forks -> lockout, found
         // the hard way 2026-06-25). Only jail/process (node-scoped) are allowed.
-        aeocha.describe("never-cap-the-orchestrator guard") {
-            aeocha.it("rules_for REFUSES a user subject (empty, not a user: rule)") callback {
+        spec.describe("never-cap-the-orchestrator guard") {
+            spec.it("rules_for REFUSES a user subject (empty, not a user: rule)") callback {
                 r = rules_for("db_vm", "user")
-                aeocha.expect_str(r).to_equal_str("")
+                spec.expect_str(r).to_equal_str("")
             }
-            aeocha.it("rules_for REFUSES loginclass too") callback {
+            spec.it("rules_for REFUSES loginclass too") callback {
                 r = rules_for("db_vm", "loginclass")
-                aeocha.expect_str(r).to_equal_str("")
+                spec.expect_str(r).to_equal_str("")
             }
-            aeocha.it("apply REFUSES a user subject LOUDLY (error, not silent no-op)") callback {
+            spec.it("apply REFUSES a user subject LOUDLY (error, not silent no-op)") callback {
                 e = apply("db_vm", "user")
-                aeocha.expect_int(_has(e, "REFUSED")).to_be_truthy()
+                spec.expect_int(_has(e, "REFUSED")).to_be_truthy()
             }
-            aeocha.it("jail + process subjects ARE allowed") callback {
-                aeocha.expect_int(_has(rules_for("db_vm", "jail"), "jail:db_vm:")).to_be_truthy()
-                aeocha.expect_int(_has(rules_for("db_vm", "process"), "process:db_vm:")).to_be_truthy()
+            spec.it("jail + process subjects ARE allowed") callback {
+                spec.expect_int(_has(rules_for("db_vm", "jail"), "jail:db_vm:")).to_be_truthy()
+                spec.expect_int(_has(rules_for("db_vm", "process"), "process:db_vm:")).to_be_truthy()
             }
         }
     }
 
-    aeocha.run_summary(fw)
+    spec.run_summary(fw)
 }
 
 _has(hay: string, needle: string) -> int {

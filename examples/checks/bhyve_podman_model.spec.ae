@@ -9,14 +9,13 @@
 // This is the aeb pattern: the composition is a pure declaration; its assertions
 // live alongside in a real spec you can also run standalone.
 
-import aeocha
+import std.spec
 import compose (system, bhyve_vm, container)
 import compose (image, cpus, memory, guest_image, network, ssh_key, health, expose, depends)
 import compose (suspend, constrain, grant_fd, egress, ingress, ingress_from, deny_egress, start)
 import compose (get_suspended, get_started, get_constraints, get_netpolicy, describe_tree)
 import std.os
 import std.string (string_length, string_concat)
-import std.string   // bare: inlined aeocha calls bare exports unqualified
 
 // The SAME declaration the example carries. Kept in sync with
 // examples/silly_addition_bhyve_podman.ae (the model assertion is exactly this).
@@ -82,10 +81,10 @@ _guest_image() -> string {
 
 main() {
     _declare()
-    fw = aeocha.init()
+    fw = spec.init()
 
-    aeocha.describe(fw, "silly_addition_bhyve_podman — data model") {
-        aeocha.it("resolves to two top-level VMs, each with its OWN confinement") callback {
+    spec.describe(fw, "silly_addition_bhyve_podman — data model") {
+        spec.it("resolves to two top-level VMs, each with its OWN confinement") callback {
             // Built with ${gi} interpolation (a <<TREE heredoc is RAW — it would
             // NOT interpolate) so the snapshot tracks AEO_GUEST_IMAGE: the check
             // stays correct on any lib/images/ guest, not just the default.
@@ -96,25 +95,25 @@ main() {
             ln4 = "  bhyve python_vm [guest=${gi}, cpus=2, mem=2G, confined: disk(/zroot/vm/python_vm/disk0.img)=rd,wr, net(tap1)=rd,wr, console(nmdm-python_vm)=rd,wr, net{egress->db_vm:6379, ingress:8080; deny rest}]\n"
             ln5 = "    container app [image=localhost/aeo-examples/silly-add:latest, expose=8080] -> db"
             want = string_concat(string_concat(string_concat(ln1, ln2), string_concat(ln3, ln4)), ln5)
-            aeocha.expect_str(describe_tree()).to_equal_str(want)
+            spec.expect_str(describe_tree()).to_equal_str(want)
         }
 
-        aeocha.it("each VM's constrain block names ITS OWN VM (no floating block)") callback {
-            aeocha.expect_str(get_suspended("db_vm")).to_equal_str("1")
-            aeocha.expect_str(get_started("db_vm")).to_equal_str("1")
-            aeocha.expect_str(get_constraints("db_vm")).to_equal_str("disk(/zroot/vm/db_vm/disk0.img)=rd,wr, net(tap0)=rd,wr, console(nmdm-db_vm)=rd,wr")
-            aeocha.expect_str(get_suspended("python_vm")).to_equal_str("1")
-            aeocha.expect_str(get_constraints("python_vm")).to_equal_str("disk(/zroot/vm/python_vm/disk0.img)=rd,wr, net(tap1)=rd,wr, console(nmdm-python_vm)=rd,wr")
+        spec.it("each VM's constrain block names ITS OWN VM (no floating block)") callback {
+            spec.expect_str(get_suspended("db_vm")).to_equal_str("1")
+            spec.expect_str(get_started("db_vm")).to_equal_str("1")
+            spec.expect_str(get_constraints("db_vm")).to_equal_str("disk(/zroot/vm/db_vm/disk0.img)=rd,wr, net(tap0)=rd,wr, console(nmdm-db_vm)=rd,wr")
+            spec.expect_str(get_suspended("python_vm")).to_equal_str("1")
+            spec.expect_str(get_constraints("python_vm")).to_equal_str("disk(/zroot/vm/python_vm/disk0.img)=rd,wr, net(tap1)=rd,wr, console(nmdm-python_vm)=rd,wr")
         }
 
-        aeocha.it("python_vm's workload-mode network is a deny-all whitelist") callback {
-            aeocha.expect_str(get_netpolicy("python_vm")).to_equal_str("egress->db_vm:6379, ingress:8080")
+        spec.it("python_vm's workload-mode network is a deny-all whitelist") callback {
+            spec.expect_str(get_netpolicy("python_vm")).to_equal_str("egress->db_vm:6379, ingress:8080")
         }
 
-        aeocha.it("db_vm answers 6379 to python_vm ONLY, and BLOCKS all egress") callback {
-            aeocha.expect_str(get_netpolicy("db_vm")).to_equal_str("ingress:6379<-python_vm, egress:DENY-ALL")
+        spec.it("db_vm answers 6379 to python_vm ONLY, and BLOCKS all egress") callback {
+            spec.expect_str(get_netpolicy("db_vm")).to_equal_str("ingress:6379<-python_vm, egress:DENY-ALL")
         }
     }
 
-    aeocha.run_summary(fw)
+    spec.run_summary(fw)
 }

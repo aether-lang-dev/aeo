@@ -8,37 +8,37 @@
 //
 //   sh test/run-spec.sh test/spec_cutover.ae
 
-import aeocha
+import std.spec
 import driver_linux (net_disconnect_argv, net_connect_alias_argv)
 import std.string
 
 main() {
-    fw = aeocha.init()
-    aeocha.describe(fw, "lib/driver_linux — blue-green cutover argv") {
+    fw = spec.init()
+    spec.describe(fw, "lib/driver_linux — blue-green cutover argv") {
 
-        aeocha.describe("net_disconnect_argv") {
-            aeocha.it("builds `network disconnect NET NAME`") callback {
+        spec.describe("net_disconnect_argv") {
+            spec.it("builds `network disconnect NET NAME`") callback {
                 av = net_disconnect_argv("aeo-web", "web")
-                aeocha.expect_int(list_size(av)).to_equal(4)
-                aeocha.expect_str(list_get_raw(av, 0)).to_equal_str("network")
-                aeocha.expect_str(list_get_raw(av, 1)).to_equal_str("disconnect")
-                aeocha.expect_str(list_get_raw(av, 2)).to_equal_str("aeo-web")
-                aeocha.expect_str(list_get_raw(av, 3)).to_equal_str("web")
+                spec.expect_int(list_size(av)).to_equal(4)
+                spec.expect_str(list_get_raw(av, 0)).to_equal_str("network")
+                spec.expect_str(list_get_raw(av, 1)).to_equal_str("disconnect")
+                spec.expect_str(list_get_raw(av, 2)).to_equal_str("aeo-web")
+                spec.expect_str(list_get_raw(av, 3)).to_equal_str("web")
             }
         }
 
-        aeocha.describe("net_connect_alias_argv (the cutover instant)") {
-            aeocha.it("builds `network connect --alias ALIAS NET NAME`") callback {
+        spec.describe("net_connect_alias_argv (the cutover instant)") {
+            spec.it("builds `network connect --alias ALIAS NET NAME`") callback {
                 av = net_connect_alias_argv("aeo-web", "web-green", "web")
-                aeocha.expect_int(list_size(av)).to_equal(6)
-                aeocha.expect_str(list_get_raw(av, 0)).to_equal_str("network")
-                aeocha.expect_str(list_get_raw(av, 1)).to_equal_str("connect")
-                aeocha.expect_str(list_get_raw(av, 2)).to_equal_str("--alias")
-                aeocha.expect_str(list_get_raw(av, 3)).to_equal_str("web")       // the SERVICE alias
-                aeocha.expect_str(list_get_raw(av, 4)).to_equal_str("aeo-web")   // the net
-                aeocha.expect_str(list_get_raw(av, 5)).to_equal_str("web-green") // green owns it now
+                spec.expect_int(list_size(av)).to_equal(6)
+                spec.expect_str(list_get_raw(av, 0)).to_equal_str("network")
+                spec.expect_str(list_get_raw(av, 1)).to_equal_str("connect")
+                spec.expect_str(list_get_raw(av, 2)).to_equal_str("--alias")
+                spec.expect_str(list_get_raw(av, 3)).to_equal_str("web")       // the SERVICE alias
+                spec.expect_str(list_get_raw(av, 4)).to_equal_str("aeo-web")   // the net
+                spec.expect_str(list_get_raw(av, 5)).to_equal_str("web-green") // green owns it now
             }
         }
     }
-    aeocha.run_summary(fw)
+    spec.run_summary(fw)
 }

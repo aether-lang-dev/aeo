@@ -1,7 +1,7 @@
 // spec_egress_relay.ae — pure CONNECT-gateway core for egress_fqdn.
 // No sockets here: this pins the parse/decision behavior before runtime wiring.
 
-import aeocha
+import std.spec
 import egress_relay (
     is_connect, connect_host, connect_port, host_allowed,
     decision_status, decision_reason, response_for_status,
@@ -10,64 +10,64 @@ import egress_relay (
 import std.string
 
 main() {
-    fw = aeocha.init()
+    fw = spec.init()
 
-    aeocha.describe(fw, "egress_relay CONNECT decision core") {
-        aeocha.describe("CONNECT parsing") {
-            aeocha.it("extracts lowercase host and port from the first line") callback {
+    spec.describe(fw, "egress_relay CONNECT decision core") {
+        spec.describe("CONNECT parsing") {
+            spec.it("extracts lowercase host and port from the first line") callback {
                 req = "CONNECT API.GitHub.com:443 HTTP/1.1\r\nHost: API.GitHub.com:443\r\n\r\n"
-                aeocha.expect_int(is_connect(req)).to_be_truthy()
-                aeocha.expect_str(connect_host(req)).to_equal_str("api.github.com")
-                aeocha.expect_int(connect_port(req)).to_equal(443)
+                spec.expect_int(is_connect(req)).to_be_truthy()
+                spec.expect_str(connect_host(req)).to_equal_str("api.github.com")
+                spec.expect_int(connect_port(req)).to_equal(443)
             }
-            aeocha.it("rejects non-CONNECT and malformed authorities") callback {
-                aeocha.expect_int(is_connect("GET / HTTP/1.1\r\n\r\n")).to_equal(0)
-                aeocha.expect_str(connect_host("CONNECT api.github.com HTTP/1.1\r\n\r\n")).to_equal_str("")
-                aeocha.expect_int(connect_port("CONNECT api.github.com:abc HTTP/1.1\r\n\r\n")).to_equal(0)
-                aeocha.expect_int(connect_port("CONNECT api.github.com:70000 HTTP/1.1\r\n\r\n")).to_equal(0)
+            spec.it("rejects non-CONNECT and malformed authorities") callback {
+                spec.expect_int(is_connect("GET / HTTP/1.1\r\n\r\n")).to_equal(0)
+                spec.expect_str(connect_host("CONNECT api.github.com HTTP/1.1\r\n\r\n")).to_equal_str("")
+                spec.expect_int(connect_port("CONNECT api.github.com:abc HTTP/1.1\r\n\r\n")).to_equal(0)
+                spec.expect_int(connect_port("CONNECT api.github.com:70000 HTTP/1.1\r\n\r\n")).to_equal(0)
             }
         }
 
-        aeocha.describe("allowlist decision") {
-            aeocha.it("allows exact host matches, case-insensitively") callback {
+        spec.describe("allowlist decision") {
+            spec.it("allows exact host matches, case-insensitively") callback {
                 allow = "api.github.com, api.anthropic.com"
-                aeocha.expect_int(host_allowed(allow, "API.GITHUB.COM")).to_be_truthy()
-                aeocha.expect_int(host_allowed(allow, "uploads.github.com")).to_equal(0)
+                spec.expect_int(host_allowed(allow, "API.GITHUB.COM")).to_be_truthy()
+                spec.expect_int(host_allowed(allow, "uploads.github.com")).to_equal(0)
             }
-            aeocha.it("returns 200 for allowed CONNECT before the splice") callback {
+            spec.it("returns 200 for allowed CONNECT before the splice") callback {
                 req = "CONNECT api.github.com:443 HTTP/1.1\r\n\r\n"
-                aeocha.expect_int(decision_status(req, "api.github.com")).to_equal(200)
-                aeocha.expect_str(decision_reason(req, "api.github.com")).to_equal_str("allow")
-                aeocha.expect_int(_has(response_for_status(200), "200 Connection Established")).to_be_truthy()
+                spec.expect_int(decision_status(req, "api.github.com")).to_equal(200)
+                spec.expect_str(decision_reason(req, "api.github.com")).to_equal_str("allow")
+                spec.expect_int(_has(response_for_status(200), "200 Connection Established")).to_be_truthy()
             }
-            aeocha.it("returns 403 for a well-formed but unlisted host") callback {
+            spec.it("returns 403 for a well-formed but unlisted host") callback {
                 req = "CONNECT example.com:443 HTTP/1.1\r\n\r\n"
-                aeocha.expect_int(decision_status(req, "api.github.com")).to_equal(403)
-                aeocha.expect_str(decision_reason(req, "api.github.com")).to_equal_str("deny:not-allowlisted")
-                aeocha.expect_int(_has(response_for_status(403), "403 Forbidden")).to_be_truthy()
+                spec.expect_int(decision_status(req, "api.github.com")).to_equal(403)
+                spec.expect_str(decision_reason(req, "api.github.com")).to_equal_str("deny:not-allowlisted")
+                spec.expect_int(_has(response_for_status(403), "403 Forbidden")).to_be_truthy()
             }
-            aeocha.it("returns 400 for bad CONNECT shape") callback {
+            spec.it("returns 400 for bad CONNECT shape") callback {
                 req = "CONNECT api.github.com HTTP/1.1\r\n\r\n"
-                aeocha.expect_int(decision_status(req, "api.github.com")).to_equal(400)
-                aeocha.expect_str(decision_reason(req, "api.github.com")).to_equal_str("deny:bad-connect")
-                aeocha.expect_int(_has(response_for_status(400), "400 Bad Request")).to_be_truthy()
+                spec.expect_int(decision_status(req, "api.github.com")).to_equal(400)
+                spec.expect_str(decision_reason(req, "api.github.com")).to_equal_str("deny:bad-connect")
+                spec.expect_int(_has(response_for_status(400), "400 Bad Request")).to_be_truthy()
             }
         }
 
-        aeocha.describe("runtime splice readiness") {
-            aeocha.it("claims opaque TCP splice support once std.tcp is length-aware") callback {
-                aeocha.expect_int(splice_supported()).to_equal(1)
-                aeocha.expect_str(splice_blocker()).to_equal_str("")
+        spec.describe("runtime splice readiness") {
+            spec.it("claims opaque TCP splice support once std.tcp is length-aware") callback {
+                spec.expect_int(splice_supported()).to_equal(1)
+                spec.expect_str(splice_blocker()).to_equal_str("")
             }
-            aeocha.it("write_all treats empty prefixes as a successful no-op") callback {
+            spec.it("write_all treats empty prefixes as a successful no-op") callback {
                 wrote, err = write_all(null, "", 0)
-                aeocha.expect_int(wrote).to_equal(0)
-                aeocha.expect_str(err).to_equal_str("")
+                spec.expect_int(wrote).to_equal(0)
+                spec.expect_str(err).to_equal_str("")
             }
         }
     }
 
-    aeocha.run_summary(fw)
+    spec.run_summary(fw)
 }
 
 _has(hay: string, needle: string) -> int {

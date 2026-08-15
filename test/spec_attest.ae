@@ -3,44 +3,44 @@
 // The live verify (resolve actual digest, compare, fail-closed) is proven on the
 // box; this pins the pure logic off-box.
 
-import aeocha
+import std.spec
 import attest (is_attested, pinned_ref, verify, attest_state)
 import std.string (string_length)
 
 main() {
-    fw = aeocha.init()
+    fw = spec.init()
 
-    aeocha.describe(fw, "attest (image attestation, pure surface)") {
+    spec.describe(fw, "attest (image attestation, pure surface)") {
 
-        aeocha.it("is_attested: a pinned digest is attested; empty is not") callback {
-            aeocha.expect_int(is_attested("sha256:abc")).to_be_truthy()
-            aeocha.expect_int(is_attested("")).to_be_falsy()
+        spec.it("is_attested: a pinned digest is attested; empty is not") callback {
+            spec.expect_int(is_attested("sha256:abc")).to_be_truthy()
+            spec.expect_int(is_attested("")).to_be_falsy()
         }
 
-        aeocha.it("pinned_ref builds image@<digest> (run-by-digest), stripping the tag") callback {
-            aeocha.expect_str(pinned_ref("docker.io/library/redis:alpine", "sha256:abc")).to_equal_str("docker.io/library/redis@sha256:abc")
-            aeocha.expect_str(pinned_ref("alpine", "sha256:def")).to_equal_str("alpine@sha256:def")
-            aeocha.expect_str(pinned_ref("redis:alpine", "")).to_equal_str("redis:alpine")
+        spec.it("pinned_ref builds image@<digest> (run-by-digest), stripping the tag") callback {
+            spec.expect_str(pinned_ref("docker.io/library/redis:alpine", "sha256:abc")).to_equal_str("docker.io/library/redis@sha256:abc")
+            spec.expect_str(pinned_ref("alpine", "sha256:def")).to_equal_str("alpine@sha256:def")
+            spec.expect_str(pinned_ref("redis:alpine", "")).to_equal_str("redis:alpine")
         }
 
-        aeocha.it("a registry host:port prefix is NOT mistaken for the tag colon") callback {
+        spec.it("a registry host:port prefix is NOT mistaken for the tag colon") callback {
             // localhost:5000/app:v1 -> the tag is :v1 (after the last /), NOT :5000.
-            aeocha.expect_str(pinned_ref("localhost:5000/app:v1", "sha256:x")).to_equal_str("localhost:5000/app@sha256:x")
+            spec.expect_str(pinned_ref("localhost:5000/app:v1", "sha256:x")).to_equal_str("localhost:5000/app@sha256:x")
         }
 
-        aeocha.it("verify with no pinned digest is an internal error (caller guards)") callback {
+        spec.it("verify with no pinned digest is an internal error (caller guards)") callback {
             v = verify("docker.io/library/redis:alpine", "")
-            aeocha.expect_int(string_length(v) > 0).to_be_truthy()
+            spec.expect_int(string_length(v) > 0).to_be_truthy()
         }
 
-        aeocha.it("attest_state names all THREE postures (the audit grep targets)") callback {
+        spec.it("attest_state names all THREE postures (the audit grep targets)") callback {
             // pinned -> attested; pulled-but-unpinned -> unpinned (a finding);
             // built-locally -> unattestable (no upstream digest to pin).
-            aeocha.expect_str(attest_state("sha256:x", "redis", 0)).to_equal_str("attested")
-            aeocha.expect_str(attest_state("", "redis", 0)).to_equal_str("unpinned")
-            aeocha.expect_str(attest_state("", "", 1)).to_equal_str("unattestable")
+            spec.expect_str(attest_state("sha256:x", "redis", 0)).to_equal_str("attested")
+            spec.expect_str(attest_state("", "redis", 0)).to_equal_str("unpinned")
+            spec.expect_str(attest_state("", "", 1)).to_equal_str("unattestable")
         }
     }
 
-    aeocha.run_summary(fw)
+    spec.run_summary(fw)
 }

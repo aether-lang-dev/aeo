@@ -9,13 +9,12 @@
 // This is the aeb pattern: the composition is a pure declaration; its assertions
 // live alongside in a real spec you can also run standalone.
 
-import aeocha
+import std.spec
 import compose (system, kvm_vm, container)
 import compose (cpus, memory, image, nic, expose, health, depends, env)
 import compose (get_image, get_expose, get_depends, get_host, describe_tree)
 import std.os
 import std.string (string_length, string_concat)
-import std.string   // bare: inlined aeocha calls bare exports unqualified
 
 // The image helpers track the SAME env the example uses, so the snapshot follows
 // AEO_DB_IMAGE / AEO_APP_IMAGE exactly as the runner's `check` mode did.
@@ -67,10 +66,10 @@ _declare() {
 
 main() {
     _declare()
-    fw = aeocha.init()
+    fw = spec.init()
 
-    aeocha.describe(fw, "silly_addition_kvm_podman — data model") {
-        aeocha.it("resolves to two KVM VMs, each with a container inside") callback {
+    spec.describe(fw, "silly_addition_kvm_podman — data model") {
+        spec.it("resolves to two KVM VMs, each with a container inside") callback {
             d = _db_image()
             a = _app_image()
             ln1 = "system silly_addition_kvm_podman:\n"
@@ -79,15 +78,15 @@ main() {
             ln4 = "  kvm app_vm [image=${a}]\n"
             ln5 = "    container app [image=localhost/aeo-examples/silly-add:latest, expose=8080] -> db"
             want = string_concat(string_concat(string_concat(ln1, ln2), string_concat(ln3, ln4)), ln5)
-            aeocha.expect_str(describe_tree()).to_equal_str(want)
+            spec.expect_str(describe_tree()).to_equal_str(want)
         }
 
-        aeocha.it("each container is nested INSIDE its own VM (the host edge)") callback {
-            aeocha.expect_str(get_host("db")).to_equal_str("db_vm")
-            aeocha.expect_str(get_host("app")).to_equal_str("app_vm")
-            aeocha.expect_str(get_depends("app")).to_equal_str("db")
+        spec.it("each container is nested INSIDE its own VM (the host edge)") callback {
+            spec.expect_str(get_host("db")).to_equal_str("db_vm")
+            spec.expect_str(get_host("app")).to_equal_str("app_vm")
+            spec.expect_str(get_depends("app")).to_equal_str("db")
         }
     }
 
-    aeocha.run_summary(fw)
+    spec.run_summary(fw)
 }

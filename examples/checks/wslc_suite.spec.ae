@@ -13,13 +13,12 @@
 // The wslc driver's integration test carries the real hostname/containment probe;
 // this spec re-asserts the DATA MODEL so the suite phase has a concrete pass.
 
-import aeocha
+import std.spec
 import compose (system, container, engine)
 import compose (image, command, health, depends)
 import compose (get_command, get_depends, describe_tree)
 import std.os
 import std.string (string_length, string_concat)
-import std.string   // bare: inlined aeocha calls bare exports unqualified
 
 _declare() {
     system("silly_addition_wslc") {
@@ -48,23 +47,23 @@ _image() -> string {
 
 main() {
     _declare()
-    fw = aeocha.init()
+    fw = spec.init()
 
-    aeocha.describe(fw, "silly_addition_wslc — post-deploy suite") {
+    spec.describe(fw, "silly_addition_wslc — post-deploy suite") {
         // Live containment (own hostname/namespace under Windows) is proven by the
         // wslc itest driver, which can `aeo exec` the live tree. Here we re-assert
         // the resolved model so the suite phase records a concrete pass.
-        aeocha.it("the deployed tree matches the declared model (db <- app)") callback {
+        spec.it("the deployed tree matches the declared model (db <- app)") callback {
             img = _image()
             want = string_concat(string_concat(
                 "system silly_addition_wslc:\n",
                 "  container db [image=${img}]\n"),
                 "  container app [image=${img}] -> db")
-            aeocha.expect_str(describe_tree()).to_equal_str(want)
-            aeocha.expect_str(get_command("db")).to_equal_str("sleep 600")
-            aeocha.expect_str(get_depends("app")).to_equal_str("db")
+            spec.expect_str(describe_tree()).to_equal_str(want)
+            spec.expect_str(get_command("db")).to_equal_str("sleep 600")
+            spec.expect_str(get_depends("app")).to_equal_str("db")
         }
     }
 
-    aeocha.run_summary(fw)
+    spec.run_summary(fw)
 }

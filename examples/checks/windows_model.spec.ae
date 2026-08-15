@@ -9,13 +9,12 @@
 // This is the aeb pattern: the composition is a pure declaration; its assertions
 // live alongside in a real spec you can also run standalone.
 
-import aeocha
+import std.spec
 import compose (system, container, engine)
 import compose (image, command, health, depends, wsl_distro)
 import compose (get_image, get_command, get_depends, get_engine, describe_tree)
 import std.os
 import std.string (string_length, string_concat)
-import std.string   // bare: inlined aeocha calls bare exports unqualified
 
 // The container image every node runs. AEO_WIN_IMAGE overrides (default a small
 // stock image every podman can pull). Kept in sync with the example's _image().
@@ -59,26 +58,26 @@ _declare() {
 
 main() {
     _declare()
-    fw = aeocha.init()
+    fw = spec.init()
 
-    aeocha.describe(fw, "silly_addition_windows — data model") {
-        aeocha.it("resolves to two containers with a dependency edge") callback {
+    spec.describe(fw, "silly_addition_windows — data model") {
+        spec.it("resolves to two containers with a dependency edge") callback {
             img = _image()
             want = string_concat(string_concat(
                 "system silly_addition_windows:\n",
                 "  container db [image=${img}]\n"),
                 "  container app [image=${img}] -> db")
-            aeocha.expect_str(describe_tree()).to_equal_str(want)
+            spec.expect_str(describe_tree()).to_equal_str(want)
         }
-        aeocha.it("both run a long-lived payload; app depends on db") callback {
-            aeocha.expect_str(get_command("db")).to_equal_str("sleep 600")
-            aeocha.expect_str(get_depends("app")).to_equal_str("db")
+        spec.it("both run a long-lived payload; app depends on db") callback {
+            spec.expect_str(get_command("db")).to_equal_str("sleep 600")
+            spec.expect_str(get_depends("app")).to_equal_str("db")
         }
-        aeocha.it("the wsl_podman engine floats onto both nodes") callback {
-            aeocha.expect_str(get_engine("db")).to_equal_str("wsl_podman")
-            aeocha.expect_str(get_engine("app")).to_equal_str("wsl_podman")
+        spec.it("the wsl_podman engine floats onto both nodes") callback {
+            spec.expect_str(get_engine("db")).to_equal_str("wsl_podman")
+            spec.expect_str(get_engine("app")).to_equal_str("wsl_podman")
         }
     }
 
-    aeocha.run_summary(fw)
+    spec.run_summary(fw)
 }

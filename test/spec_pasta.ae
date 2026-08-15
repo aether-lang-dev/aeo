@@ -14,31 +14,31 @@
 //
 //   sh test/run-spec.sh test/spec_pasta.ae
 
-import aeocha
+import std.spec
 import driver_linux (pasta_dropin_path, pasta_dropin_content)
 import std.string
 
 main() {
-    fw = aeocha.init()
-    aeocha.describe(fw, "lib/driver_linux — rootless pasta port-forwarder drop-in") {
+    fw = spec.init()
+    spec.describe(fw, "lib/driver_linux — rootless pasta port-forwarder drop-in") {
 
-        aeocha.describe("pasta_dropin_path — the canonical, aeo-owned drop-in") {
-            aeocha.it("targets a dedicated file in containers.conf.d (idempotent + removable)") callback {
-                aeocha.expect_str(pasta_dropin_path()).to_equal_str("/etc/containers/containers.conf.d/aeo-pasta.conf")
+        spec.describe("pasta_dropin_path — the canonical, aeo-owned drop-in") {
+            spec.it("targets a dedicated file in containers.conf.d (idempotent + removable)") callback {
+                spec.expect_str(pasta_dropin_path()).to_equal_str("/etc/containers/containers.conf.d/aeo-pasta.conf")
             }
         }
 
-        aeocha.describe("pasta_dropin_content — the [network] stanza selecting pasta") {
-            aeocha.it("declares rootless_port_forwarder = pasta under [network]") callback {
+        spec.describe("pasta_dropin_content — the [network] stanza selecting pasta") {
+            spec.it("declares rootless_port_forwarder = pasta under [network]") callback {
                 c = pasta_dropin_content()
-                aeocha.expect_str(c).to_contain("[network]")
-                aeocha.expect_str(c).to_contain("rootless_port_forwarder")
-                aeocha.expect_str(c).to_contain("pasta")
+                spec.expect_str(c).to_contain("[network]")
+                spec.expect_str(c).to_contain("rootless_port_forwarder")
+                spec.expect_str(c).to_contain("pasta")
             }
-            aeocha.it("is exactly the two-line stanza podman expects") callback {
-                aeocha.expect_str(pasta_dropin_content()).to_equal_str("[network]\nrootless_port_forwarder = \"pasta\"\n")
+            spec.it("is exactly the two-line stanza podman expects") callback {
+                spec.expect_str(pasta_dropin_content()).to_equal_str("[network]\nrootless_port_forwarder = \"pasta\"\n")
             }
         }
     }
-    aeocha.run_summary(fw)
+    spec.run_summary(fw)
 }

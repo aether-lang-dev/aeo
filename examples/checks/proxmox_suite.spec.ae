@@ -15,13 +15,12 @@
 // examples/checks/proxmox_token_setup.md). A FRONTIER follow-up adds an in-guest
 // arithmetic probe (ssh/qemu-agent) once the /add workload is baked into the image.
 
-import aeocha
+import std.spec
 import compose (system, proxmox_vm)
 import compose (host, node, auth_token, storage, bridge, template, cpus, memory, depends)
 import compose (get_pve_host, get_pve_template, get_depends, proxmox_model_errors, reset_nodes)
 import std.os
 import std.string (string_length)
-import std.string   // bare: inlined aeocha calls bare exports unqualified
 
 _declare() {
     system("silly_addition_proxmox") {
@@ -44,19 +43,19 @@ _b() -> string { v = os.getenv("PVE_BRIDGE");   if string_length(v) == 0 { retur
 _t() -> string { v = os.getenv("PVE_TEMPLATE"); if string_length(v) == 0 { return "debian-12-cloudinit" } return v }
 
 main() {
-    fw = aeocha.init()
+    fw = spec.init()
     reset_nodes()
     _declare()
 
-    aeocha.describe(fw, "silly_addition_proxmox — suite (model re-assert; live arm is frontier)") {
-        aeocha.it("the tree is well-formed (gate silent) — ready for driver_proxmox") callback {
-            aeocha.expect_str(proxmox_model_errors()).to_equal_str("")
+    spec.describe(fw, "silly_addition_proxmox — suite (model re-assert; live arm is frontier)") {
+        spec.it("the tree is well-formed (gate silent) — ready for driver_proxmox") callback {
+            spec.expect_str(proxmox_model_errors()).to_equal_str("")
         }
-        aeocha.it("db_vm clones the operator template; app_vm depends on it") callback {
-            aeocha.expect_str(get_pve_template("db_vm")).to_equal_str(_t())
-            aeocha.expect_str(get_depends("app_vm")).to_equal_str("db_vm")
+        spec.it("db_vm clones the operator template; app_vm depends on it") callback {
+            spec.expect_str(get_pve_template("db_vm")).to_equal_str(_t())
+            spec.expect_str(get_depends("app_vm")).to_equal_str("db_vm")
         }
     }
 
-    aeocha.run_summary(fw)
+    spec.run_summary(fw)
 }

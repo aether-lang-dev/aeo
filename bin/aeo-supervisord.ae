@@ -70,10 +70,10 @@ main() {
     }
     bind = _env_or("AEO_SUP_BIND", "127.0.0.1")
     server_set_host(raw, bind)
-    server_get(raw, "/health", _h_health, 0)
-    server_post(raw, "/adopt", _h_adopt, 0)
-    server_post(raw, "/release", _h_release, 0)
-    server_post(raw, "/status", _h_status, 0)
+    server_get(raw, "/health", h_health_, 0)
+    server_post(raw, "/adopt", h_adopt_, 0)
+    server_post(raw, "/release", h_release_, 0)
+    server_post(raw, "/status", h_status_, 0)
     serr = server_start_background(raw)
     if string_length(serr) > 0 {
         _log("aeo-supervisord: FAIL server_start_background: ${serr}")
@@ -134,17 +134,27 @@ _sleep_secs(s: int) {
 }
 
 // ---- handlers -----------------------------------------------------------------
+//
+// NAMING — trailing underscore, NOT leading (`h_health_`, never `_h_health`).
+// These are passed to server_get/server_post AS VALUES (function pointers).
+// On ae 0.541.0 a LEADING-underscore top-level function used as a value fails
+// to compile: the compiler renames the definition `_h_health` -> `ae_h_health`
+// (the MSVCRT reserved-namespace fix) but rewrites only CALL sites, so the
+// pointer reference is emitted verbatim and the generated C dies with
+// "'_h_health' undeclared ... did you mean 'ae_h_health'?". Upstream:
+// aether#1598. The trailing-underscore form is the file-local convention
+// (#279) and is unaffected — keep it until #1598 lands.
 
 // GET /health — open liveness (the residence probe the front-door dials to decide
 // "is a supervisor present"). Reveals nothing.
-_h_health(req: ptr, res: ptr, ud: ptr) -> int {
+h_health_(req: ptr, res: ptr, ud: ptr) -> int {
     response_set_status(res, 200)
     response_set_body(res, "ok")
     return 0
 }
 
 // POST /adopt — record a system + its nodes. Body: "<token>\n<system>\n<node>:<kind>..."
-_h_adopt(req: ptr, res: ptr, ud: ptr) -> int {
+h_adopt_(req: ptr, res: ptr, ud: ptr) -> int {
     body = request_body(req)
     tok, rest = _split_first(body, "\n")
     if _token_ok(tok) == 0 { return _reply(res, 401, "unauthorized") }
@@ -179,7 +189,7 @@ _h_adopt(req: ptr, res: ptr, ud: ptr) -> int {
 }
 
 // POST /release — tear down + forget a held system. Body: "<token>\n<system>".
-_h_release(req: ptr, res: ptr, ud: ptr) -> int {
+h_release_(req: ptr, res: ptr, ud: ptr) -> int {
     body = request_body(req)
     tok, system = _split_first(body, "\n")
     if _token_ok(tok) == 0 { return _reply(res, 401, "unauthorized") }
@@ -201,7 +211,7 @@ _h_release(req: ptr, res: ptr, ud: ptr) -> int {
 }
 
 // POST /status — the held tree + per-node liveness. Body: "<token>".
-_h_status(req: ptr, res: ptr, ud: ptr) -> int {
+h_status_(req: ptr, res: ptr, ud: ptr) -> int {
     tok = _chomp(request_body(req))
     if _token_ok(tok) == 0 { return _reply(res, 401, "unauthorized") }
     out = ""

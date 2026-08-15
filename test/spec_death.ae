@@ -10,7 +10,7 @@
 //
 //   sh test/run-spec.sh test/spec_death.ae
 
-import aeocha
+import std.spec
 import death (death_cause, unit_death_line)
 import driver_linux (death_argv)
 import driver_nspawn (show_death_argv, reset_failed_argv)
@@ -23,218 +23,218 @@ import std.list (list_get_raw, list_size, list_free)
 import std.string
 
 main() {
-    fw = aeocha.init()
-    aeocha.describe(fw, "lib/driver_linux — death forensics (the kernel's verdict)") {
+    fw = spec.init()
+    spec.describe(fw, "lib/driver_linux — death forensics (the kernel's verdict)") {
 
-        aeocha.describe("death_argv — the post-mortem inspect shape") {
-            aeocha.it("inspects the named container with the fixed post-mortem format") callback {
+        spec.describe("death_argv — the post-mortem inspect shape") {
+            spec.it("inspects the named container with the fixed post-mortem format") callback {
                 av = death_argv("db")
-                aeocha.expect_int(list_size(av)).to_equal(4)
-                aeocha.expect_str(list_get_raw(av, 0)).to_equal_str("inspect")
-                aeocha.expect_str(list_get_raw(av, 1)).to_equal_str("db")
-                aeocha.expect_str(list_get_raw(av, 2)).to_equal_str("--format")
+                spec.expect_int(list_size(av)).to_equal(4)
+                spec.expect_str(list_get_raw(av, 0)).to_equal_str("inspect")
+                spec.expect_str(list_get_raw(av, 1)).to_equal_str("db")
+                spec.expect_str(list_get_raw(av, 2)).to_equal_str("--format")
                 fmt = list_get_raw(av, 3)
-                aeocha.expect_str(fmt).to_contain("status={{.State.Status}}")
-                aeocha.expect_str(fmt).to_contain("oom={{.State.OOMKilled}}")
-                aeocha.expect_str(fmt).to_contain("exit={{.State.ExitCode}}")
+                spec.expect_str(fmt).to_contain("status={{.State.Status}}")
+                spec.expect_str(fmt).to_contain("oom={{.State.OOMKilled}}")
+                spec.expect_str(fmt).to_contain("exit={{.State.ExitCode}}")
                 list_free(av)
             }
         }
 
-        aeocha.describe("death_cause — classification of the post-mortem line") {
-            aeocha.it("OOM beats exit code (an OOM kill also reports 137)") callback {
-                aeocha.expect_str(death_cause("status=exited|oom=true|exit=137")).to_equal_str("OOM-killed (cgroup memory limit)")
+        spec.describe("death_cause — classification of the post-mortem line") {
+            spec.it("OOM beats exit code (an OOM kill also reports 137)") callback {
+                spec.expect_str(death_cause("status=exited|oom=true|exit=137")).to_equal_str("OOM-killed (cgroup memory limit)")
             }
-            aeocha.it("names the common fatal signals (137 = SIGKILL)") callback {
-                aeocha.expect_str(death_cause("status=exited|oom=false|exit=137")).to_equal_str("killed by SIGKILL (exit 137)")
+            spec.it("names the common fatal signals (137 = SIGKILL)") callback {
+                spec.expect_str(death_cause("status=exited|oom=false|exit=137")).to_equal_str("killed by SIGKILL (exit 137)")
             }
-            aeocha.it("139 = SIGSEGV, 143 = SIGTERM") callback {
-                aeocha.expect_str(death_cause("status=exited|oom=false|exit=139")).to_equal_str("killed by SIGSEGV (exit 139)")
-                aeocha.expect_str(death_cause("status=exited|oom=false|exit=143")).to_equal_str("killed by SIGTERM (exit 143)")
+            spec.it("139 = SIGSEGV, 143 = SIGTERM") callback {
+                spec.expect_str(death_cause("status=exited|oom=false|exit=139")).to_equal_str("killed by SIGSEGV (exit 139)")
+                spec.expect_str(death_cause("status=exited|oom=false|exit=143")).to_equal_str("killed by SIGTERM (exit 143)")
             }
-            aeocha.it("an unnamed signal still reports its number") callback {
-                aeocha.expect_str(death_cause("status=exited|oom=false|exit=158")).to_equal_str("killed by signal 30 (exit 158)")
+            spec.it("an unnamed signal still reports its number") callback {
+                spec.expect_str(death_cause("status=exited|oom=false|exit=158")).to_equal_str("killed by signal 30 (exit 158)")
             }
-            aeocha.it("a plain failure is an exit code, not a signal") callback {
-                aeocha.expect_str(death_cause("status=exited|oom=false|exit=1")).to_equal_str("exited with code 1")
+            spec.it("a plain failure is an exit code, not a signal") callback {
+                spec.expect_str(death_cause("status=exited|oom=false|exit=1")).to_equal_str("exited with code 1")
             }
-            aeocha.it("a clean exit before readiness is still a verdict") callback {
-                aeocha.expect_str(death_cause("status=exited|oom=false|exit=0")).to_equal_str("exited cleanly (code 0) before becoming ready")
+            spec.it("a clean exit before readiness is still a verdict") callback {
+                spec.expect_str(death_cause("status=exited|oom=false|exit=0")).to_equal_str("exited cleanly (code 0) before becoming ready")
             }
-            aeocha.it("a running container is NOT a death — no verdict") callback {
-                aeocha.expect_str(death_cause("status=running|oom=false|exit=0")).to_equal_str("")
+            spec.it("a running container is NOT a death — no verdict") callback {
+                spec.expect_str(death_cause("status=running|oom=false|exit=0")).to_equal_str("")
             }
-            aeocha.it("running WITH oom kills inside IS a verdict (the sick-but-alive class)") callback {
-                aeocha.expect_str(death_cause("status=running|oom=true|exit=0")).to_equal_str("OOM kills inside (cgroup memory limit; container still running)")
+            spec.it("running WITH oom kills inside IS a verdict (the sick-but-alive class)") callback {
+                spec.expect_str(death_cause("status=running|oom=true|exit=0")).to_equal_str("OOM kills inside (cgroup memory limit; container still running)")
             }
-            aeocha.it("a pre-classified cause= field passes through verbatim (the proxmox arm)") callback {
+            spec.it("a pre-classified cause= field passes through verbatim (the proxmox arm)") callback {
                 l = "status=exited|oom=false|exit=-1|cause=stopped with no stop task (hypervisor process died, host-killed, or powered off from inside the guest)"
-                aeocha.expect_str(death_cause(l)).to_equal_str("stopped with no stop task (hypervisor process died, host-killed, or powered off from inside the guest)")
+                spec.expect_str(death_cause(l)).to_equal_str("stopped with no stop task (hypervisor process died, host-killed, or powered off from inside the guest)")
             }
-            aeocha.it("created/paused are not deaths either") callback {
-                aeocha.expect_str(death_cause("status=created|oom=false|exit=0")).to_equal_str("")
-                aeocha.expect_str(death_cause("status=paused|oom=false|exit=0")).to_equal_str("")
+            spec.it("created/paused are not deaths either") callback {
+                spec.expect_str(death_cause("status=created|oom=false|exit=0")).to_equal_str("")
+                spec.expect_str(death_cause("status=paused|oom=false|exit=0")).to_equal_str("")
             }
-            aeocha.it("an absent container (empty line) yields no verdict") callback {
-                aeocha.expect_str(death_cause("")).to_equal_str("")
+            spec.it("an absent container (empty line) yields no verdict") callback {
+                spec.expect_str(death_cause("")).to_equal_str("")
             }
         }
 
-        aeocha.describe("unit_death_line — systemd post-mortem -> canonical line") {
-            aeocha.it("Result=oom-kill canonicalizes with oom=true (signal carried as 128+n)") callback {
+        spec.describe("unit_death_line — systemd post-mortem -> canonical line") {
+            spec.it("Result=oom-kill canonicalizes with oom=true (signal carried as 128+n)") callback {
                 l = unit_death_line("Result=oom-kill\nExecMainCode=2\nExecMainStatus=9\n")
-                aeocha.expect_str(l).to_equal_str("status=exited|oom=true|exit=137")
-                aeocha.expect_str(death_cause(l)).to_equal_str("OOM-killed (cgroup memory limit)")
+                spec.expect_str(l).to_equal_str("status=exited|oom=true|exit=137")
+                spec.expect_str(death_cause(l)).to_equal_str("OOM-killed (cgroup memory limit)")
             }
-            aeocha.it("a killed main process (CLD_KILLED) becomes exit=128+signal") callback {
+            spec.it("a killed main process (CLD_KILLED) becomes exit=128+signal") callback {
                 l = unit_death_line("Result=signal\nExecMainCode=2\nExecMainStatus=9\n")
-                aeocha.expect_str(l).to_equal_str("status=exited|oom=false|exit=137")
-                aeocha.expect_str(death_cause(l)).to_equal_str("killed by SIGKILL (exit 137)")
+                spec.expect_str(l).to_equal_str("status=exited|oom=false|exit=137")
+                spec.expect_str(death_cause(l)).to_equal_str("killed by SIGKILL (exit 137)")
             }
-            aeocha.it("a dumped main process (CLD_DUMPED) too") callback {
+            spec.it("a dumped main process (CLD_DUMPED) too") callback {
                 l = unit_death_line("Result=core-dump\nExecMainCode=3\nExecMainStatus=11\n")
-                aeocha.expect_str(death_cause(l)).to_equal_str("killed by SIGSEGV (exit 139)")
+                spec.expect_str(death_cause(l)).to_equal_str("killed by SIGSEGV (exit 139)")
             }
-            aeocha.it("a plain exit-code failure carries the code through") callback {
+            spec.it("a plain exit-code failure carries the code through") callback {
                 l = unit_death_line("Result=exit-code\nExecMainCode=1\nExecMainStatus=3\n")
-                aeocha.expect_str(l).to_equal_str("status=exited|oom=false|exit=3")
-                aeocha.expect_str(death_cause(l)).to_equal_str("exited with code 3")
+                spec.expect_str(l).to_equal_str("status=exited|oom=false|exit=3")
+                spec.expect_str(death_cause(l)).to_equal_str("exited with code 3")
             }
-            aeocha.it("a clean exit is still a verdict (died before ready)") callback {
+            spec.it("a clean exit is still a verdict (died before ready)") callback {
                 l = unit_death_line("Result=success\nExecMainCode=1\nExecMainStatus=0\n")
-                aeocha.expect_str(death_cause(l)).to_equal_str("exited cleanly (code 0) before becoming ready")
+                spec.expect_str(death_cause(l)).to_equal_str("exited cleanly (code 0) before becoming ready")
             }
-            aeocha.it("ExecMainCode=0 (running / never ran / unknown unit) -> no line") callback {
-                aeocha.expect_str(unit_death_line("Result=success\nExecMainCode=0\nExecMainStatus=0\n")).to_equal_str("")
+            spec.it("ExecMainCode=0 (running / never ran / unknown unit) -> no line") callback {
+                spec.expect_str(unit_death_line("Result=success\nExecMainCode=0\nExecMainStatus=0\n")).to_equal_str("")
             }
-            aeocha.it("empty show output -> no line") callback {
-                aeocha.expect_str(unit_death_line("")).to_equal_str("")
+            spec.it("empty show output -> no line") callback {
+                spec.expect_str(unit_death_line("")).to_equal_str("")
             }
         }
 
-        aeocha.describe("the systemd-unit drivers' post-mortem argvs (pure)") {
-            aeocha.it("nspawn: systemctl show aeo-nspawn-NAME -p Result -p ExecMainCode -p ExecMainStatus") callback {
+        spec.describe("the systemd-unit drivers' post-mortem argvs (pure)") {
+            spec.it("nspawn: systemctl show aeo-nspawn-NAME -p Result -p ExecMainCode -p ExecMainStatus") callback {
                 av = show_death_argv("db")
-                aeocha.expect_str(_join(av)).to_equal_str("show aeo-nspawn-db -p Result -p ExecMainCode -p ExecMainStatus")
+                spec.expect_str(_join(av)).to_equal_str("show aeo-nspawn-db -p Result -p ExecMainCode -p ExecMainStatus")
                 list_free(av)
             }
-            aeocha.it("nspawn: down expires the corpse via reset-failed") callback {
+            spec.it("nspawn: down expires the corpse via reset-failed") callback {
                 av = reset_failed_argv("db")
-                aeocha.expect_str(_join(av)).to_equal_str("reset-failed aeo-nspawn-db")
+                spec.expect_str(_join(av)).to_equal_str("reset-failed aeo-nspawn-db")
                 list_free(av)
             }
-            aeocha.it("firecracker: --user scoped show of aeo-fc-NAME") callback {
+            spec.it("firecracker: --user scoped show of aeo-fc-NAME") callback {
                 av = driver_firecracker.show_death_argv("db")
-                aeocha.expect_str(_join(av)).to_equal_str("--user show aeo-fc-db -p Result -p ExecMainCode -p ExecMainStatus")
+                spec.expect_str(_join(av)).to_equal_str("--user show aeo-fc-db -p Result -p ExecMainCode -p ExecMainStatus")
                 list_free(av)
             }
-            aeocha.it("kvm: --user scoped show of the VM unit aeo-NAME") callback {
+            spec.it("kvm: --user scoped show of the VM unit aeo-NAME") callback {
                 av = driver_vm.show_death_argv("db")
-                aeocha.expect_str(_join(av)).to_equal_str("--user show aeo-db -p Result -p ExecMainCode -p ExecMainStatus")
+                spec.expect_str(_join(av)).to_equal_str("--user show aeo-db -p Result -p ExecMainCode -p ExecMainStatus")
                 list_free(av)
             }
-            aeocha.it("wslc: plain inspect of the container name") callback {
+            spec.it("wslc: plain inspect of the container name") callback {
                 av = driver_wslc.inspect_death_argv("db")
-                aeocha.expect_str(_join(av)).to_equal_str("inspect db")
+                spec.expect_str(_join(av)).to_equal_str("inspect db")
                 list_free(av)
             }
         }
 
-        aeocha.describe("lxc death_from_log — parse of REAL LXC 6.x log lines") {
+        spec.describe("lxc death_from_log — parse of REAL LXC 6.x log lines") {
             // wordings captured live on .160 (2026-07-18): signal + error forms.
-            aeocha.it("a SIGKILLed init reads 128+signal from 'ended on signal Killed(9)'") callback {
+            spec.it("a SIGKILLed init reads 128+signal from 'ended on signal Killed(9)'") callback {
                 lg = "lxc-start dltest 20260718112509.617 INFO     error - ../src/lxc/error.c:lxc_error_set_and_log:34 - Child <278937> ended on signal Killed(9)\n"
-                aeocha.expect_str(driver_lxc.death_from_log(lg)).to_equal_str("status=exited|oom=false|exit=137")
-                aeocha.expect_str(death_cause(driver_lxc.death_from_log(lg))).to_equal_str("killed by SIGKILL (exit 137)")
+                spec.expect_str(driver_lxc.death_from_log(lg)).to_equal_str("status=exited|oom=false|exit=137")
+                spec.expect_str(death_cause(driver_lxc.death_from_log(lg))).to_equal_str("killed by SIGKILL (exit 137)")
             }
-            aeocha.it("an exit-code end reads N from 'ended on error (3)'") callback {
+            spec.it("an exit-code end reads N from 'ended on error (3)'") callback {
                 lg = "lxc-execute dltest 20260718112534.583 INFO     error - ../src/lxc/error.c:lxc_error_set_and_log:31 - Child <279551> ended on error (3)\n"
-                aeocha.expect_str(driver_lxc.death_from_log(lg)).to_equal_str("status=exited|oom=false|exit=3")
-                aeocha.expect_str(death_cause(driver_lxc.death_from_log(lg))).to_equal_str("exited with code 3")
+                spec.expect_str(driver_lxc.death_from_log(lg)).to_equal_str("status=exited|oom=false|exit=3")
+                spec.expect_str(death_cause(driver_lxc.death_from_log(lg))).to_equal_str("exited with code 3")
             }
-            aeocha.it("the LAST ended-line wins across appended boots") callback {
+            spec.it("the LAST ended-line wins across appended boots") callback {
                 lg = "... Child <1> ended on error (3)\n... noise ...\n... Child <2> ended on signal Killed(9)\n"
-                aeocha.expect_str(driver_lxc.death_from_log(lg)).to_equal_str("status=exited|oom=false|exit=137")
+                spec.expect_str(driver_lxc.death_from_log(lg)).to_equal_str("status=exited|oom=false|exit=137")
             }
-            aeocha.it("a log with NO ended-line is a clean exit (LXC only logs error ends)") callback {
+            spec.it("a log with NO ended-line is a clean exit (LXC only logs error ends)") callback {
                 lg = "lxc-start dltest ... NOTICE   start - ../src/lxc/start.c:signal_handler:479 - Received 17 from pid 279577\n"
-                aeocha.expect_str(death_cause(driver_lxc.death_from_log(lg))).to_equal_str("exited cleanly (code 0) before becoming ready")
+                spec.expect_str(death_cause(driver_lxc.death_from_log(lg))).to_equal_str("exited cleanly (code 0) before becoming ready")
             }
-            aeocha.it("start_argv carries the post-mortem log flags") callback {
+            spec.it("start_argv carries the post-mortem log flags") callback {
                 av = driver_lxc.start_argv("db")
-                aeocha.expect_str(_join(av)).to_equal_str("-n db -o /tmp/aeo-lxc-db.log -l INFO")
+                spec.expect_str(_join(av)).to_equal_str("-n db -o /tmp/aeo-lxc-db.log -l INFO")
                 list_free(av)
             }
         }
 
-        aeocha.describe("bhyve_death_from_log — vm-bhyve's supervisor log (source-derived wording)") {
-            aeocha.it("a triple fault is a crash verdict (bhyve exit 3)") callback {
+        spec.describe("bhyve_death_from_log — vm-bhyve's supervisor log (source-derived wording)") {
+            spec.it("a triple fault is a crash verdict (bhyve exit 3)") callback {
                 lg = "Jul 18 12:00:01: booting\nJul 18 12:03:44: bhyve exited with status 3\n"
-                aeocha.expect_str(death_cause(driver_vm.bhyve_death_from_log(lg))).to_equal_str("guest TRIPLE FAULT (bhyve exit 3 — crashed)")
+                spec.expect_str(death_cause(driver_vm.bhyve_death_from_log(lg))).to_equal_str("guest TRIPLE FAULT (bhyve exit 3 — crashed)")
             }
-            aeocha.it("exit 1 = powered off from inside; exit 0 = reset") callback {
-                aeocha.expect_str(death_cause(driver_vm.bhyve_death_from_log("x: bhyve exited with status 1\n"))).to_equal_str("guest powered off from inside (bhyve exit 1)")
-                aeocha.expect_str(death_cause(driver_vm.bhyve_death_from_log("x: bhyve exited with status 0\n"))).to_equal_str("guest reset (bhyve exit 0 — reboot requested)")
+            spec.it("exit 1 = powered off from inside; exit 0 = reset") callback {
+                spec.expect_str(death_cause(driver_vm.bhyve_death_from_log("x: bhyve exited with status 1\n"))).to_equal_str("guest powered off from inside (bhyve exit 1)")
+                spec.expect_str(death_cause(driver_vm.bhyve_death_from_log("x: bhyve exited with status 0\n"))).to_equal_str("guest reset (bhyve exit 0 — reboot requested)")
             }
-            aeocha.it("the LAST exit line wins across boots") callback {
+            spec.it("the LAST exit line wins across boots") callback {
                 lg = "a: bhyve exited with status 0\nb: booting\nc: bhyve exited with status 2\n"
-                aeocha.expect_str(death_cause(driver_vm.bhyve_death_from_log(lg))).to_equal_str("guest halted (bhyve exit 2)")
+                spec.expect_str(death_cause(driver_vm.bhyve_death_from_log(lg))).to_equal_str("guest halted (bhyve exit 2)")
             }
-            aeocha.it("a loader failure is its own verdict") callback {
+            spec.it("a loader failure is its own verdict") callback {
                 lg = "x: fatal; loader returned error 15\n"
-                aeocha.expect_str(death_cause(driver_vm.bhyve_death_from_log(lg))).to_equal_str("boot loader failed (error 15)")
+                spec.expect_str(death_cause(driver_vm.bhyve_death_from_log(lg))).to_equal_str("boot loader failed (error 15)")
             }
-            aeocha.it("a log with no exit line yields no verdict") callback {
-                aeocha.expect_str(driver_vm.bhyve_death_from_log("x: booting\n")).to_equal_str("")
+            spec.it("a log with no exit line yields no verdict") callback {
+                spec.expect_str(driver_vm.bhyve_death_from_log("x: booting\n")).to_equal_str("")
             }
         }
 
-        aeocha.describe("bwrap — the unitized sandbox's post-mortem argv (pure)") {
-            aeocha.it("--user scoped show of aeo-bwrap-NAME") callback {
+        spec.describe("bwrap — the unitized sandbox's post-mortem argv (pure)") {
+            spec.it("--user scoped show of aeo-bwrap-NAME") callback {
                 av = driver_bwrap.show_death_argv("db")
-                aeocha.expect_str(_join(av)).to_equal_str("--user show aeo-bwrap-db -p Result -p ExecMainCode -p ExecMainStatus")
+                spec.expect_str(_join(av)).to_equal_str("--user show aeo-bwrap-db -p Result -p ExecMainCode -p ExecMainStatus")
                 list_free(av)
             }
         }
 
-        aeocha.describe("agent_death_line — the nested-in-remote-guest wire reply") {
-            aeocha.it("extracts the canonical line from a report reply") callback {
+        spec.describe("agent_death_line — the nested-in-remote-guest wire reply") {
+            spec.it("extracts the canonical line from a report reply") callback {
                 r = "report aeo-dev-token dead status=exited|oom=false|exit=137\n"
-                aeocha.expect_str(driver_vm.agent_death_line(r)).to_equal_str("status=exited|oom=false|exit=137")
-                aeocha.expect_str(death_cause(driver_vm.agent_death_line(r))).to_equal_str("killed by SIGKILL (exit 137)")
+                spec.expect_str(driver_vm.agent_death_line(r)).to_equal_str("status=exited|oom=false|exit=137")
+                spec.expect_str(death_cause(driver_vm.agent_death_line(r))).to_equal_str("killed by SIGKILL (exit 137)")
             }
-            aeocha.it("a 'none' report yields no line") callback {
-                aeocha.expect_str(driver_vm.agent_death_line("report aeo-dev-token dead none\n")).to_equal_str("")
+            spec.it("a 'none' report yields no line") callback {
+                spec.expect_str(driver_vm.agent_death_line("report aeo-dev-token dead none\n")).to_equal_str("")
             }
-            aeocha.it("an unreachable agent (empty reply) yields no line") callback {
-                aeocha.expect_str(driver_vm.agent_death_line("")).to_equal_str("")
+            spec.it("an unreachable agent (empty reply) yields no line") callback {
+                spec.expect_str(driver_vm.agent_death_line("")).to_equal_str("")
             }
-            aeocha.it("a status-verb reply ('up') is not mistaken for a death line") callback {
-                aeocha.expect_str(driver_vm.agent_death_line("report aeo-dev-token dead up\n")).to_equal_str("")
+            spec.it("a status-verb reply ('up') is not mistaken for a death line") callback {
+                spec.expect_str(driver_vm.agent_death_line("report aeo-dev-token dead up\n")).to_equal_str("")
             }
         }
 
-        aeocha.describe("wslc death_line — parse of the REAL wslc 2.9.3.0 inspect JSON") {
+        spec.describe("wslc death_line — parse of the REAL wslc 2.9.3.0 inspect JSON") {
             // fixture shape captured live on the winbaz guest 2026-07-18
             // (/bin/false run; State has NO OOMKilled field — oom always false).
-            aeocha.it("an exited container carries Status + ExitCode through") callback {
+            spec.it("an exited container carries Status + ExitCode through") callback {
                 fx = _wslc_fixture("exited", 1)
-                aeocha.expect_str(driver_wslc.death_line(fx)).to_equal_str("status=exited|oom=false|exit=1")
-                aeocha.expect_str(death_cause(driver_wslc.death_line(fx))).to_equal_str("exited with code 1")
+                spec.expect_str(driver_wslc.death_line(fx)).to_equal_str("status=exited|oom=false|exit=1")
+                spec.expect_str(death_cause(driver_wslc.death_line(fx))).to_equal_str("exited with code 1")
             }
-            aeocha.it("a wslc-killed container reads 137 (the >128 signal convention, proven live)") callback {
+            spec.it("a wslc-killed container reads 137 (the >128 signal convention, proven live)") callback {
                 fx = _wslc_fixture("exited", 137)
-                aeocha.expect_str(death_cause(driver_wslc.death_line(fx))).to_equal_str("killed by SIGKILL (exit 137)")
+                spec.expect_str(death_cause(driver_wslc.death_line(fx))).to_equal_str("killed by SIGKILL (exit 137)")
             }
-            aeocha.it("a running container yields no line") callback {
-                aeocha.expect_str(driver_wslc.death_line(_wslc_fixture("running", 0))).to_equal_str("")
+            spec.it("a running container yields no line") callback {
+                spec.expect_str(driver_wslc.death_line(_wslc_fixture("running", 0))).to_equal_str("")
             }
-            aeocha.it("empty inspect output yields no line") callback {
-                aeocha.expect_str(driver_wslc.death_line("")).to_equal_str("")
+            spec.it("empty inspect output yields no line") callback {
+                spec.expect_str(driver_wslc.death_line("")).to_equal_str("")
             }
         }
     }
-    aeocha.run_summary(fw)
+    spec.run_summary(fw)
 }
 
 // the wslc inspect JSON, faithful to the live winbaz capture (indentation,

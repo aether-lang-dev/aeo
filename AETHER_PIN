@@ -1,0 +1,52 @@
+# The Aether release aeo is built and tested against.
+#
+# One bare version string (last non-comment line). Read it the way aeb's
+# tooling does:
+#
+#     grep -v '^#' AETHER_PIN | tr -d '[:space:]'
+#
+# WHAT THIS IS. aeo is written in Aether: `ae build` compiles bin/aeo.ae,
+# bin/aeo-agent.ae and the specs. This names the toolchain that combination
+# is known to work with. It is a FLOOR, not a preference — anything newer on
+# PATH is accepted as-is, and you should NOT be forced to re-fetch just
+# because a nicer release exists.
+#
+# WHY aeo carries ONE file where aeb carries two. aeb splits AETHER_PIN
+# (the floor its own sources need) from AETHER_FETCH (a known-good release
+# to download when the floor is unmet) because aeb *fetches a toolchain on
+# a user's behalf*. aeo does not: it assumes an `ae` already on PATH and
+# fails loudly if it is too old. With nothing to download there is no
+# second number to choose, so a single floor is the honest shape. If aeo
+# ever grows a bootstrap that installs a toolchain, split this then — and
+# copy aeb's rationale wholesale rather than reinventing it.
+#
+# WHEN TO BUMP. Aether cuts releases fast (seven on 2026-07-26 alone).
+# Chasing that is a full-time tic — don't. Move this number on EVIDENCE:
+#   - aeo starts calling a primitive an older Aether lacks, or
+#   - a release fixes a portability/correctness problem aeo actually hit.
+# Bump it in the same commit that introduces the dependency, never
+# speculatively.
+#
+# 0.541.0 — the current floor. Two evidence-backed reasons, not novelty:
+#
+#   1. std.spec (0.538.0). Aether ABSORBED the standalone `aeocha` BDD
+#      framework into the stdlib: std.spec (core + fluent chain),
+#      std.os.testing (process matchers) and std.http.client.httptest
+#      (HTTP matchers); the aeocha repo is retired. All 78 of aeo's specs
+#      import std.spec, so an Aether below 0.538.0 CANNOT COMPILE THE
+#      SUITE. This is a hard floor, not a preference.
+#   2. std.mutation (0.540.0) + the FreeBSD self-path fix (0.540.0):
+#      `ae build`/`ae run` locate the running executable via the
+#      KERN_PROC_PATHNAME sysctl instead of Linux-only /proc/self/exe, so
+#      they work on a stock FreeBSD install with no linprocfs mounted.
+#      aeo's whole FreeBSD line (jails, bhyve, the GhostBSD box) builds
+#      there, so this is load-bearing for a first-class substrate.
+#
+# GLIBC — a SEPARATE concern worth knowing. Aether releases up to ~0.449
+# were built on ubuntu-latest and carry a GLIBC_2.38 floor, so `aetherc`
+# dies on Debian 12 (glibc 2.36) while `ae --version` still succeeds —
+# a version-only probe reports a healthy toolchain that cannot build.
+# Aether's release.yml now pins ubuntu-22.04 (glibc 2.35). 0.541.0 is on
+# the good side of that line, which matters because aeo's fleet includes
+# Debian-class boxes (the Pi 5, the Pi Zero 2 W).
+0.541.0

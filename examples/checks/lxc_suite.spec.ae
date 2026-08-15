@@ -14,13 +14,12 @@
 // model check), documenting that live containment is proven by the itest driver, not
 // from here.
 
-import aeocha
+import std.spec
 import compose (system, lxc)
 import compose (image, health, depends)
 import compose (get_image, get_depends, describe_tree)
 import std.os
 import std.string (string_length, string_concat)
-import std.string   // bare: inlined aeocha calls bare exports unqualified
 
 // the LXC image as the download-template "dist:release". AEO_LXC_IMAGE overrides.
 _image() -> string {
@@ -49,20 +48,20 @@ _declare() {
 
 main() {
     _declare()
-    fw = aeocha.init()
+    fw = spec.init()
 
-    aeocha.describe(fw, "silly_addition_lxc — post-deploy suite") {
-        aeocha.it("both LXC system containers are declared with the dependency edge (booted + contained live by the itest driver)") callback {
+    spec.describe(fw, "silly_addition_lxc — post-deploy suite") {
+        spec.it("both LXC system containers are declared with the dependency edge (booted + contained live by the itest driver)") callback {
             img = _image()
             want = string_concat(string_concat(
                 "system silly_addition_lxc:\n",
                 "  lxc db [image=${img}]\n"),
                 "  lxc app [image=${img}] -> db")
-            aeocha.expect_str(describe_tree()).to_equal_str(want)
-            aeocha.expect_str(get_image("db")).to_equal_str(_image())
-            aeocha.expect_str(get_depends("app")).to_equal_str("db")
+            spec.expect_str(describe_tree()).to_equal_str(want)
+            spec.expect_str(get_image("db")).to_equal_str(_image())
+            spec.expect_str(get_depends("app")).to_equal_str("db")
         }
     }
 
-    aeocha.run_summary(fw)
+    spec.run_summary(fw)
 }

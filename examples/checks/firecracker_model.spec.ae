@@ -9,13 +9,12 @@
 // This is the aeb pattern: the composition is a pure declaration; its assertions
 // live alongside in a real spec you can also run standalone.
 
-import aeocha
+import std.spec
 import compose (system, firecracker)
 import compose (image, cpus, memory, depends)
 import compose (get_image, get_depends, describe_tree)
 import std.os
 import std.string (string_length, string_concat)
-import std.string   // bare: inlined aeocha calls bare exports unqualified
 
 // the microVM bundle directory for a node. AEO_FC_BUNDLEDIR overrides the base.
 _bundle(node: string) -> string {
@@ -46,23 +45,23 @@ _declare() {
 
 main() {
     _declare()
-    fw = aeocha.init()
+    fw = spec.init()
 
-    aeocha.describe(fw, "silly_addition_firecracker — data model") {
-        aeocha.it("resolves to two microVMs with a dependency edge") callback {
+    spec.describe(fw, "silly_addition_firecracker — data model") {
+        spec.it("resolves to two microVMs with a dependency edge") callback {
             bdb = _bundle("db")
             bapp = _bundle("app")
             want = string_concat(string_concat(
                 "system silly_addition_firecracker:\n",
                 "  firecracker db [image=${bdb}]\n"),
                 "  firecracker app [image=${bapp}] -> db")
-            aeocha.expect_str(describe_tree()).to_equal_str(want)
+            spec.expect_str(describe_tree()).to_equal_str(want)
         }
-        aeocha.it("both are firecracker microVMs; app depends on db") callback {
-            aeocha.expect_str(get_image("db")).to_equal_str(_bundle("db"))
-            aeocha.expect_str(get_depends("app")).to_equal_str("db")
+        spec.it("both are firecracker microVMs; app depends on db") callback {
+            spec.expect_str(get_image("db")).to_equal_str(_bundle("db"))
+            spec.expect_str(get_depends("app")).to_equal_str("db")
         }
     }
 
-    aeocha.run_summary(fw)
+    spec.run_summary(fw)
 }

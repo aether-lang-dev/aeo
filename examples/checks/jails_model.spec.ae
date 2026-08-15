@@ -9,13 +9,12 @@
 // This is the aeb pattern: the composition is a pure declaration; its assertions
 // live alongside in a real spec you can also run standalone.
 
-import aeocha
+import std.spec
 import compose (system, jail)
 import compose (dataset, ip, command, health, depends)
 import compose (limit, limit_mem, limit_maxproc)
 import compose (get_dataset, get_ip, get_depends, get_rctl, describe_tree)
 import std.string (string_concat)
-import std.string   // bare: inlined aeocha calls bare exports unqualified
 
 // The SAME declaration the example carries. Kept in sync with
 // examples/silly_addition_jails.ae (the model assertion is exactly this).
@@ -47,31 +46,31 @@ _declare() {
 
 main() {
     _declare()
-    fw = aeocha.init()
+    fw = spec.init()
 
-    aeocha.describe(fw, "silly_addition_jails — data model") {
-        aeocha.it("resolves to two jails with a dependency edge") callback {
+    spec.describe(fw, "silly_addition_jails — data model") {
+        spec.it("resolves to two jails with a dependency edge") callback {
             want = string_concat(string_concat(
                 "system silly_addition_jails:\n",
                 "  jail db [dataset=zroot/jails/db]\n"),
                 "  jail app [dataset=zroot/jails/app] -> db")
-            aeocha.expect_str(describe_tree()).to_equal_str(want)
+            spec.expect_str(describe_tree()).to_equal_str(want)
         }
 
-        aeocha.it("each jail names its dataset + IP; app depends on db") callback {
-            aeocha.expect_str(get_dataset("db")).to_equal_str("zroot/jails/db")
-            aeocha.expect_str(get_ip("db")).to_equal_str("172.16.0.10")
-            aeocha.expect_str(get_dataset("app")).to_equal_str("zroot/jails/app")
-            aeocha.expect_str(get_depends("app")).to_equal_str("db")
+        spec.it("each jail names its dataset + IP; app depends on db") callback {
+            spec.expect_str(get_dataset("db")).to_equal_str("zroot/jails/db")
+            spec.expect_str(get_ip("db")).to_equal_str("172.16.0.10")
+            spec.expect_str(get_dataset("app")).to_equal_str("zroot/jails/app")
+            spec.expect_str(get_depends("app")).to_equal_str("db")
         }
 
-        aeocha.it("each jail carries its OWN rctl resource caps (exhaustion-DoS guard)") callback {
+        spec.it("each jail carries its OWN rctl resource caps (exhaustion-DoS guard)") callback {
             // The exhaustion-containment axis — what aeo enforces live on a jail
             // node. db is capped tighter (a store shouldn't fork-bomb).
-            aeocha.expect_str(get_rctl("db")).to_equal_str("memoryuse=512M, maxproc=32")
-            aeocha.expect_str(get_rctl("app")).to_equal_str("memoryuse=1G, maxproc=128")
+            spec.expect_str(get_rctl("db")).to_equal_str("memoryuse=512M, maxproc=32")
+            spec.expect_str(get_rctl("app")).to_equal_str("memoryuse=1G, maxproc=128")
         }
     }
 
-    aeocha.run_summary(fw)
+    spec.run_summary(fw)
 }

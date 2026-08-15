@@ -6,50 +6,49 @@
 //
 //   sh test/run-spec.sh test/spec_snapshot.ae
 
-import aeocha
+import std.spec
 import snapshot (dataset_for, snap_name, backup_file)
-import std.string   // bare too: inlined aeocha calls bare exports unqualified
 
 main() {
-    fw = aeocha.init()
+    fw = spec.init()
 
-    aeocha.describe(fw, "snapshot: node -> ZFS dataset + @tag identifier") {
+    spec.describe(fw, "snapshot: node -> ZFS dataset + @tag identifier") {
 
-        aeocha.describe("dataset_for resolves a node's dataset by kind") {
-            aeocha.it("a jail uses its DECLARED dataset") callback {
-                aeocha.expect_str(dataset_for("db", "jail", "zroot/jails/db")).to_equal_str("zroot/jails/db")
+        spec.describe("dataset_for resolves a node's dataset by kind") {
+            spec.it("a jail uses its DECLARED dataset") callback {
+                spec.expect_str(dataset_for("db", "jail", "zroot/jails/db")).to_equal_str("zroot/jails/db")
             }
-            aeocha.it("a bhyve VM derives zroot/vm/<name> by convention") callback {
-                aeocha.expect_str(dataset_for("db_vm", "bhyve", "")).to_equal_str("zroot/vm/db_vm")
+            spec.it("a bhyve VM derives zroot/vm/<name> by convention") callback {
+                spec.expect_str(dataset_for("db_vm", "bhyve", "")).to_equal_str("zroot/vm/db_vm")
             }
-            aeocha.it("a dataset-less kind (container) returns empty (nothing to snap)") callback {
-                aeocha.expect_str(dataset_for("app", "container", "")).to_equal_str("")
+            spec.it("a dataset-less kind (container) returns empty (nothing to snap)") callback {
+                spec.expect_str(dataset_for("app", "container", "")).to_equal_str("")
             }
         }
 
-        aeocha.describe("snap_name builds the zfs snapshot identifier") {
-            aeocha.it("forms <dataset>@<tag>") callback {
-                aeocha.expect_str(snap_name("zroot/jails/db", "before-upgrade")).to_equal_str("zroot/jails/db@before-upgrade")
+        spec.describe("snap_name builds the zfs snapshot identifier") {
+            spec.it("forms <dataset>@<tag>") callback {
+                spec.expect_str(snap_name("zroot/jails/db", "before-upgrade")).to_equal_str("zroot/jails/db@before-upgrade")
             }
-            aeocha.it("composes with dataset_for end-to-end (jail)") callback {
+            spec.it("composes with dataset_for end-to-end (jail)") callback {
                 ds = dataset_for("db", "jail", "zroot/jails/db")
-                aeocha.expect_str(snap_name(ds, "v1")).to_equal_str("zroot/jails/db@v1")
+                spec.expect_str(snap_name(ds, "v1")).to_equal_str("zroot/jails/db@v1")
             }
-            aeocha.it("composes for a bhyve VM too") callback {
+            spec.it("composes for a bhyve VM too") callback {
                 ds = dataset_for("python_vm", "bhyve", "")
-                aeocha.expect_str(snap_name(ds, "clean")).to_equal_str("zroot/vm/python_vm@clean")
+                spec.expect_str(snap_name(ds, "clean")).to_equal_str("zroot/vm/python_vm@clean")
             }
         }
 
-        aeocha.describe("backup_file names the zfs-send artifact") {
-            aeocha.it("forms <dir>/<node>-<tag>.zfs") callback {
-                aeocha.expect_str(backup_file("/backups", "db", "nightly")).to_equal_str("/backups/db-nightly.zfs")
+        spec.describe("backup_file names the zfs-send artifact") {
+            spec.it("forms <dir>/<node>-<tag>.zfs") callback {
+                spec.expect_str(backup_file("/backups", "db", "nightly")).to_equal_str("/backups/db-nightly.zfs")
             }
-            aeocha.it("each node gets its own file under the dir") callback {
-                aeocha.expect_str(backup_file("/b", "app", "v1")).to_equal_str("/b/app-v1.zfs")
+            spec.it("each node gets its own file under the dir") callback {
+                spec.expect_str(backup_file("/b", "app", "v1")).to_equal_str("/b/app-v1.zfs")
             }
         }
     }
 
-    aeocha.run_summary(fw)
+    spec.run_summary(fw)
 }

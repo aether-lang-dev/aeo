@@ -5,7 +5,7 @@
 // substrate-independent argv rendering off-box (runs anywhere ae does, macOS
 // included). Live validation: test/smoke_nspawn.ae on a systemd host.
 
-import aeocha
+import std.spec
 import driver_nspawn (name, unit_name, run_argv, is_active_argv, exec_argv, terminate_argv, stop_argv)
 import std.list
 
@@ -27,45 +27,45 @@ _join(av: ptr) -> string {
 }
 
 main() {
-    fw = aeocha.init()
+    fw = spec.init()
 
-    aeocha.describe(fw, "driver_nspawn (systemd-nspawn system container)") {
+    spec.describe(fw, "driver_nspawn (systemd-nspawn system container)") {
 
-        aeocha.describe("identity") {
-            aeocha.it("name is nspawn; the unit is per-node") callback {
-                aeocha.expect_str(name()).to_equal_str("nspawn")
-                aeocha.expect_str(unit_name("db")).to_equal_str("aeo-nspawn-db")
+        spec.describe("identity") {
+            spec.it("name is nspawn; the unit is per-node") callback {
+                spec.expect_str(name()).to_equal_str("nspawn")
+                spec.expect_str(unit_name("db")).to_equal_str("aeo-nspawn-db")
             }
         }
 
-        aeocha.describe("run_argv — systemd-run wrapping systemd-nspawn") {
-            aeocha.it("no command -> --boot the rootfs's own init (system container)") callback {
+        spec.describe("run_argv — systemd-run wrapping systemd-nspawn") {
+            spec.it("no command -> --boot the rootfs's own init (system container)") callback {
                 got = _join(run_argv("db", "/var/lib/machines/db", ""))
                 // NO --collect: a FAILED corpse must linger for death_state's
                 // post-mortem read (down() reset-fails it away).
                 want = "--unit=aeo-nspawn-db --quiet /usr/bin/systemd-nspawn --machine=db --directory=/var/lib/machines/db --boot"
-                aeocha.expect_str(got).to_equal_str(want)
+                spec.expect_str(got).to_equal_str(want)
             }
-            aeocha.it("command set -> run it as the payload via --as-pid2") callback {
+            spec.it("command set -> run it as the payload via --as-pid2") callback {
                 got = _join(run_argv("app", "/srv/rootfs", "sleep 600"))
                 want = "--unit=aeo-nspawn-app --quiet /usr/bin/systemd-nspawn --machine=app --directory=/srv/rootfs --as-pid2 /bin/sh -c sleep 600"
-                aeocha.expect_str(got).to_equal_str(want)
+                spec.expect_str(got).to_equal_str(want)
             }
         }
 
-        aeocha.describe("lifecycle argv — probe / exec / down") {
-            aeocha.it("is_active_argv queries the transient unit") callback {
-                aeocha.expect_str(_join(is_active_argv("db"))).to_equal_str("is-active aeo-nspawn-db")
+        spec.describe("lifecycle argv — probe / exec / down") {
+            spec.it("is_active_argv queries the transient unit") callback {
+                spec.expect_str(_join(is_active_argv("db"))).to_equal_str("is-active aeo-nspawn-db")
             }
-            aeocha.it("exec_argv pipes a command INTO the live machine") callback {
-                aeocha.expect_str(_join(exec_argv("db", "cat /etc/os-release"))).to_equal_str("--machine=db --pipe --quiet --collect /bin/sh -c cat /etc/os-release")
+            spec.it("exec_argv pipes a command INTO the live machine") callback {
+                spec.expect_str(_join(exec_argv("db", "cat /etc/os-release"))).to_equal_str("--machine=db --pipe --quiet --collect /bin/sh -c cat /etc/os-release")
             }
-            aeocha.it("terminate + stop tear the machine + unit down") callback {
-                aeocha.expect_str(_join(terminate_argv("db"))).to_equal_str("terminate db")
-                aeocha.expect_str(_join(stop_argv("db"))).to_equal_str("stop aeo-nspawn-db")
+            spec.it("terminate + stop tear the machine + unit down") callback {
+                spec.expect_str(_join(terminate_argv("db"))).to_equal_str("terminate db")
+                spec.expect_str(_join(stop_argv("db"))).to_equal_str("stop aeo-nspawn-db")
             }
         }
     }
 
-    aeocha.run_summary(fw)
+    spec.run_summary(fw)
 }
