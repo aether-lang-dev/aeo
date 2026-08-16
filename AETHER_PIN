@@ -27,7 +27,8 @@
 # Bump it in the same commit that introduces the dependency, never
 # speculatively.
 #
-# 0.541.0 — the current floor. Two evidence-backed reasons, not novelty:
+# 0.541.0 — the PREVIOUS floor, kept here because its reasons still hold and
+# are what any older-toolchain diagnosis starts from:
 #
 #   1. std.spec (0.538.0). Aether ABSORBED the standalone `aeocha` BDD
 #      framework into the stdlib: std.spec (core + fluent chain),
@@ -42,26 +43,32 @@
 #      aeo's whole FreeBSD line (jails, bhyve, the GhostBSD box) builds
 #      there, so this is load-bearing for a first-class substrate.
 #
-# NOT BUMPED TO 0.542.0 — and that is this file's policy working, not an
-# oversight. 0.542.0 landed the optional why-message on the fluent matchers
-# (#1576, aeo's own ask: `to_equal_str(want, "why this matters")`). It is
-# genuinely wanted, and aeo will adopt it incrementally. But it is BACKWARD
-# COMPATIBLE by construction — Aether default args, so aeo's ~810 existing
-# message-less call sites compile and pass untouched (verified against the
-# PR build before it merged: 48 files / 304 assertions / 0 failures). A
-# floor is "the oldest Aether that can build aeo", not "the newest one we
-# like". Nothing in the tree REQUIRES 0.542.0 yet, so raising it would
-# force a needless upgrade on anyone sitting between the two.
+# 0.545.0 — RAISED, and this time the tree really does require it. The specs
+# now call std.spec's SKIP VERBS (#1610): `it_when(cond, desc, reason)` and
+# `skip_it(desc, reason)`. An older `ae` fails on them outright (undefined
+# function), so this is a hard floor exactly like std.spec itself was.
 #
-# RAISE IT to 0.542.0 in the same commit that first writes a why-message
-# into a spec — at that moment the tree really does need it. (An older ae
-# would then fail with an arity error on the 3-arg matcher call.)
+# WHY the conversion was worth a floor bump — it fixes DISHONEST GREEN.
+# Four specs used to fake a skip by asserting something always true
+# (`expect_int(1).to_be_truthy()`, or an `_ok()` that returned 1 whenever its
+# harness was missing). A box lacking the dependency then reported "3
+# passing" having exercised NOTHING, and looked identical to a box that
+# really passed. That is a straight breach of aeo's "never overclaim live"
+# rule, and it was hiding inside the containment specs — the ones whose
+# whole job is to substantiate a security claim. They now report `⊘ skipped`
+# with a reason and count in neither passed nor failed. Verified both ways:
+# real green when the dependency is present, ⊘ when it is forced absent.
+#
+# NB the earlier decisions NOT to bump were the same policy, not a different
+# one: 0.542.0's why-message and 0.543.0's #1598 codegen fix were both
+# BACKWARD COMPATIBLE, so neither was a floor. This one is. The rule is
+# unchanged — bump when the tree cannot build below it, never for novelty.
 #
 # GLIBC — a SEPARATE concern worth knowing. Aether releases up to ~0.449
 # were built on ubuntu-latest and carry a GLIBC_2.38 floor, so `aetherc`
 # dies on Debian 12 (glibc 2.36) while `ae --version` still succeeds —
 # a version-only probe reports a healthy toolchain that cannot build.
-# Aether's release.yml now pins ubuntu-22.04 (glibc 2.35). 0.541.0 is on
+# Aether's release.yml now pins ubuntu-22.04 (glibc 2.35). 0.545.0 is on
 # the good side of that line, which matters because aeo's fleet includes
 # Debian-class boxes (the Pi 5, the Pi Zero 2 W).
-0.541.0
+0.545.0

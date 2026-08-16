@@ -30,6 +30,17 @@ NET() -> string { return "aeo-rn-net" }
 main() {
     fw = spec.init()
 
+    // HONEST SKIP GATE (std.spec `it_when`, ae 0.545.0). These cases drive a
+    // REAL container engine; without one they used to take an
+    // `expect_int(1).to_be_truthy()` branch and report a PASS having run
+    // nothing — a box with no podman looked identical to a box where every
+    // check succeeded. Now they report ⊘ with this reason.
+    have_engine = 1
+    if _no_engine() == 1 {
+        have_engine = 0
+    }
+    why = "no container engine on PATH (podman/docker) — install one to run live"
+
     spec.describe(fw, "running nodes (real containers via aeo's driver)") {
 
         // Bring up the shared net + the calc node before each scenario,
@@ -45,41 +56,25 @@ main() {
             _cleanup()
         }
 
-        spec.it("boots a node that is alive (up + probe)") callback {
-            if _no_engine() == 1 {
-                spec.expect_int(1).to_be_truthy()
-            } else {
-                spec.expect_int(driver_linux.probe("aeo-calc", "", "")).to_equal(1)
-            }
+        spec.it_when(have_engine, "boots a node that is alive (up + probe)", why) callback {
+            spec.expect_int(driver_linux.probe("aeo-calc", "", "")).to_equal(1)
         }
 
-        spec.it("a node COMPUTES: 2+2=4 and 40+2=42 (exec_capture)") callback {
-            if _no_engine() == 1 {
-                spec.expect_int(1).to_be_truthy()
-            } else {
-                spec.expect_str(driver_linux.exec_capture("aeo-calc", "echo $((2 + 2))", "")).to_equal_str("4")
-                spec.expect_str(driver_linux.exec_capture("aeo-calc", "echo $((40 + 2))", "")).to_equal_str("42")
-            }
+        spec.it_when(have_engine, "a node COMPUTES: 2+2=4 and 40+2=42 (exec_capture)", why) callback {
+            spec.expect_str(driver_linux.exec_capture("aeo-calc", "echo $((2 + 2))", "")).to_equal_str("4")
+            spec.expect_str(driver_linux.exec_capture("aeo-calc", "echo $((40 + 2))", "")).to_equal_str("42")
         }
 
-        spec.it("two nodes COMMUNICATE across the shared network") callback {
-            if _no_engine() == 1 {
-                spec.expect_int(1).to_be_truthy()
-            } else {
-                _run_on_net("aeo-server", "while true; do echo 42 | nc -l -p 8080; done")
-                sleep(2000)   // let the listener bind
-                got = driver_linux.exec_capture("aeo-calc", "nc aeo-server 8080", "")
-                spec.expect_str(got).to_equal_str("42")
-            }
+        spec.it_when(have_engine, "two nodes COMMUNICATE across the shared network", why) callback {
+            _run_on_net("aeo-server", "while true; do echo 42 | nc -l -p 8080; done")
+            sleep(2000)   // let the listener bind
+            got = driver_linux.exec_capture("aeo-calc", "nc aeo-server 8080", "")
+            spec.expect_str(got).to_equal_str("42")
         }
 
-        spec.it("a node is GONE after driver down") callback {
-            if _no_engine() == 1 {
-                spec.expect_int(1).to_be_truthy()
-            } else {
-                driver_linux.down("aeo-calc", "")
-                spec.expect_int(driver_linux.probe("aeo-calc", "", "")).to_equal(0)
-            }
+        spec.it_when(have_engine, "a node is GONE after driver down", why) callback {
+            driver_linux.down("aeo-calc", "")
+            spec.expect_int(driver_linux.probe("aeo-calc", "", "")).to_equal(0)
         }
     }
 

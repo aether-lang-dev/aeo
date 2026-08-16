@@ -34,22 +34,29 @@ main() {
     out = _run_harness()
     config.put("splice.out", out)
 
-    // If the harness can't run (missing python3 / gateway not built), every
-    // check is vacuously satisfied — _unavailable() gates each assertion so the
-    // suite is green rather than red on an environment gap. run-spec.sh builds
-    // the gateway and stages the harness, so under CI it always runs for real.
+    // HONEST SKIPS (std.spec `it_when`, ae 0.545.0). When the harness can't run
+    // — no python3, gateway not built — these report ⊘ skipped WITH THE REASON
+    // and count in neither passed nor failed. They used to be gated by _ok(),
+    // which returned 1 when unavailable so every assertion was VACUOUSLY
+    // SATISFIED and the file reported "3 passing" having tested nothing. A box
+    // that skipped everything looked exactly like a box that passed everything
+    // — the precise failure mode #1610 was raised to kill, and a direct breach
+    // of aeo's "never overclaim live" rule. run-spec.sh builds the gateway and
+    // stages the harness, so under CI these run for real.
+    ran = 1
     if _unavailable() == 1 {
-        println("  (egress_splice_live: HARNESS_UNAVAILABLE — skipped; build gateway + python3 to run live)")
+        ran = 0
     }
+    why = "harness unavailable — build ${GW_BIN} + install python3 to run live"
 
     spec.describe(fw, "egress_relay.splice — live full-duplex tunnel via the gateway binary") {
-        spec.it("full-duplex: relays a write-burst-then-drain the half-duplex pump would stall on") callback {
+        spec.it_when(ran, "full-duplex: relays a write-burst-then-drain the half-duplex pump would stall on", why) callback {
             spec.expect_int(_ok("RESULT fullduplex PASS")).to_be_truthy()
         }
-        spec.it("deny: a non-allowlisted CONNECT is 403'd before the splice") callback {
+        spec.it_when(ran, "deny: a non-allowlisted CONNECT is 403'd before the splice", why) callback {
             spec.expect_int(_ok("RESULT deny PASS")).to_be_truthy()
         }
-        spec.it("the harness reports overall PASS") callback {
+        spec.it_when(ran, "the harness reports overall PASS", why) callback {
             spec.expect_int(_ok("RESULT summary PASS")).to_be_truthy()
         }
     }
@@ -79,12 +86,15 @@ _unavailable() -> int {
     return 0
 }
 
-// A check passes if the harness reported it PASS — OR if the harness was
-// unavailable (an environment skip, not a splice failure).
+// A check passes ONLY if the harness reported it PASS.
+//
+// The old version returned 1 when the harness was unavailable, so an absent
+// python3 produced three vacuous passes. That escape hatch is GONE: the
+// unavailable case is now expressed as a real skip (`it_when` above), which is
+// the honest place for it — the body never runs, so this is never consulted.
+// Do not re-add the short-circuit: it would make the assertions unfalsifiable
+// again, and this time silently, since the ⊘ line would still be absent.
 _ok(needle: string) -> int {
-    if _unavailable() == 1 {
-        return 1
-    }
     if string.contains(config.get("splice.out"), needle) == 1 {
         return 1
     }

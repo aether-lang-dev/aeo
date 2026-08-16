@@ -38,7 +38,8 @@ HAVE="$(ae --version 2>/dev/null | head -n1 | sed -n 's/^ae \([0-9][0-9.]*\).*/\
 if [ -n "$PIN" ] && [ -n "$HAVE" ] && \
    [ "$(printf '%s\n%s\n' "$PIN" "$HAVE" | sort -V | head -n1)" != "$PIN" ]; then
     echo "WARNING: ae $HAVE is older than AETHER_PIN $PIN."
-    echo "  The specs import std.spec (stdlib since 0.538.0, absorbed from aeocha)."
+    echo "  The specs import std.spec (stdlib since 0.538.0, absorbed from aeocha)"
+    echo "  and call its skip verbs it_when/skip_it (0.545.0)."
     echo "  Expect 'Undefined variable spec' everywhere until you upgrade:"
     echo "    (cd ~/scm/aether && ./install.sh)   # or: ae version install $PIN"
     echo

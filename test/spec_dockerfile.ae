@@ -25,6 +25,17 @@ DOCKER
 main() {
     fw = spec.init()
 
+    // HONEST SKIP GATE (std.spec `it_when`, ae 0.545.0). These cases drive a
+    // REAL container engine; without one they used to take an
+    // `expect_int(1).to_be_truthy()` branch and report a PASS having run
+    // nothing — a box with no podman looked identical to a box where every
+    // check succeeded. Now they report ⊘ with this reason.
+    have_engine = 1
+    if _no_engine() == 1 {
+        have_engine = 0
+    }
+    why = "no container engine on PATH (podman/docker) — install one to run live"
+
     spec.describe(fw, "inline Dockerfile (built + run via aeo's driver)") {
 
         spec.before_each() callback {
@@ -34,36 +45,28 @@ main() {
             driver_linux.down("myapp", "")
         }
 
-        spec.it("builds the image from the inline Dockerfile, runs it, reads the baked-in marker") callback {
-            if _no_engine() == 1 {
-                spec.expect_int(1).to_be_truthy()
-            } else {
-                // build
-                berr = driver_linux.build("myapp", DF(), "")
-                spec.expect_str(berr).to_equal_str("")
-                tag = driver_linux.built_tag("myapp")
-                // run + alive
-                uerr = driver_linux.up("myapp", tag, "sleep 600", 0, "")
-                spec.expect_str(uerr).to_equal_str("")
-                spec.expect_int(driver_linux.probe("myapp", "", "")).to_equal(1)
-                // the baked-in marker proves the image is OURS (built from the
-                // heredoc), not a pulled stock image.
-                marker = driver_linux.exec_capture("myapp", "cat /etc/aeo-marker", "")
-                spec.expect_str(marker).to_equal_str("aeo-built-this")
-                // and it still computes
-                spec.expect_str(driver_linux.exec_capture("myapp", "echo $((2+2))", "")).to_equal_str("4")
-            }
+        spec.it_when(have_engine, "builds the image from the inline Dockerfile, runs it, reads the baked-in marker", why) callback {
+            // build
+            berr = driver_linux.build("myapp", DF(), "")
+            spec.expect_str(berr).to_equal_str("")
+            tag = driver_linux.built_tag("myapp")
+            // run + alive
+            uerr = driver_linux.up("myapp", tag, "sleep 600", 0, "")
+            spec.expect_str(uerr).to_equal_str("")
+            spec.expect_int(driver_linux.probe("myapp", "", "")).to_equal(1)
+            // the baked-in marker proves the image is OURS (built from the
+            // heredoc), not a pulled stock image.
+            marker = driver_linux.exec_capture("myapp", "cat /etc/aeo-marker", "")
+            spec.expect_str(marker).to_equal_str("aeo-built-this")
+            // and it still computes
+            spec.expect_str(driver_linux.exec_capture("myapp", "echo $((2+2))", "")).to_equal_str("4")
         }
 
-        spec.it("is gone after driver down") callback {
-            if _no_engine() == 1 {
-                spec.expect_int(1).to_be_truthy()
-            } else {
-                driver_linux.build("myapp", DF(), "")
-                driver_linux.up("myapp", driver_linux.built_tag("myapp"), "sleep 600", 0, "")
-                driver_linux.down("myapp", "")
-                spec.expect_int(driver_linux.probe("myapp", "", "")).to_equal(0)
-            }
+        spec.it_when(have_engine, "is gone after driver down", why) callback {
+            driver_linux.build("myapp", DF(), "")
+            driver_linux.up("myapp", driver_linux.built_tag("myapp"), "sleep 600", 0, "")
+            driver_linux.down("myapp", "")
+            spec.expect_int(driver_linux.probe("myapp", "", "")).to_equal(0)
         }
     }
 

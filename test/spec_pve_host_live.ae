@@ -81,28 +81,34 @@ main() {
 
     spec.describe(fw, "PVE host live — deploy-ready + least-privilege") {
 
+        // HONEST SKIPS (std.spec `it_when`, ae 0.545.0). Each case used to fall
+        // into `expect_int(1).to_equal(1)` when no PVE token was configured, so
+        // a box that never contacted a Proxmox host reported all four as PASSES.
+        // Section (B) is the sharp one: it claims the API token CANNOT create a
+        // user, self-escalate via ACL, or reboot the node — a least-privilege
+        // security claim. Asserting that vacuously is the worst thing this repo
+        // can do, since the green is then evidence of nothing. ⊘ instead.
+        live = 1
+        if _skip() == 1 {
+            live = 0
+        }
+        why = "no PVE token / host unreachable — set the token env to run live"
+
         spec.describe("(A) deploy readiness (driver preflight)") {
-            spec.it("the host is deploy-ready: token OK, template in pool, storage+bridge present") callback {
-                if _skip() == 1 {
-                    spec.expect_int(1).to_equal(1)   // skipped: no token / unreachable
-                } else {
-                    spec.expect_str(config.get("pve.preflight")).to_equal_str("")
-                }
+            spec.it_when(live, "the host is deploy-ready: token OK, template in pool, storage+bridge present", why) callback {
+                spec.expect_str(config.get("pve.preflight")).to_equal_str("")
             }
         }
 
         spec.describe("(B) least-privilege: dangerous mutations are DENIED (403)") {
-            spec.it("cannot create a user (no User.Modify)") callback {
-                if _skip() == 1 { spec.expect_int(1).to_equal(1) }
-                else { spec.expect_str(config.get("pve.denied_user")).to_equal_str("1") }
+            spec.it_when(live, "cannot create a user (no User.Modify)", why) callback {
+                spec.expect_str(config.get("pve.denied_user")).to_equal_str("1")
             }
-            spec.it("cannot self-escalate via ACL (the token-escape)") callback {
-                if _skip() == 1 { spec.expect_int(1).to_equal(1) }
-                else { spec.expect_str(config.get("pve.denied_acl")).to_equal_str("1") }
+            spec.it_when(live, "cannot self-escalate via ACL (the token-escape)", why) callback {
+                spec.expect_str(config.get("pve.denied_acl")).to_equal_str("1")
             }
-            spec.it("cannot reboot the node (no Sys.PowerMgmt)") callback {
-                if _skip() == 1 { spec.expect_int(1).to_equal(1) }
-                else { spec.expect_str(config.get("pve.denied_reboot")).to_equal_str("1") }
+            spec.it_when(live, "cannot reboot the node (no Sys.PowerMgmt)", why) callback {
+                spec.expect_str(config.get("pve.denied_reboot")).to_equal_str("1")
             }
         }
     }

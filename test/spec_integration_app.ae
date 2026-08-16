@@ -36,33 +36,40 @@ DOCKER
 main() {
     fw = spec.init()
 
+    // HONEST SKIP GATE (std.spec `it_when`, ae 0.545.0). These cases drive a
+    // REAL container engine; without one they used to take an
+    // `expect_int(1).to_be_truthy()` branch and report a PASS having run
+    // nothing — a box with no podman looked identical to a box where every
+    // check succeeded. Now they report ⊘ with this reason.
+    have_engine = 1
+    if _no_engine() == 1 {
+        have_engine = 0
+    }
+    why = "no container engine on PATH (podman/docker) — install one to run live"
+
     spec.describe(fw, "orchestrated Python service (build, expose, curl)") {
 
         spec.after_each() callback {
             driver_linux.down(NAME(), "")
         }
 
-        spec.it("builds + runs the service and computes 2+3=5, 40+2=42 over HTTP") callback {
-            if _no_engine() == 1 {
-                spec.expect_int(1).to_be_truthy()
-            } else {
-                driver_linux.down(NAME(), "")
-                // build the service image from the inline Dockerfile
-                berr = driver_linux.build(NAME(), DF(), "")
-                spec.expect_str(berr).to_equal_str("")
-                // run it with the port exposed to the host
-                tag = driver_linux.built_tag(NAME())
-                uerr = driver_linux.up(NAME(), tag, "", PORT(), "")
-                spec.expect_str(uerr).to_equal_str("")
-                // wait for the http.server to bind, then curl FROM THE HOST
-                base = "http://localhost:8080"
-                // curl shell-out, NOT std.http.client: the client aborts
-                // intermittently on macOS (SIGABRT mid-request), and the
-                // spec's subject is the ORCHESTRATION, not the transport.
-                spec.expect_str(_wait_http("${base}/add/0/0", 40)).to_equal_str("yes")
-                spec.expect_str(_http_get("${base}/add/2/3")).to_equal_str("5")
-                spec.expect_str(_http_get("${base}/add/40/2")).to_equal_str("42")
-            }
+        spec.it_when(have_engine, "builds + runs the service and computes 2+3=5, 40+2=42 over HTTP", why) callback {
+            driver_linux.down(NAME(), "")
+            // build the service image from the inline Dockerfile
+            berr = driver_linux.build(NAME(), DF(), "")
+            spec.expect_str(berr).to_equal_str("")
+            // run it with the port exposed to the host
+            tag = driver_linux.built_tag(NAME())
+            uerr = driver_linux.up(NAME(), tag, "", PORT(), "")
+            spec.expect_str(uerr).to_equal_str("")
+            // wait for the http.server to bind, then curl FROM THE HOST
+            base = "http://localhost:8080"
+            // curl shell-out, NOT std.http.client: the client aborts
+            // intermittently on macOS (SIGABRT mid-request), and the
+            // spec's subject is the ORCHESTRATION, not the transport.
+            spec.expect_str(_wait_http("${base}/add/0/0", 40)).to_equal_str("yes")
+            spec.expect_str(_http_get("${base}/add/2/3")).to_equal_str("5")
+            spec.expect_str(_http_get("${base}/add/40/2")).to_equal_str("42")
         }
     }
 

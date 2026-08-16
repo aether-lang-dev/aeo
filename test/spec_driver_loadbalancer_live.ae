@@ -55,38 +55,33 @@ main() {
         config.put("lb.down_alive", "${pd}")
     }
 
+    // HONEST SKIPS (std.spec `it_when`, ae 0.545.0). Each case used to open
+    // with `if _skip() == 1 { expect_int(1).to_equal(1) }` — an always-true
+    // placeholder that reported a PASS on a box without the aeo-lb image, so
+    // "3 passing" meant nothing was exercised. `it_when` reports ⊘ with the
+    // reason instead, and the assertions below are now unconditional: the body
+    // simply does not run when the gate is false.
+    why = "aeo-lb image absent (localhost/aeo/aeo-lb:latest) — build it to run live"
+
     spec.describe(fw, "driver_loadbalancer live lifecycle") {
-        spec.it("up() starts a tracked LB process") callback {
-            if _skip() == 1 {
-                spec.expect_int(1).to_equal(1)
-            } else {
-                spec.expect_str(config.get("lb.up_err")).to_equal_str("")
-                spec.expect_str(config.get("lb.up_alive")).to_equal_str("1")
-            }
+        spec.it_when(avail, "up() starts a tracked LB process", why) callback {
+            spec.expect_str(config.get("lb.up_err")).to_equal_str("")
+            spec.expect_str(config.get("lb.up_alive")).to_equal_str("1")
         }
-        spec.it("the LB answers on its publish() port") callback {
-            if _skip() == 1 {
-                spec.expect_int(1).to_equal(1)
-            } else {
-                spec.expect_str(config.get("lb.answers")).to_equal_str("1")
-            }
+        spec.it_when(avail, "the LB answers on its publish() port", why) callback {
+            spec.expect_str(config.get("lb.answers")).to_equal_str("1")
         }
-        spec.it("down() stops the tracked process") callback {
-            if _skip() == 1 {
-                spec.expect_int(1).to_equal(1)
-            } else {
-                spec.expect_str(config.get("lb.down_alive")).to_equal_str("0")
-            }
+        spec.it_when(avail, "down() stops the tracked process", why) callback {
+            spec.expect_str(config.get("lb.down_alive")).to_equal_str("0")
         }
     }
 
     spec.run_summary(fw)
 }
 
-_skip() -> int {
-    if config.get("lb.avail") == "1" { return 0 }
-    return 1
-}
+// (_skip() removed with the it_when conversion — it existed only to pick the
+// always-true placeholder branch inside each it(). The gate is now the it_when
+// condition itself, so there is nothing left to consult.)
 
 // 1 if the LB answers HTTP at all (even 502 = it's up + listening). Polls briefly
 // for the async bind, then curls. curl exit 0 (2xx/3xx) or 22 (HTTP error) both

@@ -60,9 +60,16 @@ main() {
     spec.describe(fw, "Capsicum breakout classes (kernel mechanism; stand-in process, NOT real bhyve)") {
 
         if capsicum.available() == 0 {
+            // HONEST SKIP (std.spec `skip_it`, ae 0.545.0). This used to be an
+            // it() whose body asserted `expect_int(1).to_be_truthy()` — an
+            // always-true placeholder reported as a PASS while every breakout
+            // class went untested. A containment spec that claims green
+            // without exercising the kernel is the worst shape aeo can ship,
+            // so it now reports ⊘ with its reason instead.
             spec.describe("environment") {
-                spec.it("skipped — Capsicum not available (need FreeBSD)") callback {
-                    spec.expect_int(1).to_be_truthy()
+                spec.skip_it("every breakout class is denied by the kernel",
+                             "Capsicum not available — needs a FreeBSD kernel") callback {
+                    spec.expect_int(capsicum.in_mode()).to_equal(1)
                 }
             }
             spec.run_summary(fw)

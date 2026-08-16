@@ -68,9 +68,15 @@ main() {
         }
 
         if capsicum.available() == 0 {
+            // HONEST SKIP (std.spec `skip_it`, ae 0.545.0). This used to be an
+            // it() whose body asserted `expect_int(1).to_be_truthy()` — an
+            // always-true placeholder that reported a PASS while enforcement
+            // went completely untested, with "skipped" only in the prose. It
+            // now reports ⊘ and counts in neither passed nor failed.
             spec.describe("enforcement") {
-                spec.it("skipped — Capsicum not available (need FreeBSD)") callback {
-                    spec.expect_int(1).to_be_truthy()
+                spec.skip_it("Capsicum enforcement (grant set is honoured by the kernel)",
+                             "Capsicum not available — needs a FreeBSD kernel") callback {
+                    spec.expect_int(capsicum.in_mode()).to_equal(1)
                 }
             }
             spec.run_summary(fw)

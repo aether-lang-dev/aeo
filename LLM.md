@@ -6,9 +6,8 @@ that keep it coherent, the footguns. Re-read at the start of every session. **Fo
 an observer wanting to *use* aeo for its purpose:** the "What aeo is for" and "A
 composition, end to end" sections are your entry; the rest is the engine room.
 
-Not a CLAUDE.md. Short, opinionated, current as of ae 0.543.0 (2026-08-15).
-Suite verified on 0.543.0; `AETHER_PIN` floor is 0.541.0 (see that file for why
-the two differ).
+Not a CLAUDE.md. Short, opinionated, current as of ae 0.545.0 (2026-08-16).
+`AETHER_PIN` floor is 0.545.0 — the specs call std.spec's skip verbs.
 
 ---
 
@@ -35,7 +34,7 @@ aeo is the third sibling to `aether` (the language) and `aeb` (the build runner)
 born spun-out. **config IS code** — the composition is a `.ae` you *run*, full
 Aether around the declarations; no YAML, ever.
 
-## Status (honest, ae 0.543.0)
+## Status (honest, ae 0.545.0)
 
 Working, with a **live-proven containment story** AND a **live-proven resident-agent
 story** (see the aeo-agent note below). Of six containment axes, **all six are
@@ -313,10 +312,36 @@ pace. `to_equal_str` also now prints the caret-aligned diff once either string
 hits 24 chars, so **78 of aeo's 477 `to_equal_str` sites got better failure
 output with no edit at all**.
 
-`AETHER_PIN` stays at **0.541.0** deliberately — the feature is backward
-compatible, so it is not yet a floor. **Raise the pin to 0.542.0 in the same
-commit that first writes a why-message into a spec** (an older `ae` would then
-hit an arity error). The reasoning is spelled out in `AETHER_PIN` itself.
+The why-message did **not** move the pin (it is backward compatible). The SKIP
+VERBS did — see below. Write a why-message freely; it needs 0.542.0 and the
+floor is already past that.
+
+### Honest skips, never a fake pass (std.spec skip verbs, 0.545.0)
+
+**A spec whose dependency is absent must report `⊘ skipped`, NOT a pass.**
+
+```aether
+spec.it_when(avail, "the LB answers on its publish() port", "aeo-lb image absent") callback { … }
+spec.skip_it("every breakout class is denied by the kernel", "needs a FreeBSD kernel") callback { … }
+```
+
+A skipped body does not run, counts in neither passed nor failed, prints its
+reason, and leaves the exit code 0 — so an environment gap stays green in CI
+without pretending anything was verified.
+
+**The anti-pattern this replaced, which is banned:** gating on an always-true
+assertion (`expect_int(1).to_be_truthy()`, `expect_int(1).to_equal(1)`) or a
+helper that returns "pass" when its harness is missing (the old `_ok()` in
+`spec_egress_splice_live`). Four specs did this; a box lacking the dependency
+reported *"3 passing"* having exercised **nothing**, and was indistinguishable
+from a box that genuinely passed. That is a direct breach of **"don't
+overclaim live"**, and it was sitting inside the containment specs — the ones
+whose entire purpose is to substantiate a security claim. If you catch
+yourself writing an assertion that cannot fail, you want `it_when`.
+
+Converted: `spec_egress_splice_live`, `spec_driver_loadbalancer_live`,
+`spec_capsicum_breakout`, `spec_capsicum_bhyve_model`. **This is why
+`AETHER_PIN` is 0.545.0** — an older `ae` has no `it_when`/`skip_it` at all.
 
 ### Agent / deployment footguns (operational, cost real session time)
 
