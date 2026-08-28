@@ -132,6 +132,14 @@ ciphertext everywhere aeo holds state and decrypt only at use, fail-closed.
 > management, cluster orchestrators, and where it draws its boundaries on purpose:
 > **[`docs/core/aeo-vs-iac-landscape.md`](docs/core/aeo-vs-iac-landscape.md)**.
 
+> **Also see [pulumi-dart](https://github.com/kingwill101/pulumi-dart)** — a Pulumi
+> SDK and language host for Dart, for similarly declarative infrastructure. It shares
+> aeo's **config-is-code** stance: infrastructure declared in a real general-purpose
+> language you *run*, not a YAML/HCL document a tool parses. The targets differ —
+> Pulumi provisions cloud resources through provider APIs, while aeo stands up a live
+> containment tree on hosts you already have — which makes them complementary rather
+> than competing: provision the box with one, run the tree on it with the other.
+
 ## The one-line distinction
 
 | | does | invocation |
