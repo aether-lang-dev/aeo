@@ -140,6 +140,16 @@ ciphertext everywhere aeo holds state and decrypt only at use, fail-closed.
 > containment tree on hosts you already have — which makes them complementary rather
 > than competing: provision the box with one, run the tree on it with the other.
 
+> **Also see [TerraDart](https://terradart.dev/)** ([repo](https://github.com/nozomi-koborinai/terradart))
+> — type-safe IaC for Dart, another take on declarative infrastructure. You author
+> typed cloud resources in Dart and it **emits standard `*.tf.json`** for the
+> `terraform apply` pipeline you already run. That is a deliberately different bet
+> from aeo's: TerraDart puts a real language at the *authoring* layer and still hands
+> a serialized document to Terraform, which keeps the whole existing toolchain (state,
+> plan, providers); aeo keeps the language all the way to *execution* — the `.ae` IS
+> the program that stands the tree up, so there is no generated artifact and no
+> parse step. Same complaint about hand-written HCL/YAML, two answers to it.
+
 ## The one-line distinction
 
 | | does | invocation |
