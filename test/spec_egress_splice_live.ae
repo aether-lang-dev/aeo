@@ -61,7 +61,7 @@ main() {
         }
     }
 
-    spec.run_summary(fw)
+    return spec.run_summary(fw)
 }
 
 // Run the python harness, passing the gateway binary path + ports. Capture stdout.

@@ -79,8 +79,7 @@ main() {
                     spec.expect_int(capsicum.in_mode()).to_equal(1)
                 }
             }
-            spec.run_summary(fw)
-            return
+            return spec.run_summary(fw)
         }
 
         // ---- model bhyve: open the granted fds + narrow to declared rights ----
@@ -131,7 +130,7 @@ main() {
         }
     }
 
-    spec.run_summary(fw)
+    return spec.run_summary(fw)
 }
 
 _i(n: int) -> string { return string.from_int(n) }

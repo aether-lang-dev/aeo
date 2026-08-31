@@ -6,8 +6,9 @@ that keep it coherent, the footguns. Re-read at the start of every session. **Fo
 an observer wanting to *use* aeo for its purpose:** the "What aeo is for" and "A
 composition, end to end" sections are your entry; the rest is the engine room.
 
-Not a CLAUDE.md. Short, opinionated, current as of ae 0.545.0 (2026-08-16).
-`AETHER_PIN` floor is 0.545.0 — the specs call std.spec's skip verbs.
+Not a CLAUDE.md. Short, opinionated, current as of ae 0.613.0 (2026-08-31).
+`AETHER_PIN` floor is 0.613.0 — the specs RETURN run_summary's verdict (0.612.0)
+and call std.spec's skip verbs (0.545.0).
 
 ---
 
@@ -34,7 +35,7 @@ aeo is the third sibling to `aether` (the language) and `aeb` (the build runner)
 born spun-out. **config IS code** — the composition is a `.ae` you *run*, full
 Aether around the declarations; no YAML, ever.
 
-## Status (honest, ae 0.545.0)
+## Status (honest, ae 0.613.0)
 
 Working, with a **live-proven containment story** AND a **live-proven resident-agent
 story** (see the aeo-agent note below). Of six containment axes, **all six are
@@ -315,6 +316,47 @@ output with no edit at all**.
 The why-message did **not** move the pin (it is backward compatible). The SKIP
 VERBS did — see below. Write a why-message freely; it needs 0.542.0 and the
 floor is already past that.
+
+### ALWAYS `return spec.run_summary(fw)` — never a bare call (0.612.0)
+
+**The single most dangerous footgun in the suite.** `run_summary` used to
+`exit(1)` on failure; since ae 0.612.0 it **returns** its verdict (0 green /
+1 failed) and never exits. `main()` takes no return annotation (`main() -> int`
+is a parse error) and **its return value becomes the process exit status** — so
+a bare trailing `spec.run_summary(fw)` discards the verdict and a **failing
+suite exits 0**. `run-spec.sh` judges purely by exit code, so the whole suite
+goes silently green.
+
+```aether
+main() {
+    fw = spec.init()
+    spec.describe(fw, "thing") { … }
+    return spec.run_summary(fw)      // <-- REQUIRED. Bare call = silent green.
+}
+```
+
+Cleanup after the run? Keep the verdict and return it last — the cleanup now
+actually runs, which is the *point* of the change (`exit(1)` used to skip
+`arena.destroy` / `server_stop` / `sqlite.close` on exactly the failing runs
+where a leaked arena or orphaned listener does the most damage):
+
+```aether
+_rc = spec.run_summary(fw)
+reset_bindings("specsys")
+return _rc
+```
+
+Need an explicit `exit` (a live actor or accept loop holding the process open)?
+Carry the verdict: **`exit(_rc)`, never `exit(0)`**. Early-return paths must
+carry it too — `return spec.run_summary(fw)`, not `run_summary(fw); return`.
+
+This bit aeo for real: **all 79 call sites were the bare form**, so the suite
+could not report a regression at all. Measured by sabotaging a live spec —
+bare form printed `1 failing` and exited **0**; return form printed `1 failing`
+and exited **1**. It is also why `AETHER_PIN` is 0.613.0: below 0.612.0
+`run_summary` exits internally and its return value is garbage (an all-green
+suite measured as 24 upstream), so the corrected sources need the new
+behaviour.
 
 ### Honest skips, never a fake pass (std.spec skip verbs, 0.545.0)
 

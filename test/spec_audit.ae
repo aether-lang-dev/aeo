@@ -45,7 +45,7 @@ main() {
         }
     }
 
-    spec.run_summary(fw)
+    return spec.run_summary(fw)
 }
 
 // pull the hash= field out of a line (test helper).

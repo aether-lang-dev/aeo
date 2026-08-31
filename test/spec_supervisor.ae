@@ -84,7 +84,7 @@ main() {
             }
         }
     }
-    spec.run_summary(fw)
+    return spec.run_summary(fw)
 }
 
 _first(s: string) -> string {

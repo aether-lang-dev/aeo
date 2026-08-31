@@ -234,7 +234,7 @@ main() {
             }
         }
     }
-    spec.run_summary(fw)
+    return spec.run_summary(fw)
 }
 
 // the wslc inspect JSON, faithful to the live winbaz capture (indentation,

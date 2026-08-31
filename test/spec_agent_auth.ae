@@ -70,7 +70,7 @@ main() {
         }
     }
 
-    spec.run_summary(fw)
+    return spec.run_summary(fw)
 }
 
 // 1 if the two strings are equal (aeocha has no fluent str-inequality yet).

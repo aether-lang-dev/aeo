@@ -54,5 +54,5 @@ main() {
             spec.expect_str(get_depends("app")).to_equal_str("db")
         }
     }
-    spec.run_summary(fw)
+    return spec.run_summary(fw)
 }

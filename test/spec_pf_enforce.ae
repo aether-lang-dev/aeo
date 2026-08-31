@@ -67,7 +67,7 @@ main() {
     }
 
     reset_bindings(SYS())   // leave no .aeo artifact behind
-    spec.run_summary(fw)
+    return spec.run_summary(fw)
 }
 
 _has(hay: string, needle: string) -> int {

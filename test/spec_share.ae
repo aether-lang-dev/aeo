@@ -161,7 +161,7 @@ main() {
             }
         }
     }
-    spec.run_summary(fw)
+    return spec.run_summary(fw)
 }
 
 // join an argv list with single spaces.

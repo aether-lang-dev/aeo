@@ -85,7 +85,7 @@ main() {
             }
         }
     }
-    spec.run_summary(fw)
+    return spec.run_summary(fw)
 }
 
 // count non-overlapping occurrences of `needle` in `hay`.

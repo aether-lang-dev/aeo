@@ -49,8 +49,12 @@ main() {
         }
     }
 
-    spec.run_summary(fw)
+    // Keep the verdict, run the cleanup, THEN return it (ae 0.612.0: run_summary
+    // RETURNS 0/1 and no longer exits, so cleanup after it finally runs — but a
+    // dropped return value silently exits 0 and turns a red suite green).
+    _rc = spec.run_summary(fw)
     reset_bindings("specsys")    // leave no .aeo artifact behind
+    return _rc
 }
 
 _ne(a: string, b: string) -> int { if a == b { return 0 } return 1 }

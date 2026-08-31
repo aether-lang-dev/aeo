@@ -31,5 +31,5 @@ main() {
             httptest.expect_http_get_body_eq("${base}/add/40/2", "42", "40 + 2 = 42")
         }
     }
-    spec.run_summary(fw)
+    return spec.run_summary(fw)
 }
