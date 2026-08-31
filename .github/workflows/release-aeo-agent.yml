@@ -225,7 +225,7 @@ jobs:
 
   build-windows:
     # x86_64 Windows, cross-compiled on the Linux runner via zig. Serves Win11
-    # guests (bhyve; docs/aeo-agent-windows-pipeline.md). The agent's Windows
+    # guests (bhyve; docs/development/aeo-agent-windows-pipeline.md). The agent's Windows
     # code path is real: it imports driver_windows and platform()-dispatches the
     # workload to `wsl -d <distro> -- podman ...` (bin/aeo-agent.ae ~320); the
     # linux arm uses podman directly. Same protocol/transport/boot core.

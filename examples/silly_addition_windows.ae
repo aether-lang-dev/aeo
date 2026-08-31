@@ -29,7 +29,7 @@
 //
 // HOST PREREQS: a Windows host with WSL2 installed and a distro (default "Ubuntu")
 // that has podman on its PATH. Proven substrate on the bazzite Win11 guest: WSL2
-// 2.7.10 + podman 5.7 ran a container (see docs/aeo-agent-windows-pipeline.md).
+// 2.7.10 + podman 5.7 ran a container (see docs/development/aeo-agent-windows-pipeline.md).
 // wsl_distro() selects the distro ("" = WSL's default distro).
 //
 // This file is a PURE COMPOSITION — orchestration only. Config IS code, and the

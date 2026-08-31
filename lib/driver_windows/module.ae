@@ -26,6 +26,23 @@
 //
 // available() lets a caller SKIP cleanly off a host with no WSL — a plain PATH
 // test for wsl.exe (mirrors driver_bwrap/driver_nspawn.available).
+//
+// TWO WSL FRICTIONS worth knowing (found on the winbaz Win11 box, 2026-07-22 —
+// docs/development/winbaz-nested-virt-and-agent-findings.md):
+//
+//  1. `wsl.exe` emits UTF-16LE for its OWN subcommands (`--status`, `-l`), so
+//     parsing that output over a pipe corrupts on the NUL bytes. THIS DRIVER IS
+//     IMMUNE BY CONSTRUCTION and must stay that way: every captured call goes
+//     `wsl [-d D] -- <linux program>`, so the stdout we read belongs to podman
+//     or /bin/sh and is plain UTF-8. available() is a PATH probe and reads no
+//     output at all. If you ever need distro STATE, read the registry
+//     (HKCU\...\Lxss) or strip NULs — do NOT parse `wsl --status`.
+//
+//  2. `wsl --status` and a cold first `wsl -d <distro>` CAN HANG (booting the
+//     utility VM). Every probe on the live box needed a job-timeout. run_capture
+//     has no timeout argument, so this driver currently has NO guard: a cold or
+//     wedged WSL blocks the runner's health loop rather than failing it. Tracked
+//     in TODO.md; treat a hang here as known, not mysterious.
 
 import std.os (run_capture, os_which, getenv)
 import std.list

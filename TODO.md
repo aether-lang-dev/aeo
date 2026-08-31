@@ -1164,10 +1164,35 @@ space-split confine flag channel).
           NOT needed yet (no HTTPS-agent workflow exists) — noted so the migration
           doesn't rediscover the blocker. (#1012's forward-proxy half is irrelevant to
           aeo — the agent talks direct to a known peer.)
-- [ ] aeo-agent ON WINDOWS: the Bazzite→Chromebook→Win11 build/store/deploy
-      pipeline — `docs/aeo-agent-windows-pipeline.md`. Blockers: agent body is
-      Linux-bound (needs driver_windows/select arm), not on the conduit yet, and
-      the mingw cross-build is unproven (spike it first). Agent stays Aether.
+- [x] **aeo-agent ON WINDOWS — control plane DONE** (proven live on `winbaz`,
+      the Win11 KVM guest, 2026-07-22). The listed blockers are all cleared: the
+      cross-build ships (zig, not mingw — see .github/release-aeo-agent.yml), the
+      agent is on the conduit, and driver_windows exists. Proven END TO END, not
+      just "the binary serves /health":
+      `aeo-agent.exe → POST /dispatch "boot <token> <node>" (auth-gated) →
+      driver_windows → wsl -d Ubuntu -- podman run → report "up"`, with a
+      container named for the node verified present in WSL podman. Container
+      lifecycle all working: launch / exec-in / fs-write / stop / cleanup.
+      Full write-up: `docs/development/winbaz-nested-virt-and-agent-findings.md`.
+- [ ] Follow-ups from the winbaz pass — both OUTSIDE aeo, neither blocking:
+      (a) **container → outbound network fails** in that WSL distro (interface +
+      route present, but `wget`/`curl` dies even with `--network=host`). Root
+      cause is podman-ROOTLESS networking (netavark + pasta/slirp) in WSL, a
+      known distro-side friction — not an aeo bug and not nested-virt. Impact:
+      the control plane and self-contained workloads work; anything that must
+      pull an image or reach the network needs the distro fixed first.
+      (b) **nested virt is a dead end on this box and is NOT needed** — WSL2's
+      full nested-virt mode never engages (`SLAT=False`) on AMD-KVM-inside-QEMU;
+      both levers were correctly applied and neither moved it (Hyper-V isn't even
+      available on Win11 *Home*). Moot anyway: every `podman run` worked on the
+      degraded path. Don't re-chase it.
+- [ ] **driver_windows has NO timeout guard on its wsl calls.** `wsl --status`
+      and a cold first `wsl -d <distro>` can HANG while the utility VM boots —
+      every probe on the live box needed a job-timeout. `os.run_capture` takes no
+      timeout argument, so a wedged WSL blocks the runner's health loop instead
+      of failing it. Options: an upstream `run_capture` timeout (an ask for
+      aether), or wrap the inner command with a `timeout`-style guard. The driver
+      header records the constraint so a hang reads as known, not mysterious.
 - [x] **`driver_wslc` — a Windows Linux-container tier via WSL Containers** — DONE
       (2026-07-03, commit `2615bbb`). `lib/driver_wslc` shells Microsoft's native
       `wslc.exe` directly (no podman, no distro prefix). Wired into compose (`wslc`

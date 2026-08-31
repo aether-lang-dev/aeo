@@ -148,7 +148,7 @@ specs + ipam assert against that string.)
   WSL Containers** (`wslc.exe`, WSL ≥ 2.9.3): no podman, no distro prefix — the
   platform's own OCI runtime. The native-engine peer of the `windows` tier. Proves
   the substrate (run + list + exec + teardown via `wslc`). Live-proven on a real
-  Win11 guest; see `docs/aeo-agent-windows-pipeline.md`.
+  Win11 guest; see `docs/development/aeo-agent-windows-pipeline.md`.
 - **confined** — the `containers` cell with all three Linux confinement axes on:
   `limit{}` → cgroup caps, `constrain{}` → cap-drop/seccomp, `deny_egress` →
   `--network none`. The showcase for "contain malware" on Linux.

@@ -24,7 +24,7 @@
 // HOST PREREQS: Windows 11 with WSL >= 2.9.3 (`wsl --update --pre-release`), which
 // ships `wslc.exe` at C:\Program Files\WSL\ (NOT on the default PATH — set AEO_WSLC
 // or add the dir to PATH). Proven on the bazzite Win11 guest: `wslc run` pulled +
-// ran alpine (see docs/aeo-agent-windows-pipeline.md + memory win11-guest-access).
+// ran alpine (see docs/development/aeo-agent-windows-pipeline.md + memory win11-guest-access).
 //
 // This file is a PURE COMPOSITION — orchestration only. Config IS code, and the
 // code here is the DECLARATION: nodes, dependencies, and the spec files that verify
