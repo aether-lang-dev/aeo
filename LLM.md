@@ -501,8 +501,19 @@ Don't over-engineer this into an in-process binding.
 
 ## Git
 
-`main` with two remotes: `origin` (SSH, git@github.com:aether-lang-org/aeo.git)
-and `origin2` (HTTPS, same repo). **When port 22 is blocked** (some networks),
-push via `origin2` — `gh auth setup-git` wires the credential helper. End commit
+`main` with ONE remote: `origin` (SSH, git@github.com:aether-lang-dev/aeo.git).
+
+There used to be an `origin2` (HTTPS, same repo) as a **port-22 workaround** for
+travelling on networks that block SSH. It has been removed — it was situational,
+not architectural, and a second remote invites pushing to the wrong one. If port
+22 is blocked again, add it back for the duration rather than keeping it around:
+
+```
+git remote add origin2 https://github.com/aether-lang-dev/aeo.git   # gh auth setup-git
+```
+
+NB the org renamed `aether-lang-org` -> `aether-lang-dev`. Old URLs still
+redirect (both resolved to the same repo, verified), so links elsewhere in the
+docs are not broken — but write new ones as `aether-lang-dev`. End commit
 messages with:
 `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`
