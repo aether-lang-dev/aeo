@@ -1,0 +1,55 @@
+# The aeb release aeo is developed and released against.
+#
+# One bare version string (last non-comment line). Read it the way the
+# Aether/aeb tooling reads AETHER_PIN:
+#
+#     grep -v '^#' AEB_PIN | tr -d '[:space:]'
+#
+# WHAT THIS IS — and how it differs from AETHER_PIN. AETHER_PIN is a HARD
+# floor: below it `ae build` cannot even compile aeo's sources (std.spec, the
+# skip verbs, the run_summary fix). AEB_PIN is SOFTER on purpose, because
+# aeb is a SEAM, not a compiler aeo links against:
+#
+#   * BUILD-TIME. aeo's binary can be emitted by `aeb` (per LLM.md's repo
+#     topology: "built BY aeb (or `ae build`)"). Plain `ae build` also works
+#     — the release path and the everyday `sh test/run-spec.sh` path both go
+#     through `ae`, not `aeb` — so aeb is not on the critical build path the
+#     way `ae` is. When you DO drive the build through aeb, this is the
+#     release it was validated with.
+#   * RUN-TIME. Mid-composition aeo may shell out to build an artifact:
+#     `run_capture("aeb", ["app:image"], env)` (LLM.md, "The seam to aeb").
+#     This is DEMAND-DRIVEN — no aeo code path invokes aeb unconditionally,
+#     so a box that never asks a composition to build an image never needs
+#     aeb present at all. When a composition DOES reach for aeb, this names
+#     the release whose CLI surface (`aeb <target>`, its output layout under
+#     target/<module>/) aeo expects.
+#
+# Because the coupling is a CLI contract across a process boundary — argv in,
+# artifacts on disk out — not a linked ABI, aeo tolerates a range of aeb
+# versions at runtime. This pin is the KNOWN-GOOD one: the aeb aeo's docs,
+# examples and seam were last checked against. Treat it as "what to install
+# if you're setting up a box to exercise the aeb seam", not "aeo refuses to
+# start below this".
+#
+# WHY a SEPARATE file rather than a line in AETHER_PIN or LLM.md. aeb and
+# Aether version independently (aeb 0.297.0 rode Aether 0.645.0; the numbers
+# are unrelated), and a machine-readable file lets the same one-liner above
+# fetch it — the same shape aeb itself uses for AETHER_PIN/AETHER_FETCH. A
+# prose mention in LLM.md would drift; a bare-number file is greppable by
+# tooling and by the next person setting up the seam.
+#
+# WHEN TO BUMP. Move this on EVIDENCE, exactly like AETHER_PIN:
+#   - aeo starts relying on an aeb CLI flag / output-layout an older aeb
+#     lacks, or
+#   - an aeb release fixes a seam problem aeo actually hit (a target that
+#     built wrong, an output path that moved).
+# Not for novelty. aeb cutting a new release is not a reason to touch this.
+#
+# 0.297.0 — the first recorded aeb floor for aeo. Established while pinning
+# the toolchain forward (Aether 0.645.0); aeb 0.297.0 is the release the
+# sibling checkout was at (../aeb == v0.297) and the one this repo's aeb
+# seam is documented against. This is a BASELINE, not an evidence bump:
+# before now aeo carried no aeb pin at all (aeb is a seam, and the tree has
+# no unconditional aeb build/run edge), so there was nothing to build below.
+# Recording it closes the "we depend on aeb but never say which aeb" gap.
+0.297.0

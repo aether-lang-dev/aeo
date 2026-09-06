@@ -93,4 +93,18 @@
 # Aether's release.yml now pins ubuntu-22.04 (glibc 2.35). 0.613.0 is on
 # the good side of that line, which matters because aeo's fleet includes
 # Debian-class boxes (the Pi 5, the Pi Zero 2 W).
-0.613.0
+#
+# 0.645.0 — a TRACKING bump, and the file's own policy demands I say so
+# plainly: this is NOT an evidence bump. Nothing in the tree started needing
+# a 0.645.0 primitive, and no correctness/portability bug aeo hit was fixed
+# here. Measured: on both 0.613.0 and 0.645.0 the tree builds all six
+# binaries and the suite reports 300 passing / 4 skipped / 0 failing, exit 0.
+# The floor moved only so the recorded number matches the toolchain aeo is
+# now developed and released against, closing the "documented floor vs.
+# actual build box" gap. The REAL floor — the reason a too-old `ae` breaks
+# aeo — is still everything above: std.spec (0.538.0), the skip verbs
+# (0.545.0) and the run_summary-returns-verdict correctness fix (0.612.0).
+# If you are diagnosing an old-toolchain failure, those are what bites, not
+# this line. Do not read this bump as license to chase releases; the next
+# move of this number should go back to requiring evidence.
+0.645.0

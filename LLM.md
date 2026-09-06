@@ -6,9 +6,12 @@ that keep it coherent, the footguns. Re-read at the start of every session. **Fo
 an observer wanting to *use* aeo for its purpose:** the "What aeo is for" and "A
 composition, end to end" sections are your entry; the rest is the engine room.
 
-Not a CLAUDE.md. Short, opinionated, current as of ae 0.613.0 (2026-08-31).
-`AETHER_PIN` floor is 0.613.0 — the specs RETURN run_summary's verdict (0.612.0)
-and call std.spec's skip verbs (0.545.0).
+Not a CLAUDE.md. Short, opinionated, current as of ae 0.645.0 (2026-09-06).
+`AETHER_PIN` is 0.645.0 (a TRACKING bump — nothing new is required above the real
+floor: the specs RETURN run_summary's verdict (0.612.0) and call std.spec's skip
+verbs (0.545.0); see AETHER_PIN's own note). `AEB_PIN` is 0.297.0 — the aeb release
+the runtime seam (`run_capture("aeb", ...)`) is developed against; soft, since aeb
+is a CLI seam not a linked dependency (see AEB_PIN).
 
 ---
 
@@ -35,7 +38,7 @@ aeo is the third sibling to `aether` (the language) and `aeb` (the build runner)
 born spun-out. **config IS code** — the composition is a `.ae` you *run*, full
 Aether around the declarations; no YAML, ever.
 
-## Status (honest, ae 0.613.0)
+## Status (honest, ae 0.645.0)
 
 Working, with a **live-proven containment story** AND a **live-proven resident-agent
 story** (see the aeo-agent note below). Of six containment axes, **all six are
@@ -353,10 +356,11 @@ carry it too — `return spec.run_summary(fw)`, not `run_summary(fw); return`.
 This bit aeo for real: **all 79 call sites were the bare form**, so the suite
 could not report a regression at all. Measured by sabotaging a live spec —
 bare form printed `1 failing` and exited **0**; return form printed `1 failing`
-and exited **1**. It is also why `AETHER_PIN` is 0.613.0: below 0.612.0
-`run_summary` exits internally and its return value is garbage (an all-green
-suite measured as 24 upstream), so the corrected sources need the new
-behaviour.
+and exited **1**. This is the REAL reason `AETHER_PIN` has a floor at all:
+below 0.612.0 `run_summary` exits internally and its return value is garbage
+(an all-green suite measured as 24 upstream), so the corrected sources need
+the new behaviour. (The pin *number* is now 0.645.0, but that's a tracking
+bump — 0.612.0 is the correctness line; see AETHER_PIN's note.)
 
 ### Honest skips, never a fake pass (std.spec skip verbs, 0.545.0)
 
