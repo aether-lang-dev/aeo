@@ -15,7 +15,7 @@
 # it installs. During bring-up both are pioneered in `aeo`. See the plan.
 #
 # ---------------------------------------------------------------------------
-# AEBBOOT_REV: 2
+# AEBBOOT_REV: 3
 # ^ PROPAGATION SNIFF MARKER — same scheme as aeboot.sh. Bumped by hand on
 # every change; poll the raw URL for `AEBBOOT_REV: <n>` to know when
 # raw.githubusercontent has redeployed your push. (Distinct name from
@@ -80,7 +80,17 @@ aeb_ensure() {
 
     if command -v aeb >/dev/null 2>&1; then
         local have; have="$(aeb_version || true)"
-        if [ -n "${AEB_MIN:-}" ] && [ -n "$have" ] && ! version_ge "$have" "$AEB_MIN"; then
+        # A source-built aeb reports "aeb 0.0.0-dev+<sha>" (no release tag), which
+        # aeb_version renders as 0.0.0. That is NOT an old release — it is an
+        # untagged build straight from HEAD, and it is almost certainly NEWER than
+        # any AEB_MIN. Warning "your aeb is older than 0.297.0" about a
+        # just-compiled-from-main aeb is nonsense (and would fire on the very aeb
+        # this helper just fetched via install.sh from source). Treat 0.0.0 as
+        # "unversioned — trust it" and skip the floor check. (Caught on a bare-box
+        # fetch, where install.sh builds aeb from source -> 0.0.0-dev.)
+        if [ "$have" = "0.0.0" ]; then
+            say "aeb (source build, unversioned) already on PATH — skipping floor check"
+        elif [ -n "${AEB_MIN:-}" ] && [ -n "$have" ] && ! version_ge "$have" "$AEB_MIN"; then
             say "WARNING: aeb $have is older than this repo's floor $AEB_MIN."
             say "  Its build files use the b-free Shape A grammar (bldr.build{}) that"
             say "  needs aeb >= $AEB_MIN; an older aeb fails on 'import bldr'. To upgrade:"
