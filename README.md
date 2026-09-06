@@ -93,11 +93,18 @@ build tool. (It *can* shell out to the [`aeb`](https://github.com/aether-lang-de
 build runner at runtime if a composition asks it to build an image, but that's
 optional and demand-driven, not needed to build or run aeo.)
 
-**Don't have `ae` yet?** One line installs it (Aether's own installer, into
+**Don't have Aether's `ae` yet?** One line installs it (Aether's own installer, into
 `~/.local`; `PREFIX=` to override):
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/aether-lang-dev/aether/main/get.sh | sh
+```
+
+This installs `ae` to `~/.local/bin`. Make sure that's on your `PATH` (the
+installer prints a note if it isn't):
+
+```sh
+command -v ae || export PATH="$HOME/.local/bin:$PATH"   # add to your shell rc to persist
 ```
 
 Then, from a clone of aeo:
