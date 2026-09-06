@@ -21,7 +21,7 @@
 # (-> aeb repo root, beside install.sh). See the completion plan.
 #
 # ---------------------------------------------------------------------------
-# AEBOOT_REV: 1
+# AEBOOT_REV: 2
 # ^ PROPAGATION SNIFF MARKER. Bumped by hand on every change to this file.
 # raw.githubusercontent.com serves a cached copy that lags a push by up to a
 # few minutes, so after pushing you cannot tell from the URL alone whether you
@@ -98,7 +98,7 @@ fi
 # floor is unmet. Idempotent: a no-op when a good ae is already present.
 ae_ensure() {
     [ -n "${AE_PIN:-}" ] || die "aeboot: AE_PIN is unset — the caller must set the ae floor before ae_ensure."
-    local prefix fetch
+    local prefix fetch ref
     prefix="${PREFIX:-$HOME/.local}"; export PREFIX="$prefix"
     fetch="${AE_FETCH:-$AE_PIN}"   # floor-only repos: fetch == pin
     export PATH="$prefix/bin:$PATH"   # a freshly-installed ae must be found below
@@ -110,8 +110,26 @@ ae_ensure() {
         say "ae $have already on PATH (>= $AE_PIN) — skipping"
         return 0
     fi
-    say "installing ae via get.sh (AETHER_REF=${AETHER_REF:-$fetch}, PREFIX=$prefix)"
-    AETHER_REF="${AETHER_REF:-$fetch}" fetch_run "$AEBOOT_AETHER_GET_URL" || die "ae install failed (get.sh)."
+
+    # The ref to install: an explicit AETHER_REF wins; else AE_FETCH (== AE_PIN
+    # for floor-only repos). get.sh passes the ref straight to git, so a BARE
+    # X.Y.Z is not a valid tag — the git tag is vX.Y.Z. Add the `v` for a bare
+    # dotted number ONLY; leave a branch name, a SHA, or an already-v-prefixed
+    # tag untouched. (Without this, a floor-only caller whose AE_FETCH defaults
+    # to AE_PIN=0.645.0 hands git "0.645.0", which does not resolve.)
+    ref="${AETHER_REF:-$fetch}"
+    case "$ref" in
+        [0-9]*.[0-9]*.[0-9]*) ref="v$ref" ;;   # bare X.Y.Z -> vX.Y.Z
+    esac
+    say "installing ae via get.sh (AETHER_REF=$ref, PREFIX=$prefix)"
+    AETHER_REF="$ref" fetch_run "$AEBOOT_AETHER_GET_URL" || die "ae install failed (get.sh)."
     command -v ae >/dev/null 2>&1 || die "ae installed but not on PATH — ensure $prefix/bin is on PATH."
-    say "ae $(ae_version) ready"
+    # Post-install floor re-check: a wrong ref / stale cache could leave an ae
+    # below the floor, and reporting "ready" on it would defeat the whole point
+    # of a floor. Verify what actually landed.
+    have="$(ae_version || true)"
+    if [ -n "$have" ] && ! version_ge "$have" "$AE_PIN"; then
+        die "installed ae $have is BELOW the floor $AE_PIN (ref=$ref). The wrong ref was installed — set AETHER_REF to a tag >= $AE_PIN."
+    fi
+    say "ae ${have:-installed} ready"
 }
