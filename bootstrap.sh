@@ -43,9 +43,10 @@ AE_FETCH="${AE_FETCH:-$AE_PIN}"
 export AE_PIN AE_FETCH AEB_MIN
 
 # --- source the shared installer helper (curled from raw, prod-shape) --------
-# During bring-up it lives at this repo's root; after Phase 4 it relocates to the
-# aeb repo and only this URL changes.
-AEBBOOT_URL="${AEBBOOT_URL:-https://raw.githubusercontent.com/aether-lang-dev/aeo/main/aebboot.sh}"
+# The helper is aebboot.sh, whose canonical home is the aeb repo root (it was
+# pioneered here in aeo, then relocated). Override AEBBOOT_URL to point at a
+# branch to test an unmerged helper change.
+AEBBOOT_URL="${AEBBOOT_URL:-https://raw.githubusercontent.com/aether-lang-dev/aeb/main/aebboot.sh}"
 
 _source_url() {   # source a script from a URL (or a file:// / local path)
     local url="$1" tmp rc
