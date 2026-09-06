@@ -15,7 +15,7 @@
 # it installs. During bring-up both are pioneered in `aeo`. See the plan.
 #
 # ---------------------------------------------------------------------------
-# AEBBOOT_REV: 4
+# AEBBOOT_REV: 5
 # ^ PROPAGATION SNIFF MARKER — same scheme as aeboot.sh. Bumped by hand on
 # every change; poll the raw URL for `AEBBOOT_REV: <n>` to know when
 # raw.githubusercontent has redeployed your push. (Distinct name from
@@ -117,5 +117,11 @@ aeb_ensure() {
     say "installing aeb via install.sh (AEB_REF=${ref:-latest}, PREFIX=$prefix)"
     AEB_REF="$ref" AETHER="$(command -v ae)" fetch_run "$AEBBOOT_AEB_INSTALL_URL" || die "aeb install failed (install.sh)."
     command -v aeb >/dev/null 2>&1 || die "aeb installed but not on PATH — ensure $prefix/bin is on PATH."
+    # DELIBERATELY no post-install floor re-check here (unlike aeboot.sh's ae
+    # path, which DOES re-check). install.sh builds aeb FROM SOURCE, and a source
+    # build reports 0.0.0-dev — unversioned — so a floor check would be either
+    # meaningless or a false failure on the aeb we just fetched. This asymmetry
+    # is correct: ae stamps its version (re-check valid), aeb-from-source does
+    # not (re-check impossible). Do not "fix" it by adding a re-check.
     say "using aeb: $(command -v aeb) ($(aeb_version || echo version-unknown))"
 }
