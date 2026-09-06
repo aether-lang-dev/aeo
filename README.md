@@ -107,11 +107,20 @@ installer prints a note if it isn't):
 command -v ae || export PATH="$HOME/.local/bin:$PATH"   # add to your shell rc to persist
 ```
 
-Then, from a clone of aeo:
+Then build the `aeo` binary from a clone (nothing extra needed — just the
+paths):
+
+```sh
+ae build /path/to/aeo/bin/aeo.ae -o ~/.local/bin/aeo --lib /path/to/aeo/lib
+```
+
+To *run* it, set `AEO_HOME` to the aeo tree: the `aeo` runtime reads it on every
+invocation to find `lib/` (the actor/runner modules it stages into each
+composition's build), and exits with a diagnostic if it's unset. Add it to your
+shell rc to persist.
 
 ```sh
 export AEO_HOME=/path/to/aeo
-ae build $AEO_HOME/bin/aeo.ae -o ~/.local/bin/aeo --lib $AEO_HOME/lib
 
 aeo doctor                                    # what can THIS host run?
 docker build -t localhost/aeo-examples/silly-add:latest \
