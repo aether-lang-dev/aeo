@@ -55,8 +55,8 @@ A composition declares its OWN verification with first-class `check()`/`smoke()`
 `suite()` verbs that name external `std.spec` specs; `aeo <phase> compose.ae` runs them.
 
 aeo is **not** a build system and **not** an aeb SDK. It is a third sibling to
-[`aether`](https://github.com/aether-lang-org/aether) (the language) and
-[`aeb`](https://github.com/aether-lang-org/aeb) (the build runner). aeo is
+[`aether`](https://github.com/aether-lang-dev/aether) (the language) and
+[`aeb`](https://github.com/aether-lang-dev/aeb) (the build runner). aeo is
 *built by* aeb and can shell *to* aeb at runtime, across a plain artifact + CLI
 seam. Its DSL philosophy is inherited from the ecosystem — **config IS code**,
 closure-with-setters, no YAML — applied to live infrastructure. Its containment
@@ -86,9 +86,27 @@ Containment](https://paulhammant.com/2016/12/14/principles-of-containment/) (see
 
 ## Try it in 60 seconds
 
-All you need is the [`ae` toolchain](https://github.com/aether-lang-org/aether)
-and **any container engine — podman or Docker, on Linux or macOS** (container
-kinds are engine-gated, not OS-gated):
+All you need is the [`ae` toolchain](https://github.com/aether-lang-dev/aether)
+(plus [`aeb`](https://github.com/aether-lang-dev/aeb), if a composition builds
+images through it) and **any container engine — podman or Docker, on Linux or
+macOS** (container kinds are engine-gated, not OS-gated).
+
+**Don't have the toolchain yet?** One command gets both `ae` and `aeb` —
+favoring precompiled release binaries (with checksum verification), falling back
+to a source build only where no binary exists:
+
+```sh
+./bootstrap.sh          # ensures ae + aeb, builds aeo, runs its spec suite
+```
+
+`bootstrap.sh` curls the shared installer helper
+([`aebboot.sh`](https://github.com/aether-lang-dev/aeb/blob/main/aebboot.sh),
+which lives in the aeb repo), reads aeo's floors from `AETHER_PIN` / `AEB_PIN`,
+and installs into `~/.local` (override with `PREFIX=`). Already have a recent
+`ae`/`aeb` on `PATH`? It's a no-op for the toolchain and goes straight to
+building.
+
+Once the toolchain is in place, the manual build is just:
 
 ```sh
 export AEO_HOME=/path/to/aeo
@@ -260,7 +278,7 @@ silent bad string. The bare-name setters inside configure that resource (its
 name flows in as the block's context, so you don't repeat it). This is Aether's
 trailing-block builder DSL: the call site reads like config, but the body is
 full Aether (control flow, env lookups, conditionals). See
-[`docs/closures-and-builder-dsl.md`](https://github.com/aether-lang-org/aether/blob/main/docs/closures-and-builder-dsl.md)
+[`docs/closures-and-builder-dsl.md`](https://github.com/aether-lang-dev/aether/blob/main/docs/closures-and-builder-dsl.md)
 in the language repo for the mechanism.
 
 Two import lines, the standard ecosystem idiom (cf. aeb's `import bash (script,
@@ -358,7 +376,8 @@ for the architecture.
 ## Running it
 
 aeo compiles your composition into a supervised runner and executes it. Point
-`AEO_HOME` at the aeo tree, then:
+`AEO_HOME` at the aeo tree, then (assuming `ae` is already on `PATH` — if not,
+run `./bootstrap.sh` first, see [Try it in 60 seconds](#try-it-in-60-seconds)):
 
 ```
 export AEO_HOME=/path/to/aeo
