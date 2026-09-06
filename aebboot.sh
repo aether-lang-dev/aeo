@@ -15,7 +15,7 @@
 # it installs. During bring-up both are pioneered in `aeo`. See the plan.
 #
 # ---------------------------------------------------------------------------
-# AEBBOOT_REV: 3
+# AEBBOOT_REV: 4
 # ^ PROPAGATION SNIFF MARKER — same scheme as aeboot.sh. Bumped by hand on
 # every change; poll the raw URL for `AEBBOOT_REV: <n>` to know when
 # raw.githubusercontent has redeployed your push. (Distinct name from
@@ -103,8 +103,19 @@ aeb_ensure() {
     fi
 
     command -v ae >/dev/null 2>&1 || die "aeb_ensure: no \`ae\` on PATH — source aeboot.sh and call ae_ensure first (aeb's installer needs an ae to target)."
-    say "installing aeb via install.sh (AEB_REF=${AEB_REF:-latest}, PREFIX=$prefix)"
-    AEB_REF="${AEB_REF:-}" AETHER="$(command -v ae)" fetch_run "$AEBBOOT_AEB_INSTALL_URL" || die "aeb install failed (install.sh)."
+    # install.sh passes AEB_REF straight to git, and aeb tags are TWO-component
+    # vX.Y (there is no vX.Y.Z — see install.sh). So a bare 0.297 isn't a valid
+    # tag, and a three-component 0.297.0 (matching AEB_PIN) isn't either. Map a
+    # bare dotted ref to the vX.Y tag; leave a branch, a SHA, or an already-
+    # v-prefixed tag untouched. (Mirrors aeboot.sh's ae ref normalization; the
+    # patch component of X.Y.Z is dropped because no vX.Y.Z aeb tag exists.)
+    local ref="${AEB_REF:-}"
+    case "$ref" in
+        [0-9]*.[0-9]*.[0-9]*) ref="v${ref%.*}" ;;   # 0.297.0 -> v0.297
+        [0-9]*.[0-9]*)        ref="v$ref" ;;         # 0.297   -> v0.297
+    esac
+    say "installing aeb via install.sh (AEB_REF=${ref:-latest}, PREFIX=$prefix)"
+    AEB_REF="$ref" AETHER="$(command -v ae)" fetch_run "$AEBBOOT_AEB_INSTALL_URL" || die "aeb install failed (install.sh)."
     command -v aeb >/dev/null 2>&1 || die "aeb installed but not on PATH — ensure $prefix/bin is on PATH."
     say "using aeb: $(command -v aeb) ($(aeb_version || echo version-unknown))"
 }
