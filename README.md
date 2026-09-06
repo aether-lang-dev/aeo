@@ -101,6 +101,11 @@ curl -fsSL https://raw.githubusercontent.com/aether-lang-dev/aeb/main/aebboot.sh
 AE_PIN=0.645.0 AEB_MIN=0.297.0 bash -c '. /tmp/aebboot.sh; aeb_bootstrap'
 ```
 
+> The two version literals mirror this repo's [`AETHER_PIN`](./AETHER_PIN) and
+> [`AEB_PIN`](./AEB_PIN) floors — the source of truth. If they've since bumped,
+> use the numbers in those files (or just run `./bootstrap.sh`, which reads them
+> for you).
+
 Or, once you've cloned aeo, `./bootstrap.sh` does the same and then builds aeo
 and runs its spec suite (it reads the floors from `AETHER_PIN` / `AEB_PIN` for
 you). Either is a no-op for the toolchain when a recent `ae`/`aeb` is already on
