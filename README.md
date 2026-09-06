@@ -91,20 +91,20 @@ All you need is the [`ae` toolchain](https://github.com/aether-lang-dev/aether)
 images through it) and **any container engine — podman or Docker, on Linux or
 macOS** (container kinds are engine-gated, not OS-gated).
 
-**Don't have the toolchain yet?** One command gets both `ae` and `aeb` —
-favoring precompiled release binaries (with checksum verification), falling back
-to a source build only where no binary exists:
+**Don't have the toolchain yet?** One line gets both `ae` and `aeb` — favoring
+precompiled release binaries (checksum-verified), source-building only where no
+binary exists:
 
 ```sh
-./bootstrap.sh          # ensures ae + aeb, builds aeo, runs its spec suite
+# installs ae + aeb into ~/.local (PREFIX= to override). Needs bash + curl.
+curl -fsSL https://raw.githubusercontent.com/aether-lang-dev/aeb/main/aebboot.sh -o /tmp/aebboot.sh
+AE_PIN=0.645.0 AEB_MIN=0.297.0 bash -c '. /tmp/aebboot.sh; aeb_bootstrap'
 ```
 
-`bootstrap.sh` curls the shared installer helper
-([`aebboot.sh`](https://github.com/aether-lang-dev/aeb/blob/main/aebboot.sh),
-which lives in the aeb repo), reads aeo's floors from `AETHER_PIN` / `AEB_PIN`,
-and installs into `~/.local` (override with `PREFIX=`). Already have a recent
-`ae`/`aeb` on `PATH`? It's a no-op for the toolchain and goes straight to
-building.
+Or, once you've cloned aeo, `./bootstrap.sh` does the same and then builds aeo
+and runs its spec suite (it reads the floors from `AETHER_PIN` / `AEB_PIN` for
+you). Either is a no-op for the toolchain when a recent `ae`/`aeb` is already on
+`PATH`.
 
 Once the toolchain is in place, the manual build is just:
 
