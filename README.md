@@ -86,32 +86,21 @@ Containment](https://paulhammant.com/2016/12/14/principles-of-containment/) (see
 
 ## Try it in 60 seconds
 
-All you need is the [`ae` toolchain](https://github.com/aether-lang-dev/aether)
-(plus [`aeb`](https://github.com/aether-lang-dev/aeb), if a composition builds
-images through it) and **any container engine — podman or Docker, on Linux or
-macOS** (container kinds are engine-gated, not OS-gated).
+All you need is the Aether language's [`ae` toolchain](https://github.com/aether-lang-dev/aether)
+and **any container engine — podman or Docker, on Linux or macOS** (container
+kinds are engine-gated, not OS-gated). aeo builds with `ae build` — no other
+build tool. (It *can* shell out to the [`aeb`](https://github.com/aether-lang-dev/aeb)
+build runner at runtime if a composition asks it to build an image, but that's
+optional and demand-driven, not needed to build or run aeo.)
 
-**Don't have the toolchain yet?** One line gets both `ae` and `aeb` — favoring
-precompiled release binaries (checksum-verified), source-building only where no
-binary exists:
+**Don't have `ae` yet?** One line installs it (Aether's own installer, into
+`~/.local`; `PREFIX=` to override):
 
 ```sh
-# installs ae + aeb into ~/.local (PREFIX= to override). Needs bash + curl.
-curl -fsSL https://raw.githubusercontent.com/aether-lang-dev/aeb/main/aebboot.sh -o /tmp/aebboot.sh
-AE_PIN=0.645.0 AEB_MIN=0.297.0 bash -c '. /tmp/aebboot.sh; aeb_bootstrap'
+curl -fsSL https://raw.githubusercontent.com/aether-lang-dev/aether/main/get.sh | sh
 ```
 
-> The two version literals mirror this repo's [`AETHER_PIN`](./AETHER_PIN) and
-> [`AEB_PIN`](./AEB_PIN) floors — the source of truth. If they've since bumped,
-> use the numbers in those files (or just run `./bootstrap.sh`, which reads them
-> for you).
-
-Or, once you've cloned aeo, `./bootstrap.sh` does the same and then builds aeo
-and runs its spec suite (it reads the floors from `AETHER_PIN` / `AEB_PIN` for
-you). Either is a no-op for the toolchain when a recent `ae`/`aeb` is already on
-`PATH`.
-
-Once the toolchain is in place, the manual build is just:
+Then, from a clone of aeo:
 
 ```sh
 export AEO_HOME=/path/to/aeo
@@ -381,8 +370,8 @@ for the architecture.
 ## Running it
 
 aeo compiles your composition into a supervised runner and executes it. Point
-`AEO_HOME` at the aeo tree, then (assuming `ae` is already on `PATH` — if not,
-run `./bootstrap.sh` first, see [Try it in 60 seconds](#try-it-in-60-seconds)):
+`AEO_HOME` at the aeo tree, then (assuming `ae` is on `PATH` — if not, install it
+first, see [Try it in 60 seconds](#try-it-in-60-seconds)):
 
 ```
 export AEO_HOME=/path/to/aeo
