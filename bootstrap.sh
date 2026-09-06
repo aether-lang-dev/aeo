@@ -33,13 +33,15 @@ cd "$HERE"
 # This exercises AETHER_PIN / AEB_PIN as the single source of truth AND keeps
 # bootstrap.sh honest when those files move forward.
 readpin() { grep -v '^#' "$1" 2>/dev/null | tr -d '[:space:]'; }
-AE_PIN="$(readpin "$HERE/AETHER_PIN")"; AE_PIN="${AE_PIN:-0.645.0}"
-AEB_MIN="$(readpin "$HERE/AEB_PIN")";  AEB_MIN="${AEB_MIN:-0.297.0}"
+# The floor: MIN_AE env override wins over the pin file wins over a hard default.
+# (Order matters — AE_FETCH below is derived from the FINAL floor, so a MIN_AE
+# that raises the floor also raises what we fetch, not just what we check.)
+AE_PIN="${MIN_AE:-$(readpin "$HERE/AETHER_PIN")}"; AE_PIN="${AE_PIN:-0.645.0}"
+AEB_MIN="$(readpin "$HERE/AEB_PIN")";              AEB_MIN="${AEB_MIN:-0.297.0}"
 # aeo assumes an `ae` on PATH and floors it; there is no separate known-good
-# "fetch" number (AETHER_PIN is floor-only, see its rationale), so fetch == pin
-# unless the caller overrides AETHER_REF.
-AE_FETCH="${AE_FETCH:-v$AE_PIN}"
-MIN_AE="${MIN_AE:-$AE_PIN}"; AE_PIN="$MIN_AE"
+# "fetch" number (AETHER_PIN is floor-only, see its rationale), so fetch == the
+# floor unless the caller overrides AETHER_REF. aeboot.sh v-prefixes it.
+AE_FETCH="${AE_FETCH:-$AE_PIN}"
 export AE_PIN AE_FETCH AEB_MIN
 
 # --- source the shared installer helpers (curled from raw, prod-shape) -------
