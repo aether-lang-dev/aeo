@@ -84,9 +84,9 @@ Containment](https://paulhammant.com/2016/12/14/principles-of-containment/) (see
 > design, [`TODO.md`](./TODO.md) for the honest what's-proven-vs-modeled scorecard,
 > and [`LLM.md`](./LLM.md) for the Aether constraints navigated.
 
-## Try it in 60 seconds
+## Quickly trying it
 
-All you need is the Aether language's [`ae` toolchain](https://github.com/aether-lang-dev/aether)
+All you need is the [Aether language's `ae` toolchain](https://github.com/aether-lang-dev/aether)
 and **any container engine — podman or Docker, on Linux or macOS** (container
 kinds are engine-gated, not OS-gated). aeo builds with `ae build` — no other
 build tool. (It *can* shell out to the [`aeb`](https://github.com/aether-lang-dev/aeb)
