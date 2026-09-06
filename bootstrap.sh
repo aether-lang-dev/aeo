@@ -1,53 +1,50 @@
 #!/usr/bin/env bash
 # bootstrap.sh — one-command casual-dev bootstrap for the aeo repo.
 #
-# Ensures the Aether toolchain (`ae`) is present and recent enough, builds aeo's
-# binary, and runs its spec suite. aeb is ALSO ensured — not because aeo builds
-# WITH aeb (it builds via `ae build`; aeb is a runtime seam, see AEB_PIN) but so
-# a box that will exercise that seam has aeb ready, and so this repo dogfoods
-# aebboot.sh during its bring-up as the pioneer of the shared bootstrap helpers.
+# Ensures the Aether toolchain (`ae`) and the aeb build runner are present and
+# recent enough, builds aeo's binary, and runs its spec suite. (aeo builds via
+# `ae build`, not aeb — aeb is a runtime seam, see AEB_PIN — but a box that will
+# exercise that seam wants aeb ready, and this repo pioneers the shared helper.)
 #
-# THE SHARED LOGIC LIVES ELSEWHERE. Everything about *installing* a toolchain
-# (floor checks, fetch, the C-compiler preflight, the shared say/die helpers) is
-# in aeboot.sh (ae) and aebboot.sh (aeb), curled below. This file carries only
-# what is genuinely aeo-specific: its pins and its build/verify commands. That
-# split is the whole point — see aeboot.sh's header for why the installer logic
-# is curled rather than copy-pasted into every repo's bootstrap.sh.
+# THE SHARED LOGIC LIVES ELSEWHERE. Everything about *installing* the toolchain
+# (binary-first download + checksum, source fallback, floor checks, the shared
+# say/die helpers) is in ONE file, aebboot.sh, curled below. This file carries
+# only what is genuinely aeo-specific: its pins and its build/verify commands.
+# That is the whole point — see aebboot.sh's header for why the install logic is
+# curled once rather than copy-pasted into every repo's bootstrap.sh.
 #
-# Env overrides (consumed by the sourced helpers):
+# Env overrides (consumed by the sourced helper):
 #   PREFIX      install prefix                 (default: $HOME/.local; no sudo)
-#   AETHER_REF  ae tag/branch/SHA to install   (default: AE_FETCH below)
-#   AEB_REF     aeb tag/branch/SHA to install  (default: install.sh latest)
+#   AETHER_REF  ae tag/branch/SHA to install   (default: the ae floor)
+#   AEB_REF     aeb tag/branch/SHA to install  (default: latest)
 #   MIN_AE      override the ae floor          (default: AETHER_PIN)
-#   AEBOOT_URL / AEBBOOT_URL  override where the helpers are curled from
-#               (default: this repo's raw URL on main). Point these at the
-#               relocated aether/aeb repos after Phase 4, or at a branch to
-#               test an unmerged helper change.
-# Extra args are ignored (aeo has no aeb DAG to target).
+#   AEBBOOT_NO_BINARY=1  force source builds (skip gh-release binaries)
+#   AEBBOOT_URL override where the helper is curled from (default: this repo's
+#               raw URL on main). Point it at the relocated aeb repo after
+#               Phase 4, or at a branch to test an unmerged helper change.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 cd "$HERE"
 
 # --- aeo's pins: read from the machine-readable pin files (not hardcoded) ----
-# This exercises AETHER_PIN / AEB_PIN as the single source of truth AND keeps
-# bootstrap.sh honest when those files move forward.
+# Exercises AETHER_PIN / AEB_PIN as the single source of truth AND stays honest
+# when those files move forward.
 readpin() { grep -v '^#' "$1" 2>/dev/null | tr -d '[:space:]'; }
 # The floor: MIN_AE env override wins over the pin file wins over a hard default.
-# (Order matters — AE_FETCH below is derived from the FINAL floor, so a MIN_AE
-# that raises the floor also raises what we fetch, not just what we check.)
+# (Order matters — AE_FETCH is derived from the FINAL floor, so a MIN_AE that
+# raises the floor also raises what we fetch, not just what we check.)
 AE_PIN="${MIN_AE:-$(readpin "$HERE/AETHER_PIN")}"; AE_PIN="${AE_PIN:-0.645.0}"
 AEB_MIN="$(readpin "$HERE/AEB_PIN")";              AEB_MIN="${AEB_MIN:-0.297.0}"
-# aeo assumes an `ae` on PATH and floors it; there is no separate known-good
-# "fetch" number (AETHER_PIN is floor-only, see its rationale), so fetch == the
-# floor unless the caller overrides AETHER_REF. aeboot.sh v-prefixes it.
+# aeo floors ae; there is no separate known-good "fetch" number (AETHER_PIN is
+# floor-only), so fetch == the floor unless AETHER_REF overrides. The helper
+# handles v-prefixing and binary-vs-source selection.
 AE_FETCH="${AE_FETCH:-$AE_PIN}"
 export AE_PIN AE_FETCH AEB_MIN
 
-# --- source the shared installer helpers (curled from raw, prod-shape) -------
-# During bring-up these live at this repo's root; after Phase 4 they relocate to
-# the aether / aeb repos and only these two URLs change.
-AEBOOT_URL="${AEBOOT_URL:-https://raw.githubusercontent.com/aether-lang-dev/aeo/main/aeboot.sh}"
+# --- source the shared installer helper (curled from raw, prod-shape) --------
+# During bring-up it lives at this repo's root; after Phase 4 it relocates to the
+# aeb repo and only this URL changes.
 AEBBOOT_URL="${AEBBOOT_URL:-https://raw.githubusercontent.com/aether-lang-dev/aeo/main/aebboot.sh}"
 
 _source_url() {   # source a script from a URL (or a file:// / local path)
@@ -64,15 +61,10 @@ _source_url() {   # source a script from a URL (or a file:// / local path)
     rm -f "$tmp"; return $rc
 }
 
-_source_url "$AEBOOT_URL"
 _source_url "$AEBBOOT_URL"
 
 # --- do the work -------------------------------------------------------------
-ae_ensure          # from aeboot.sh:  ae >= AE_PIN on PATH (fetch if needed)
-aeb_ensure         # from aebboot.sh: aeb on PATH (warn if < AEB_MIN)
-
-case ":$PATH:" in *":${PREFIX:-$HOME/.local}/bin:"*) : ;;
-    *) say "tip: add '${PREFIX:-$HOME/.local}/bin' to your shell PATH permanently";; esac
+aeb_bootstrap      # from aebboot.sh: ensure ae (>= AE_PIN) THEN aeb, binary-first
 
 say "building aeo (ae build bin/aeo.ae)"
 ae build "$HERE/bin/aeo.ae" -o /tmp/aeo-bootstrap-check --lib "$HERE/lib" \
