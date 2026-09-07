@@ -48,7 +48,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install build prerequisites
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq build-essential curl tar zip libssl-dev libnghttp2-dev
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq build-essential curl tar zip
 
       - name: Install the Aether toolchain (ae)
         run: |
@@ -59,12 +59,15 @@ jobs:
       - name: Verify ae is on PATH
         run: ae --version
 
-      - name: Build aeo CLI (linux, x86_64, static)
-        # AE_CC carries -static; --lib lib compiles the runner in. The asset name
-        # claims linux-x86_64, so assert arch (static is not required for the CLI
-        # — it shells `ae` anyway — but a static build travels cleanest).
+      - name: Build aeo CLI (linux, x86_64)
+        # DYNAMIC on purpose (unlike aeo-agent, which is static because it's
+        # couriered into stripped busybox containers). The aeo CLI runs on a
+        # normal host and ALREADY requires `ae` on PATH at runtime, so a dynamic
+        # link against the host's system libs is fine — and a `-static` link
+        # would need static archives for libcurl's whole transitive closure
+        # (brotli, etc.) for zero benefit. --lib lib compiles the runner in.
         run: |
-          AE_CC="gcc -static" ae build bin/aeo.ae -o bin/aeo --lib lib
+          ae build bin/aeo.ae -o bin/aeo --lib lib
           file bin/aeo
           file bin/aeo | grep -q 'ELF 64-bit.*x86-64' \
             || { echo "not an x86_64 ELF — asset name would be a lie"; exit 1; }
@@ -104,7 +107,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install build prerequisites
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq build-essential curl tar zip libssl-dev libnghttp2-dev
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq build-essential curl tar zip
 
       - name: Install the Aether toolchain (ae)
         run: |
@@ -125,11 +128,13 @@ jobs:
             echo "ok=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Build aeo CLI (linux, aarch64, static)
+      - name: Build aeo CLI (linux, aarch64)
         id: build
         if: steps.gate.outputs.ok == 'true'
+        # DYNAMIC (see build-linux) — the CLI needs `ae` on PATH anyway; no
+        # static-archive closure to satisfy.
         run: |
-          AE_CC="gcc -static" ae build bin/aeo.ae -o bin/aeo --lib lib
+          ae build bin/aeo.ae -o bin/aeo --lib lib
           file bin/aeo
           file bin/aeo | grep -q 'ELF 64-bit.*aarch64' \
             || { echo "not an aarch64 ELF — asset name would be a lie"; exit 1; }
@@ -209,6 +214,15 @@ jobs:
       - name: Build aeo CLI (freebsd, x86_64, cross via zig)
         id: build
         if: steps.gate.outputs.ok == 'true'
+        # NON-BLOCKING: the aeo CLI pulls in more of libcurl's dep closure than
+        # the agent, and the FreeBSD cross-link can hit "libc not available" /
+        # missing third-party libs the provisioned sysroot doesn't cover. Rather
+        # than fail the whole release, this step is continue-on-error and only
+        # sets built=true on real success — so a FreeBSD build gap just omits the
+        # FreeBSD asset (like the agent's gated jobs), and Linux still ships.
+        # TODO: broaden the crossbuild deps (CB_LIBS) until this builds, then
+        # drop continue-on-error to make it load-bearing.
+        continue-on-error: true
         run: |
           ae build bin/aeo.ae -o bin/aeo --lib lib --target=x86_64-freebsd
           file bin/aeo
@@ -220,19 +234,19 @@ jobs:
           echo "built=true" >> "$GITHUB_OUTPUT"
 
       - name: Assemble the aeo-freebsd-x86_64 bundle
-        if: steps.gate.outputs.ok == 'true'
+        if: steps.build.outputs.built == 'true'
         run: sh .github/scripts/assemble-aeo-bundle.sh freebsd x86_64
 
       - name: Checksum
         id: sum
-        if: steps.gate.outputs.ok == 'true'
+        if: steps.build.outputs.built == 'true'
         run: |
           cd dist
           sha256sum aeo-freebsd-x86_64.tar.gz | tee aeo-freebsd-x86_64.tar.gz.sha256
           echo "sha256=$(cut -d' ' -f1 aeo-freebsd-x86_64.tar.gz.sha256)" >> "$GITHUB_OUTPUT"
 
       - name: Upload artifact
-        if: steps.gate.outputs.ok == 'true'
+        if: steps.build.outputs.built == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: aeo-freebsd-x86_64
