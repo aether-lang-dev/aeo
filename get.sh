@@ -241,9 +241,9 @@ aeo_ensure() {
     fi
     _here="$_td/$_base"
     [ -f "$_here/install.sh" ] || { rm -rf "$_td"; die "aeo bundle had no install.sh — malformed release asset."; }
-    if ! have make && ! have gmake; then
-        rm -rf "$_td"; die "GNU make is required by the aeo bundle's installer (it copies the tree + writes the wrapper). Install make and re-run."
-    fi
+    # NB no `make` check: the bundle's install.sh is COPY-ONLY (copies the tree +
+    # writes the AEO_HOME wrapper, no compile) so it runs on a make-less box — a
+    # virginal debian-slim installs fine.
     if ! sh "$_here/install.sh" "$_prefix"; then
         rm -rf "$_td"; die "aeo bundle install.sh failed."
     fi

@@ -7,9 +7,11 @@
 #
 #   aeo-<os>-<arch>/
 #     bin/aeo                 the cross-built CLI (target-native)
-#     share/aeo/{lib,examples,bin/aeo}   the runtime tree
-#     Makefile                the install target (copies tree + writes wrapper)
-#     install.sh              runs `make -C share/aeo install PREFIX=…`
+#     share/aeo/{lib,examples,bin/aeo,VERSION}   the runtime tree
+#     install.sh              COPY-ONLY: stages share/aeo -> $PREFIX/share/aeo +
+#                             writes the $PREFIX/bin/aeo wrapper. NO `make`, no
+#                             compile — installs on a make-less box (a bare
+#                             debian-slim). (Matches aeb's copy-only bundle fix.)
 #
 # get.sh (aeo repo root) downloads + sha256-verifies this bundle and runs its
 # install.sh, which lays the tree at $PREFIX/share/aeo and drops a $PREFIX/bin/aeo
