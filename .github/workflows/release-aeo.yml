@@ -1,0 +1,293 @@
+# Release the `aeo` CLI as per-platform BUNDLES.
+#
+# Unlike aeo-agent (a self-contained binary — see release-aeo-agent.yml), the
+# `aeo` CLI is NOT standalone: at runtime it reads AEO_HOME to find lib/ (it
+# cp's $AEO_HOME/lib into every composition build) and shells `ae` to compile.
+# So a release can't be a bare binary — it ships a BUNDLE:
+#
+#   aeo-<os>-<arch>/
+#     bin/aeo                 the cross-built CLI (target-native)
+#     share/aeo/{lib,examples,bin/aeo}   the runtime tree
+#     Makefile                the install target (copies tree + writes wrapper)
+#     install.sh              runs `make -C share/aeo install PREFIX=…`
+#
+# get.sh (aeo repo root) downloads + sha256-verifies this bundle and runs its
+# install.sh, which lays the tree at $PREFIX/share/aeo and drops a $PREFIX/bin/aeo
+# WRAPPER that pins AEO_HOME. (Pattern mirrors how aeb ships share/aeb/.)
+#
+# Targets mirror the agent's proven set: native-static linux x86_64 + arm64,
+# zig-cross freebsd. Windows is DEFERRED (aeo's substrates are Linux/FreeBSD/
+# macos, and bin/aeo.ae has a mingw setenv nuance) — add it later if wanted.
+#
+# TAG: aeo-v*  (parallel to, and independent of, the agent's aeo-agent-v*).
+# workflow_dispatch = BUILD-ONLY dry run (no publish).
+
+name: release-aeo
+
+on:
+  push:
+    tags:
+      - 'aeo-v*'
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Optional: aether ref (tag/branch/sha) to build the toolchain from'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    outputs:
+      sha256: ${{ steps.sum.outputs.sha256 }}
+    steps:
+      - name: Checkout aeo
+        uses: actions/checkout@v4
+
+      - name: Install build prerequisites
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq build-essential curl tar zip libssl-dev libnghttp2-dev
+
+      - name: Install the Aether toolchain (ae)
+        run: |
+          curl -sSL https://raw.githubusercontent.com/aether-lang-dev/aether/main/get.sh \
+            | AETHER_REF="${{ github.event.inputs.ref }}" PREFIX="$HOME/.local" sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Verify ae is on PATH
+        run: ae --version
+
+      - name: Build aeo CLI (linux, x86_64, static)
+        # AE_CC carries -static; --lib lib compiles the runner in. The asset name
+        # claims linux-x86_64, so assert arch (static is not required for the CLI
+        # — it shells `ae` anyway — but a static build travels cleanest).
+        run: |
+          AE_CC="gcc -static" ae build bin/aeo.ae -o bin/aeo --lib lib
+          file bin/aeo
+          file bin/aeo | grep -q 'ELF 64-bit.*x86-64' \
+            || { echo "not an x86_64 ELF — asset name would be a lie"; exit 1; }
+          chmod +x bin/aeo
+
+      - name: Assemble the aeo-linux-x86_64 bundle
+        id: bundle
+        run: sh .github/scripts/assemble-aeo-bundle.sh linux x86_64
+
+      - name: Checksum
+        id: sum
+        run: |
+          cd dist
+          sha256sum aeo-linux-x86_64.tar.gz | tee aeo-linux-x86_64.tar.gz.sha256
+          echo "sha256=$(cut -d' ' -f1 aeo-linux-x86_64.tar.gz.sha256)" >> "$GITHUB_OUTPUT"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: aeo-linux-x86_64
+          path: |
+            dist/aeo-linux-x86_64.tar.gz
+            dist/aeo-linux-x86_64.tar.gz.sha256
+          if-no-files-found: error
+
+  build-linux-arm64:
+    runs-on: ubuntu-24.04-arm
+    outputs:
+      sha256: ${{ steps.sum.outputs.sha256 }}
+      built: ${{ steps.build.outputs.built }}
+    env:
+      # First released ae with the cross-crypto HMAC fix the agent gates on;
+      # the CLI shares the toolchain floor. Skips cleanly on older ae.
+      AEO_ARM64_MIN_AE: '0.443.0'
+    steps:
+      - name: Checkout aeo
+        uses: actions/checkout@v4
+
+      - name: Install build prerequisites
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq build-essential curl tar zip libssl-dev libnghttp2-dev
+
+      - name: Install the Aether toolchain (ae)
+        run: |
+          curl -sSL https://raw.githubusercontent.com/aether-lang-dev/aether/main/get.sh \
+            | AETHER_REF="${{ github.event.inputs.ref }}" PREFIX="$HOME/.local" sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Gate on ae version (skip cleanly if the cross-crypto fix isn't in yet)
+        id: gate
+        run: |
+          have=$(ae --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+          need="$AEO_ARM64_MIN_AE"
+          low=$(printf '%s\n%s\n' "$have" "$need" | sort -V | head -1)
+          if [ "$have" != "$need" ] && [ "$low" = "$have" ]; then
+            echo "ae $have < $need — skipping linux-arm64 asset."
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build aeo CLI (linux, aarch64, static)
+        id: build
+        if: steps.gate.outputs.ok == 'true'
+        run: |
+          AE_CC="gcc -static" ae build bin/aeo.ae -o bin/aeo --lib lib
+          file bin/aeo
+          file bin/aeo | grep -q 'ELF 64-bit.*aarch64' \
+            || { echo "not an aarch64 ELF — asset name would be a lie"; exit 1; }
+          chmod +x bin/aeo
+          echo "built=true" >> "$GITHUB_OUTPUT"
+
+      - name: Assemble the aeo-linux-aarch64 bundle
+        if: steps.gate.outputs.ok == 'true'
+        run: sh .github/scripts/assemble-aeo-bundle.sh linux aarch64
+
+      - name: Checksum
+        id: sum
+        if: steps.gate.outputs.ok == 'true'
+        run: |
+          cd dist
+          sha256sum aeo-linux-aarch64.tar.gz | tee aeo-linux-aarch64.tar.gz.sha256
+          echo "sha256=$(cut -d' ' -f1 aeo-linux-aarch64.tar.gz.sha256)" >> "$GITHUB_OUTPUT"
+
+      - name: Upload artifact
+        if: steps.gate.outputs.ok == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: aeo-linux-aarch64
+          path: |
+            dist/aeo-linux-aarch64.tar.gz
+            dist/aeo-linux-aarch64.tar.gz.sha256
+          if-no-files-found: error
+
+  build-freebsd:
+    # x86_64 FreeBSD, cross-compiled via zig on the Linux runner. Same sysroot
+    # provisioning + gate as the agent's freebsd job.
+    runs-on: ubuntu-latest
+    outputs:
+      sha256: ${{ steps.sum.outputs.sha256 }}
+      built: ${{ steps.build.outputs.built }}
+    env:
+      AEO_FREEBSD_MIN_AE: '0.428.0'
+      CROSSBUILD_REPO: https://github.com/aether-lang-dev/aether-crossbuild.git
+    steps:
+      - name: Checkout aeo
+        uses: actions/checkout@v4
+
+      - name: Install build prerequisites
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq build-essential curl tar zip
+
+      - name: Install the Aether toolchain (ae)
+        run: |
+          curl -sSL https://raw.githubusercontent.com/aether-lang-dev/aether/main/get.sh \
+            | AETHER_REF="${{ github.event.inputs.ref }}" PREFIX="$HOME/.local" sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Gate on ae version (skip cleanly if the FreeBSD cross fix isn't in yet)
+        id: gate
+        run: |
+          have=$(ae --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+          need="$AEO_FREEBSD_MIN_AE"
+          low=$(printf '%s\n%s\n' "$have" "$need" | sort -V | head -1)
+          if [ "$have" != "$need" ] && [ "$low" = "$have" ]; then
+            echo "ae $have < $need — skipping FreeBSD asset."
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Provision the FreeBSD base sysroot + third-party deps
+        if: steps.gate.outputs.ok == 'true'
+        run: |
+          git clone --depth 1 "$CROSSBUILD_REPO" "$HOME/aether-crossbuild"
+          cd "$HOME/aether-crossbuild"
+          ./scripts/get-zig.sh
+          ./scripts/fetch-freebsd-base.sh x86_64 15
+          CB_LIBS="zlib pcre2 openssl" ./provision.sh x86_64-freebsd15
+          echo "AETHER_SYSROOT=$HOME/aether-crossbuild/bases/x86_64-freebsd15" >> "$GITHUB_ENV"
+          echo "CROSSBUILD_SYSROOT=$HOME/aether-crossbuild/sysroots/x86_64-freebsd15" >> "$GITHUB_ENV"
+          echo "$HOME/aether-crossbuild/toolchain/zig-linux-x86_64-0.13.0" >> "$GITHUB_PATH"
+
+      - name: Build aeo CLI (freebsd, x86_64, cross via zig)
+        id: build
+        if: steps.gate.outputs.ok == 'true'
+        run: |
+          ae build bin/aeo.ae -o bin/aeo --lib lib --target=x86_64-freebsd
+          file bin/aeo
+          file bin/aeo | grep -q 'ELF 64-bit.*x86-64' \
+            || { echo "not an x86_64 ELF — asset name would be a lie"; exit 1; }
+          file bin/aeo | grep -qi 'FreeBSD' \
+            || { echo "not a FreeBSD binary — asset name would be a lie"; exit 1; }
+          chmod +x bin/aeo
+          echo "built=true" >> "$GITHUB_OUTPUT"
+
+      - name: Assemble the aeo-freebsd-x86_64 bundle
+        if: steps.gate.outputs.ok == 'true'
+        run: sh .github/scripts/assemble-aeo-bundle.sh freebsd x86_64
+
+      - name: Checksum
+        id: sum
+        if: steps.gate.outputs.ok == 'true'
+        run: |
+          cd dist
+          sha256sum aeo-freebsd-x86_64.tar.gz | tee aeo-freebsd-x86_64.tar.gz.sha256
+          echo "sha256=$(cut -d' ' -f1 aeo-freebsd-x86_64.tar.gz.sha256)" >> "$GITHUB_OUTPUT"
+
+      - name: Upload artifact
+        if: steps.gate.outputs.ok == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: aeo-freebsd-x86_64
+          path: |
+            dist/aeo-freebsd-x86_64.tar.gz
+            dist/aeo-freebsd-x86_64.tar.gz.sha256
+          if-no-files-found: error
+
+  release:
+    needs: [build-linux, build-linux-arm64, build-freebsd]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Summary
+        run: |
+          {
+            echo "## aeo CLI release ${{ github.ref_name }}"
+            echo ""
+            echo "| asset | sha256 |"
+            echo "|---|---|"
+            echo "| aeo-linux-x86_64.tar.gz | ${{ needs.build-linux.outputs.sha256 }} |"
+            echo "| aeo-linux-aarch64.tar.gz | ${{ needs.build-linux-arm64.outputs.sha256 || '(skipped)' }} |"
+            echo "| aeo-freebsd-x86_64.tar.gz | ${{ needs.build-freebsd.outputs.sha256 || '(skipped)' }} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish GitHub Release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/aeo-linux-x86_64.tar.gz
+            dist/aeo-linux-x86_64.tar.gz.sha256
+            dist/aeo-linux-aarch64.tar.gz
+            dist/aeo-linux-aarch64.tar.gz.sha256
+            dist/aeo-freebsd-x86_64.tar.gz
+            dist/aeo-freebsd-x86_64.tar.gz.sha256
+          fail_on_unmatched_files: false
+          tag_name: ${{ github.ref_name }}
+          body: |
+            The `aeo` CLI as per-platform bundles (bin/aeo + its runtime lib/ tree).
+
+            **Install (binary-first, sha256-verified):**
+            ```sh
+            curl -fsSL https://raw.githubusercontent.com/aether-lang-dev/aeo/main/get.sh | sh
+            ```
+            get.sh ensures `ae` + `aeb`, then downloads and verifies the bundle for
+            your platform and installs a `~/.local/bin/aeo` wrapper that pins AEO_HOME.
+
+            **Verify a download by hand:**
+            ```sh
+            curl -fsSLO https://github.com/aether-lang-dev/aeo/releases/download/${{ github.ref_name }}/aeo-linux-x86_64.tar.gz
+            curl -fsSL  https://github.com/aether-lang-dev/aeo/releases/download/${{ github.ref_name }}/aeo-linux-x86_64.tar.gz.sha256 | sha256sum -c
+            ```

@@ -4,6 +4,10 @@
 # built binaries (emitted at repo root by `ae build bin/<name>.ae`)
 /aeo
 /aeo-agent
+# the aeo CLI built by `make build` / the release workflow (bin/aeo), and the
+# release bundles assembled by .github/scripts/assemble-aeo-bundle.sh
+/bin/aeo
+/dist/
 # load-balancer front-door binaries baked beside their .ae source by the
 # examples-suite (test/examples-suite.sh) — compiled artifacts, not source.
 /bin/aeo-lb

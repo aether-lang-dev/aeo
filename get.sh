@@ -1,0 +1,362 @@
+#!/usr/bin/env sh
+# aeo remote installer + bootstrap library — ensures the Aether toolchain (`ae`),
+# the aeb build runner (`aeb`), AND the aeo CLI, binary-first. ONE file, TWO modes:
+#
+#   EXECUTED (human, one line) — installs ae, aeb, then the aeo CLI bundle:
+#     curl -fsSL https://raw.githubusercontent.com/aether-lang-dev/aeo/main/get.sh | sh
+#     curl -fsSL .../get.sh | sh -s -- aeo-v0.1.0     # pin the aeo release (positional)
+#     AEO_REF=aeo-v0.1.0 AE_PIN=0.645.0 sh get.sh      # pin via env
+#
+#   SOURCED (a CI step / another repo) — defines the functions, installs nothing.
+#     Set AEOGET_SOURCE_ONLY=1 so sourcing DEFINES without auto-installing:
+#     AEOGET_SOURCE_ONLY=1 . <(curl -fsSL https://raw.githubusercontent.com/aether-lang-dev/aeo/main/get.sh)
+#     AE_PIN=0.645.0 aeo_bootstrap        # ensures ae + aeb, then the aeo CLI
+#     #   or the pieces:  ae_ensure ; aeb_ensure ; aeo_ensure
+#
+# Mirrors aeb's get.sh in shape (say/die/have, positional|env|latest resolution,
+# prebuilt-first with fallback, PATH note, "Pin in CI" footer) and REUSES its
+# ae+aeb logic — because the aeo CLI is not self-contained: at runtime it reads
+# AEO_HOME to find lib/ and shells `ae` to compile compositions. So a working
+# aeo needs ae (and, per the ecosystem's full story, aeb) present too.
+#
+# BINARY-FIRST. Precompiled release binaries over source builds:
+#   * ae:  aether-<ver>-<os>-x86_64.tar.gz from aether's gh-releases (root layout
+#          bin/ include/ lib/ share/ -> PREFIX/). No .sha256 upstream, so trust is
+#          github-over-HTTPS. Source fallback: aether's own get.sh (make install).
+#   * aeb: aeb-<os>-amd64.tar.gz + its .sha256 from aeb's gh-releases; checksum
+#          VERIFIED (mismatch fatal). Then the bundle's own install.sh. Source
+#          fallback: the aeb repo install.sh.
+#   * aeo: aeo-<os>-<arch>.tar.gz + its .sha256 from aeo's gh-releases; checksum
+#          VERIFIED. The bundle is bin/aeo + share/aeo/{lib,examples} + install.sh
+#          — extract, run install.sh $PREFIX (copies the tree + writes a wrapper
+#          that pins AEO_HOME). NO source fallback for aeo: building it needs a
+#          clone (git clone … && make install) — if no bundle exists for this
+#          platform, we say so and point at the clone path.
+# A cold box thus skips the per-tool compile.
+#
+#   NOTE the arch-word asymmetry: aether assets use x86_64, aeb assets use amd64,
+#   aeo assets use x86_64/aarch64 (matching aeo-agent's existing scheme).
+#
+# TRUST MODEL (deliberate). The aeb/aeo .sha256 is fetched at RUNTIME and compared
+# — it catches transit corruption, not a compromised release. No pinned hash
+# table (would need regen per bump); the boundary is github + TLS.
+#
+# Contract (env the CALLER may set — all optional in EXECUTED mode):
+#   AE_PIN     FLOOR: oldest ae. REQUIRED for ae_ensure in SOURCED mode; in
+#              executed mode, absent => install latest ae.
+#   AE_FETCH   ae release to install when the floor is unmet. Default AE_PIN.
+#   AETHER_REF explicit ae ref (tag => binary; branch/SHA => source). Overrides.
+#   AEB_REF / AEB_MIN   aeb release / floor (see aeb get.sh).
+#   AEO_REF    aeo release tag (or positional arg #1). Default: latest.
+#   PREFIX     install prefix. Default $HOME/.local (no sudo). Shared by all.
+#   AEB_FROM_SOURCE=1 / AEBBOOT_NO_BINARY=1  force source builds (ae/aeb).
+#
+# ---------------------------------------------------------------------------
+# AEOGET_REV: 1
+# ^ PROPAGATION SNIFF MARKER. Bumped by hand on every change. raw.github lags a
+# push by up to minutes; poll the raw URL for `AEOGET_REV: <n>` to know your push
+# redeployed. (A file can't contain its own not-yet-existing commit hash.)
+# ---------------------------------------------------------------------------
+
+AEOGET_AETHER_GET_URL="${AEOGET_AETHER_GET_URL:-https://raw.githubusercontent.com/aether-lang-dev/aether/main/get.sh}"
+AEOGET_AEB_INSTALL_URL="${AEOGET_AEB_INSTALL_URL:-https://raw.githubusercontent.com/aether-lang-dev/aeb/main/install.sh}"
+AEOGET_AETHER_REPO="${AEOGET_AETHER_REPO:-aether-lang-dev/aether}"
+AEOGET_AEB_REPO="${AEOGET_AEB_REPO:-aether-lang-dev/aeb}"
+AEOGET_AEO_REPO="${AEOGET_AEO_REPO:-aether-lang-dev/aeo}"
+
+# --- shared primitives ------------------------------------------------------
+say()  { printf 'aeo-get: %s\n' "$*"; }
+die()  { printf 'aeo-get: %s\n' "$*" >&2; exit 1; }
+have() { command -v "$1" >/dev/null 2>&1; }
+
+version_ge() { [ "$(printf '%s\n%s\n' "$2" "$1" | sort -V | head -n1)" = "$2" ]; }
+
+ae_version() { ae --version 2>/dev/null | head -n1 | sed -E 's/^ae ([0-9]+\.[0-9]+\.[0-9]+).*/\1/'; }
+
+aeb_version() {
+    v="$(aeb --version 2>/dev/null | head -n1 | sed -E 's/^aeb v?([0-9]+\.[0-9]+(\.[0-9]+)?).*/\1/')"
+    [ -n "$v" ] || return 0
+    case "$v" in *.*.*) : ;; *.*) v="$v.0" ;; esac
+    printf '%s' "$v"
+}
+
+sha256_of() {
+    if have sha256sum; then sha256sum "$1" | awk '{print $1}'
+    elif have shasum;   then shasum -a 256 "$1" | awk '{print $1}'
+    fi
+}
+
+# aeoget_platform : echo "os arch" normalized (os linux/macos/freebsd/windows,
+# arch x86_64/aarch64), or nothing if unrecognized. aeo assets use x86_64/aarch64
+# (matching the existing aeo-agent release asset vocabulary).
+aeoget_platform() {
+    case "$(uname -s 2>/dev/null)" in
+        Linux) _os=linux ;; Darwin) _os=macos ;; FreeBSD) _os=freebsd ;;
+        MINGW*|MSYS*|CYGWIN*) _os=windows ;; *) return 0 ;;
+    esac
+    case "$(uname -m 2>/dev/null)" in
+        x86_64|amd64) _arch=x86_64 ;; arm64|aarch64) _arch=aarch64 ;; *) return 0 ;;
+    esac
+    printf '%s %s' "$_os" "$_arch"
+}
+
+aeoget_preflight_cc() {
+    have cc || have gcc || have clang \
+        || die "a C compiler (cc/gcc/clang) is required for a source build — install build-essential (Debian/Ubuntu) or the Xcode Command Line Tools (macOS)."
+    have make || have gmake || die "GNU make is required for a source build (install 'gmake' on *BSD)."
+}
+
+fetch_run() {
+    have curl || die "curl is required to install the toolchain."
+    _tmp="$(mktemp)"; _rc=0
+    if curl -fsSL "$1" -o "$_tmp"; then sh "$_tmp"; _rc=$?; else _rc=$?; fi
+    rm -f "$_tmp"; return $_rc
+}
+
+# --- ae binary install (aether assets: x86_64-worded, root prefix layout) ----
+aeoget_install_ae_binary() {
+    _ver="$1"; _prefix="${PREFIX:-$HOME/.local}"
+    _plat="$(aeoget_platform)"; [ -n "$_plat" ] || return 1
+    _os="${_plat% *}"; _narch="${_plat#* }"
+    # aether asset arch word is x86_64 for amd64, arm64 for aarch64.
+    case "$_narch" in x86_64) _aarch=x86_64 ;; aarch64) _aarch=arm64 ;; *) return 1 ;; esac
+    _url="https://github.com/$AEOGET_AETHER_REPO/releases/download/v$_ver/aether-$_ver-$_os-$_aarch.tar.gz"
+    _td="$(mktemp -d)"
+    say "trying ae binary: aether-$_ver-$_os-$_aarch.tar.gz (no .sha256 upstream; HTTPS-trust)"
+    if ! curl -fsSL "$_url" -o "$_td/ae.tgz" 2>/dev/null; then
+        rm -rf "$_td"; say "  no ae binary for $_os-$_aarch @ $_ver — will build from source"; return 1
+    fi
+    mkdir -p "$_prefix"
+    if ! tar -xzf "$_td/ae.tgz" -C "$_prefix" 2>/dev/null; then
+        rm -rf "$_td"; say "  ae tarball extract failed — will build from source"; return 1
+    fi
+    rm -rf "$_td"
+    [ -x "$_prefix/bin/ae" ] || { say "  ae tarball had no bin/ae — will build from source"; return 1; }
+    return 0
+}
+
+# --- aeb binary install (aeb assets: amd64-worded, top-dir + bundled install.sh)
+aeoget_aeb_tag() {
+    _r="${AEB_REF:-${AEB_FETCH:-${AEB_MIN:-}}}"
+    case "$_r" in
+        v[0-9]*) printf '%s' "$_r"; return 0 ;;
+        [0-9]*.[0-9]*.[0-9]*) printf 'v%s' "${_r%.*}"; return 0 ;;
+        [0-9]*.[0-9]*) printf 'v%s' "$_r"; return 0 ;;
+    esac
+    _loc=$(curl -fsSI "https://github.com/$AEOGET_AEB_REPO/releases/latest" 2>/dev/null \
+        | tr -d '\r' | sed -n 's#^[Ll]ocation:[[:space:]]*.*/releases/tag/\(.*\)$#\1#p' | tail -1)
+    [ -n "$_loc" ] && { printf '%s' "$_loc"; return 0; }
+    curl -fsSL "https://api.github.com/repos/$AEOGET_AEB_REPO/tags?per_page=100" 2>/dev/null \
+        | sed -n 's/.*"name"[[:space:]]*:[[:space:]]*"\(v0\.[0-9][0-9]*\)".*/\1/p' | sort -V | tail -1
+}
+
+aeoget_install_aeb_binary() {
+    _prefix="${PREFIX:-$HOME/.local}"
+    _plat="$(aeoget_platform)"; [ -n "$_plat" ] || return 1
+    _os="${_plat% *}"; _narch="${_plat#* }"
+    case "$_narch" in x86_64) _arch=amd64 ;; aarch64) _arch=arm64 ;; *) return 1 ;; esac
+    _base="aeb-$_os-$_arch"
+    _tag="$(aeoget_aeb_tag)"
+    [ -n "$_tag" ] || { say "  could not resolve an aeb release tag — will build from source"; return 1; }
+    _url="https://github.com/$AEOGET_AEB_REPO/releases/download/$_tag/$_base.tar.gz"
+    _td="$(mktemp -d)"
+    say "trying aeb binary: $_base.tar.gz @ $_tag (with .sha256 verify)"
+    if ! curl -fsSL "$_url" -o "$_td/aeb.tgz" 2>/dev/null; then
+        rm -rf "$_td"; say "  no aeb binary for $_os-$_arch @ $_tag — will build from source"; return 1
+    fi
+    if curl -fsSL "$_url.sha256" -o "$_td/aeb.sha256" 2>/dev/null; then
+        _want="$(awk '{print $1}' "$_td/aeb.sha256")"; _got="$(sha256_of "$_td/aeb.tgz")"
+        [ -n "$_got" ] || { rm -rf "$_td"; say "  no sha256 tool to verify — building from source instead"; return 1; }
+        [ "$_want" = "$_got" ] || { rm -rf "$_td"; die "aeb binary checksum MISMATCH ($_base.tar.gz @ $_tag): expected $_want, got $_got. Refusing a corrupt/tampered binary."; }
+        say "  sha256 OK"
+    else
+        rm -rf "$_td"; say "  no .sha256 sidecar for $_base @ $_tag — building from source instead"; return 1
+    fi
+    if ! tar -xzf "$_td/aeb.tgz" -C "$_td" 2>/dev/null; then
+        rm -rf "$_td"; say "  aeb tarball extract failed — will build from source"; return 1
+    fi
+    _here="$_td/$_base"
+    [ -f "$_here/install.sh" ] || { rm -rf "$_td"; say "  aeb bundle had no install.sh — will build from source"; return 1; }
+    if ! have make && ! have gmake; then
+        rm -rf "$_td"; say "  GNU make absent (the aeb bundle's installer needs it) — will build from source"; return 1
+    fi
+    if ! sh "$_here/install.sh" "$_prefix" >/dev/null 2>&1; then
+        rm -rf "$_td"; say "  aeb bundle install.sh failed — will build from source"; return 1
+    fi
+    rm -rf "$_td"
+    [ -x "$_prefix/bin/aeb" ] || { say "  aeb not at $_prefix/bin/aeb after install — will build from source"; return 1; }
+    return 0
+}
+
+# --- aeo binary install (aeo bundle: bin/aeo + share/aeo/{lib,examples} + install.sh)
+# aeo assets use x86_64/aarch64 words (matching aeo-agent's existing scheme).
+aeoget_aeo_tag() {
+    _r="${AEO_REF:-}"
+    case "$_r" in
+        aeo-v[0-9]*|v[0-9]*) printf '%s' "$_r"; return 0 ;;   # already a tag
+        [0-9]*.[0-9]*.[0-9]*) printf 'aeo-v%s' "$_r"; return 0 ;;  # 0.1.0 -> aeo-v0.1.0
+    esac
+    # latest aeo-v* via /releases/latest (redirect Location), then the tags API.
+    _loc=$(curl -fsSI "https://github.com/$AEOGET_AEO_REPO/releases/latest" 2>/dev/null \
+        | tr -d '\r' | sed -n 's#^[Ll]ocation:[[:space:]]*.*/releases/tag/\(.*\)$#\1#p' | tail -1)
+    case "$_loc" in aeo-v*) printf '%s' "$_loc"; return 0 ;; esac
+    curl -fsSL "https://api.github.com/repos/$AEOGET_AEO_REPO/tags?per_page=100" 2>/dev/null \
+        | sed -n 's/.*"name"[[:space:]]*:[[:space:]]*"\(aeo-v[0-9][0-9.]*\)".*/\1/p' | sort -V | tail -1
+}
+
+# aeo_ensure : install the aeo CLI from its release bundle. NO source fallback —
+# building aeo needs a clone (git clone … && make install); if no bundle exists
+# for this platform we say so and point there.
+aeo_ensure() {
+    _prefix="${PREFIX:-$HOME/.local}"; export PREFIX="$_prefix"
+    export PATH="$_prefix/bin:$PATH"
+
+    if have aeo && [ -z "${AEO_FORCE:-}" ]; then
+        say "aeo already on PATH ($(command -v aeo)) — skipping (AEO_FORCE=1 to reinstall)"
+        return 0
+    fi
+
+    _plat="$(aeoget_platform)"
+    [ -n "$_plat" ] || die "unrecognized platform ($(uname -s)/$(uname -m)) — no aeo bundle; install from a clone: git clone https://github.com/$AEOGET_AEO_REPO && cd aeo && make install"
+    _os="${_plat% *}"; _arch="${_plat#* }"
+    _base="aeo-$_os-$_arch"
+    _tag="$(aeoget_aeo_tag)"
+    [ -n "$_tag" ] || die "could not resolve an aeo release tag (no aeo-v* release yet?). Install from a clone: git clone https://github.com/$AEOGET_AEO_REPO && cd aeo && make install"
+    _url="https://github.com/$AEOGET_AEO_REPO/releases/download/$_tag/$_base.tar.gz"
+    _td="$(mktemp -d)"
+    say "trying aeo bundle: $_base.tar.gz @ $_tag (with .sha256 verify)"
+    if ! curl -fsSL "$_url" -o "$_td/aeo.tgz" 2>/dev/null; then
+        rm -rf "$_td"; die "no aeo bundle for $_os-$_arch @ $_tag. Install from a clone: git clone https://github.com/$AEOGET_AEO_REPO && cd aeo && make install"
+    fi
+    if curl -fsSL "$_url.sha256" -o "$_td/aeo.sha256" 2>/dev/null; then
+        _want="$(awk '{print $1}' "$_td/aeo.sha256")"; _got="$(sha256_of "$_td/aeo.tgz")"
+        [ -n "$_got" ] || { rm -rf "$_td"; die "no sha256 tool (sha256sum/shasum) to verify the aeo bundle — install one, or build from a clone."; }
+        [ "$_want" = "$_got" ] || { rm -rf "$_td"; die "aeo bundle checksum MISMATCH ($_base.tar.gz @ $_tag): expected $_want, got $_got. Refusing a corrupt/tampered bundle."; }
+        say "  sha256 OK"
+    else
+        rm -rf "$_td"; die "no .sha256 sidecar for $_base @ $_tag — refusing to install unverified. Build from a clone instead."
+    fi
+    if ! tar -xzf "$_td/aeo.tgz" -C "$_td" 2>/dev/null; then
+        rm -rf "$_td"; die "aeo bundle extract failed."
+    fi
+    _here="$_td/$_base"
+    [ -f "$_here/install.sh" ] || { rm -rf "$_td"; die "aeo bundle had no install.sh — malformed release asset."; }
+    if ! have make && ! have gmake; then
+        rm -rf "$_td"; die "GNU make is required by the aeo bundle's installer (it copies the tree + writes the wrapper). Install make and re-run."
+    fi
+    if ! sh "$_here/install.sh" "$_prefix"; then
+        rm -rf "$_td"; die "aeo bundle install.sh failed."
+    fi
+    rm -rf "$_td"
+    [ -x "$_prefix/bin/aeo" ] || die "aeo not at $_prefix/bin/aeo after install."
+    say "using aeo: $(command -v aeo)"
+}
+
+# --- ae_ensure / aeb_ensure : reused from aeb's get.sh (ensure ae, then aeb) ---
+ae_ensure() {
+    _prefix="${PREFIX:-$HOME/.local}"; export PREFIX="$_prefix"
+    export PATH="$_prefix/bin:$PATH"
+    _pin="${AE_PIN:-}"; _fetch="${AE_FETCH:-${AE_PIN:-}}"
+
+    if have ae; then
+        _have="$(ae_version || true)"
+        if [ -z "$_pin" ]; then say "ae ${_have:-(present)} already on PATH — skipping"; return 0; fi
+        if [ -n "$_have" ] && version_ge "$_have" "$_pin"; then
+            say "ae $_have already on PATH (>= $_pin) — skipping"; return 0
+        fi
+        say "ae ${_have:-present} is below the floor $_pin — upgrading"
+    fi
+
+    _ref="${AETHER_REF:-$_fetch}"
+    if [ -z "$_ref" ]; then
+        _ref=$(curl -fsSI "https://github.com/$AEOGET_AETHER_REPO/releases/latest" 2>/dev/null \
+            | tr -d '\r' | sed -n 's#^[Ll]ocation:[[:space:]]*.*/releases/tag/\(.*\)$#\1#p' | tail -1)
+        [ -n "$_ref" ] && say "latest ae release is $_ref"
+    fi
+
+    _ver=""
+    case "$_ref" in
+        v[0-9]*.[0-9]*.[0-9]*) _ver="${_ref#v}" ;;
+        [0-9]*.[0-9]*.[0-9]*)  _ver="$_ref" ;;
+    esac
+    if [ -z "${AEBBOOT_NO_BINARY:-${AEB_FROM_SOURCE:-}}" ] && [ -n "$_ver" ] && aeoget_install_ae_binary "$_ver"; then
+        _have="$(ae_version || true)"
+        [ -z "$_pin" ] || { [ -n "$_have" ] && version_ge "$_have" "$_pin"; } \
+            || die "installed ae binary ${_have:-?} is BELOW the floor $_pin — set AETHER_REF/AE_FETCH to >= $_pin."
+        say "ae ${_have:-installed} ready (binary)"; return 0
+    fi
+
+    aeoget_preflight_cc
+    case "$_ref" in [0-9]*.[0-9]*.[0-9]*) _ref="v$_ref" ;; esac
+    say "installing ae via aether get.sh from source (AETHER_REF=${_ref:-latest}, PREFIX=$_prefix)"
+    AETHER_REF="$_ref" PREFIX="$_prefix" fetch_run "$AEOGET_AETHER_GET_URL" || die "ae install failed (get.sh)."
+    have ae || die "ae installed but not on PATH — ensure $_prefix/bin is on PATH."
+    _have="$(ae_version || true)"
+    if [ -n "$_pin" ] && [ -n "$_have" ] && ! version_ge "$_have" "$_pin"; then
+        die "installed ae $_have is BELOW the floor $_pin — set AETHER_REF to a tag >= $_pin."
+    fi
+    say "ae ${_have:-installed} ready (source)"
+}
+
+aeb_ensure() {
+    _prefix="${PREFIX:-$HOME/.local}"; export PREFIX="$_prefix"
+    export PATH="$_prefix/bin:$PATH"
+
+    if have aeb; then
+        _have="$(aeb_version || true)"
+        if [ "$_have" = "0.0.0" ]; then
+            say "aeb (source build, unversioned) already on PATH — skipping floor check"
+        elif [ -n "${AEB_MIN:-}" ] && [ -n "$_have" ] && ! version_ge "$_have" "$AEB_MIN"; then
+            say "WARNING: aeb $_have is older than the floor $AEB_MIN — upgrade with AEB_REF=v$AEB_MIN"
+        else
+            say "aeb ${_have:-(version unknown)} already on PATH — skipping"
+        fi
+        say "using aeb: $(command -v aeb)"; return 0
+    fi
+
+    have ae || die "aeb_ensure: no \`ae\` on PATH — call ae_ensure first; aeb's installer needs an ae to target."
+
+    if [ -z "${AEBBOOT_NO_BINARY:-${AEB_FROM_SOURCE:-}}" ] && aeoget_install_aeb_binary; then
+        say "using aeb: $(command -v aeb) ($(aeb_version || echo version-unknown)) (binary)"; return 0
+    fi
+
+    _ref="${AEB_REF:-}"
+    case "$_ref" in
+        [0-9]*.[0-9]*.[0-9]*) _ref="v${_ref%.*}" ;;
+        [0-9]*.[0-9]*)        _ref="v$_ref" ;;
+    esac
+    say "installing aeb via install.sh from source (AEB_REF=${_ref:-latest}, PREFIX=$_prefix)"
+    AEB_REF="$_ref" PREFIX="$_prefix" AETHER="$(command -v ae)" fetch_run "$AEOGET_AEB_INSTALL_URL" || die "aeb install failed (install.sh)."
+    have aeb || die "aeb installed but not on PATH — ensure $_prefix/bin is on PATH."
+    say "using aeb: $(command -v aeb) ($(aeb_version || echo version-unknown)) (source)"
+}
+
+# --- aeo_bootstrap : the convenience entry point (ae, then aeb, then aeo) ------
+aeo_bootstrap() {
+    ae_ensure
+    aeb_ensure
+    aeo_ensure
+    case ":$PATH:" in *":${PREFIX:-$HOME/.local}/bin:"*) : ;;
+        *) say "tip: add '${PREFIX:-$HOME/.local}/bin' to your shell PATH permanently";; esac
+}
+
+# ===========================================================================
+# EXECUTED-MODE entry point. Installs when EXECUTED (`sh get.sh` or `curl … | sh`);
+# does NOT auto-run when SOURCED as a library (a consumer sets AEOGET_SOURCE_ONLY=1
+# to define the functions and call aeo_bootstrap itself). See aeb get.sh for the
+# full "why $0 alone cannot decide" rationale — same guard.
+# ===========================================================================
+_aeoget_main() {
+    [ -n "${1:-}" ] && AEO_REF="$1"        # positional arg #1 pins the aeo release
+    export AEO_REF="${AEO_REF:-}"
+    aeo_bootstrap
+    say "done. Pin this in CI with: AE_PIN=${AE_PIN:-<x.y.z>} AEB_REF=${AEB_REF:-<vX.Y>} AEO_REF=${AEO_REF:-<aeo-vX.Y.Z>}"
+}
+
+if [ -z "${AEOGET_SOURCE_ONLY:-}" ]; then
+    case "$0" in
+        */get.sh|get.sh) set -eu; _aeoget_main "$@" ;;
+        sh|-sh|bash|-bash|dash|-dash|ash|-ash|/bin/sh|/bin/bash|/bin/dash)
+            set -eu; _aeoget_main "$@" ;;
+    esac
+fi
