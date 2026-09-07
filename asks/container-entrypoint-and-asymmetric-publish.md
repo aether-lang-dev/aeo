@@ -118,3 +118,39 @@ heredoc RHS works. Filed as aether/asks/heredoc-string-literal-breaks-block-pars
 So today the generalized entrypoint() must be used with a single-line string
 arg; the multiline heredoc becomes usable once that parser bug is fixed. The
 generalization itself is complete and unit-proven regardless.
+
+## 5. PLANNED (deferred): block grammar `entrypoint(){ ruby(<<RB…RB) }`
+
+DESIGN AGREED, IMPLEMENTATION DEFERRED (2026-09-07) — blocked on the upstream
+heredoc-in-call-argument parser fix (aether/asks/heredoc-string-literal-breaks-
+block-parse.md). Building it now would ship a grammar whose headline multiline
+form doesn't parse, so we wait for that fix first.
+
+Target grammar (REPLACES both entrypoint(src) and entrypoint_lang(lang) — no
+back-compat; ripple through the whole repo):
+
+    container("svc") {
+        entrypoint() {
+            ruby(<<RB
+              require 'webrick'
+              …
+            RB)
+        }
+    }
+
+Shape (mirrors health_retry(){}): `entrypoint(_ctx) -> ptr { return _ctx }` opens
+the block passing the node ctx through; exactly ONE language verb inside both
+NAMES the language and CARRIES the source — python(src)/ruby(src)/node(src)/
+perl(src)/php(src), each writing aeo.cmp.entrypoint.<ctx> + the lang. New
+language = one new verb + one row in the entrypoint_lang table.
+
+Migration when implemented:
+- Remove `entrypoint(src: string)` and `entrypoint_lang(lang)` (the interim from
+  item 4, commit ba98b46). Add the block opener + 5 language verbs.
+- Keep the entrypoint_lang_file/_run/_base table (the verbs feed it).
+- Ripple every caller: driver_linux.build_entrypoint + driver_vm.
+  guest_container_up already take file/run (unchanged); the compose getters +
+  runner call sites switch from get_entrypoint()/entrypoint_lang_*() to reading
+  what the block verbs stored. Update spec_container_run_argv.ae item 4.
+- No live example uses the current script-form (README migrated to prebuilt
+  tags), so the ripple is small.
