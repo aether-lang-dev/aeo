@@ -209,20 +209,30 @@ jobs:
           fi
 
       - name: Provision the FreeBSD base sysroot + third-party deps
+        id: provision
         if: steps.gate.outputs.ok == 'true'
+        # NON-BLOCKING, like the build step below: a crossbuild-kit hiccup (e.g. a
+        # third-party lib whose ./configure breaks under a new zig) must degrade to
+        # "skip the FreeBSD asset", not red the whole release.
+        continue-on-error: true
         run: |
           git clone --depth 1 "$CROSSBUILD_REPO" "$HOME/aether-crossbuild"
           cd "$HOME/aether-crossbuild"
           ./scripts/get-zig.sh
           ./scripts/fetch-freebsd-base.sh x86_64 15
-          CB_LIBS="zlib pcre2 openssl" ./provision.sh x86_64-freebsd15
+          # CB_LIBS is only what the aeo CLI actually links on FreeBSD: openssl
+          # (std.cryptography via secrets) + zlib (via libcurl). NOT pcre2 — the
+          # CLI imports no std.regex (verified: ldd shows only libcrypto), and
+          # pcre2's cross-configure is currently broken under zig 0.16. Adding a
+          # lib the binary never links only buys failure modes.
+          CB_LIBS="zlib openssl" ./provision.sh x86_64-freebsd15
           echo "AETHER_SYSROOT=$HOME/aether-crossbuild/bases/x86_64-freebsd15" >> "$GITHUB_ENV"
           echo "CROSSBUILD_SYSROOT=$HOME/aether-crossbuild/sysroots/x86_64-freebsd15" >> "$GITHUB_ENV"
           echo "$HOME/aether-crossbuild/toolchain/zig-x86_64-linux-0.16.0" >> "$GITHUB_PATH"
 
       - name: Build aeo CLI (freebsd, x86_64, cross via zig)
         id: build
-        if: steps.gate.outputs.ok == 'true'
+        if: steps.gate.outputs.ok == 'true' && steps.provision.outcome == 'success'
         # STILL non-blocking, for now. The root cause is FIXED upstream: it was a
         # Zig 0.13-vs-0.16 mismatch (not OpenSSL-specific — a std.io-only program
         # failed the same way), fixed in aether 0.646.0 (PR #1930) + the Zig 0.16
