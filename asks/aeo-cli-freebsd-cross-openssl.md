@@ -80,6 +80,15 @@ A minimal repro that isolates the OpenSSL link (no aeo needed): any `.ae` that
 `x86_64-freebsd`. If THAT fails identically, the fix belongs in aether/crossbuild,
 not aeo.
 
+## Upstream ask
+
+The actual fix is in the aether toolchain / crossbuild, tracked there:
+`aether/asks/freebsd-cross-openssl-libc-not-available.md`. That ask carries the
+confirmed source sites (`compiler/codegen/codegen.c:4235` maps std.cryptography
+-> `-lssl -lcrypto`; `tools/ae_cross.c:~835-895` is the crossbuild openssl
+probe/link path) and the minimal no-aeo repro. This aeo-side file is just the
+consumer view + the two-line follow-up once it lands.
+
 ## Not blocking
 
 The two Linux bundles are the primary targets and ship today. FreeBSD-hosted aeo
