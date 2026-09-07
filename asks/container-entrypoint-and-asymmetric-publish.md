@@ -112,29 +112,34 @@ PROVEN: the lang table resolves all 5 languages incl. the js->node alias; a real
 `CMD [ruby /app.rb]` (not python) — the wart is gone. spec_container_run_argv.ae
 +4 lang cases (12 total). Full suite 312/4-skip/0.
 
-CAVEAT — the ergonomic `entrypoint(<<LANG … LANG)` HEREDOC form is currently
-BROKEN UPSTREAM: a heredoc in a CALL ARGUMENT fails to parse (E0100), while a
-heredoc RHS works. Filed as aether/asks/heredoc-string-literal-breaks-block-parse.md.
-So today the generalized entrypoint() must be used with a single-line string
-arg; the multiline heredoc becomes usable once that parser bug is fixed. The
-generalization itself is complete and unit-proven regardless.
+HEREDOC NON-ISSUE (corrected 2026-09-07): I initially reported the multiline
+`entrypoint(<<LANG … LANG)` form as broken upstream. It is NOT — that was my
+error. The heredoc close marker must be ALONE ON ITS LINE (the documented
+Ruby/POSIX rule); I had written `LANG)` on one line, which correctly reads as
+body → "unterminated heredoc". With the marker on its own line and the `)` on the
+next, a heredoc in a call argument compiles + runs fine (verified). The aether
+maintainer's reply (aether/asks/REPLY-heredoc-string-literal-breaks-block-parse.md)
+documents this; my ask there was retracted. So the multiline form works TODAY:
 
-## 5. PLANNED (deferred): block grammar `entrypoint(){ ruby(<<RB…RB) }`
+        entrypoint(<<PY
+        print("hi")
+        PY
+        )
 
-DESIGN AGREED, IMPLEMENTATION DEFERRED (2026-09-07) — blocked on the upstream
-heredoc-in-call-argument parser fix (aether/asks/heredoc-string-literal-breaks-
-block-parse.md). Building it now would ship a grammar whose headline multiline
-form doesn't parse, so we wait for that fix first.
+## 5. PLANNED: block grammar `entrypoint(){ ruby(<<RB…RB) }`
 
-Target grammar (REPLACES both entrypoint(src) and entrypoint_lang(lang) — no
-back-compat; ripple through the whole repo):
+DESIGN AGREED (2026-09-07). NOT blocked (the heredoc non-issue above is resolved)
+— buildable today. Target grammar REPLACES both entrypoint(src) and
+entrypoint_lang(lang) — no back-compat; ripple through the whole repo. Note the
+close marker MUST be alone on its line, `)` on the next:
 
     container("svc") {
         entrypoint() {
             ruby(<<RB
-              require 'webrick'
-              …
-            RB)
+require 'webrick'
+…
+RB
+            )
         }
     }
 
