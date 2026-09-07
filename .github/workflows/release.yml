@@ -64,8 +64,10 @@ jobs:
 
       - name: Install build prerequisites
         # libssl-dev + libnghttp2-dev provide the STATIC archives (libssl.a,
-        # libcrypto.a, libnghttp2.a) the -static link needs.
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq build-essential curl tar libssl-dev libnghttp2-dev
+        # libcrypto.a, libnghttp2.a) the -static link needs. libbrotli-dev
+        # provides libbrotlienc/libbrotlicommon (pulled via libcurl) — a clean
+        # ubuntu-latest lacks them, so the link dies `cannot find -lbrotlienc`.
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq build-essential curl tar libssl-dev libnghttp2-dev libbrotli-dev
 
       - name: Install the Aether toolchain (ae)
         # get.sh builds ae from source (Aether -> C -> make); no chicken-and-egg.
@@ -164,11 +166,18 @@ jobs:
           fi
 
       - name: Provision the FreeBSD base sysroot + third-party deps (aether-crossbuild)
+        id: provision
         if: steps.gate.outputs.ok == 'true'
+        # NON-BLOCKING: a crossbuild-kit hiccup (e.g. a third-party lib whose
+        # ./configure breaks under a new zig) must skip the FreeBSD asset, not red
+        # the whole release. (Same handling as the cli-build-freebsd job.)
+        continue-on-error: true
         # The base sysroot (libc.so.7 + libthr.so.3 + CRT) is what zig lacks for
-        # FreeBSD; the deps (openssl/zlib/pcre2) come from provision.sh. nghttp2
-        # is intentionally omitted — it fails to cross-build for freebsd (gid_t
-        # macro poisoning) AND the plaintext agent doesn't need it (no HTTP/2).
+        # FreeBSD; the deps come from provision.sh. nghttp2 is omitted (cross-build
+        # fails on freebsd + the plaintext agent needs no HTTP/2). pcre2 is omitted
+        # too — the agent links no pcre2 (ldd: ssl+crypto only) and pcre2's
+        # cross-configure breaks under zig 0.16. openssl (ssl+crypto) is what the
+        # agent actually needs.
         run: |
           git clone --depth 1 "$CROSSBUILD_REPO" "$HOME/aether-crossbuild"
           cd "$HOME/aether-crossbuild"
@@ -177,14 +186,19 @@ jobs:
           # the dir added to PATH below).
           ./scripts/get-zig.sh
           ./scripts/fetch-freebsd-base.sh x86_64 15
-          CB_LIBS="zlib pcre2 openssl" ./provision.sh x86_64-freebsd15
+          CB_LIBS="zlib openssl" ./provision.sh x86_64-freebsd15
           echo "AETHER_SYSROOT=$HOME/aether-crossbuild/bases/x86_64-freebsd15" >> "$GITHUB_ENV"
           echo "CROSSBUILD_SYSROOT=$HOME/aether-crossbuild/sysroots/x86_64-freebsd15" >> "$GITHUB_ENV"
           echo "$HOME/aether-crossbuild/toolchain/zig-x86_64-linux-0.16.0" >> "$GITHUB_PATH"
 
       - name: Build aeo-agent (freebsd, x86_64)
         id: build
-        if: steps.gate.outputs.ok == 'true'
+        # `!cancelled() &&` prefix: the continue-on-error provision above flips
+        # GitHub's implicit success() gate on following steps, so a plain `if:`
+        # would skip even when provision succeeded. This runs iff the gate passed
+        # AND provision actually succeeded; NO continue-on-error here, so a real
+        # build failure reds the release.
+        if: ${{ !cancelled() && steps.gate.outputs.ok == 'true' && steps.provision.outcome == 'success' }}
         run: |
           ae build bin/aeo-agent.ae -o aeo-agent-freebsd-x86_64 --lib lib --target=x86_64-freebsd
           file aeo-agent-freebsd-x86_64
@@ -198,13 +212,13 @@ jobs:
 
       - name: Checksum
         id: sum
-        if: steps.gate.outputs.ok == 'true'
+        if: ${{ !cancelled() && steps.build.outputs.built == 'true' }}
         run: |
           sha256sum aeo-agent-freebsd-x86_64 | tee aeo-agent-freebsd-x86_64.sha256
           echo "sha256=$(cut -d' ' -f1 aeo-agent-freebsd-x86_64.sha256)" >> "$GITHUB_OUTPUT"
 
       - name: Upload artifact
-        if: steps.gate.outputs.ok == 'true'
+        if: ${{ !cancelled() && steps.build.outputs.built == 'true' }}
         uses: actions/upload-artifact@v4
         with:
           name: aeo-agent-freebsd-x86_64
