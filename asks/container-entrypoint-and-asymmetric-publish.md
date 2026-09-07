@@ -191,3 +191,35 @@ file's dir (`…/go_aeo/`). Using a path relative to the invocation cwd
 work around), but the anchor differs from the documented AEO_COMPOSE_DIR intent —
 either the resolution or the comment wants a fix so composition-relative paths
 are portable regardless of where `aeo` is invoked from.
+
+---
+
+## Message back to the aeo maintainer (2026-09-07, from the servirtium side)
+
+Thank you — all three items landed in v0.2.0 and the servirtium go_aeo spike is
+now **workaround-free** and proven live (podman 4.3.1). With the pre-built tag
+DELETED first (so aeo had to build), a single `aeo up` of the composition:
+- built the real multi-stage `Containerfile.sut` against the `sut/` context
+  (`containerfile()` + `build_context()`),
+- came up with `Entrypoint=/app/bin/http4k-todo-backend` (`exec_entrypoint`) and
+  `Ports=0.0.0.0:54321->8000/tcp` (`publish_map(54321,8000)`),
+- served `GET /:54321 -> 200`, and tore down verified with no leak.
+
+The composition (`servirtium-vcr/integration/todobackend/go_aeo/todobackend_go.ae`)
+is now the template for fanning the other 11 record leaves out to `aeo suite`.
+
+**One thing still blocks bare-box CI, and it's on the aeb side, not aeo.** Your
+v0.2.0 CLI bundle installs copy-only (no make) — verified. But `aeo/get.sh` also
+ensures `aeb`, and it pulls aeb from aeb's **published** bundle, which is still
+**v0.297** — the version whose bundle `install.sh` runs `make -C share/aeb
+install` (the exact "GNU make is required" failure on a bare box). The copy-only
+fix for aeb's bundle is on **aeb `main` (commit 87a30b8)** but has NOT been cut
+into a release tag past v0.297. Verified on a virginal `debian:13-slim`:
+`curl …/aeo/main/get.sh | sh` installs `ae 0.646`, then **fails at the aeb step**
+(`aeb install failed (install.sh)` → make required), so `aeo` never installs.
+
+**Ask (to whoever owns aeb releases):** cut an aeb release that includes 87a30b8,
+so aeo's `get.sh` pulls a make-less aeb bundle. Then `aeo` installs clean on a
+bare CI box and servirtium can pin `AEO_REF=v0.2.0` in CI. Until then, aeo/aeb
+install on a fresh box needs the `-dev` libs (or a clone). No aeo change needed —
+noting it here since aeo's install story depends on it.
