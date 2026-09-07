@@ -232,7 +232,15 @@ jobs:
 
       - name: Build aeo CLI (freebsd, x86_64, cross via zig)
         id: build
-        if: steps.gate.outputs.ok == 'true' && steps.provision.outcome == 'success'
+        # NB the `!cancelled() &&` prefix. The provision step above has
+        # continue-on-error, which flips GitHub's IMPLICIT success() gate on
+        # following steps to false — so a plain `if:` here SKIPS even when
+        # provision genuinely succeeded (observed: run 34097040176). Leading with
+        # a status function (!cancelled()) replaces that implicit gate with our
+        # explicit condition, so the build runs iff the gate passed AND provision
+        # actually succeeded — and this step has NO continue-on-error, so a real
+        # build failure still reds the release.
+        if: ${{ !cancelled() && steps.gate.outputs.ok == 'true' && steps.provision.outcome == 'success' }}
         # LOAD-BEARING. Proven green on ae 0.646.0 (dry run 34096660809: provision
         # -> build -> assemble -> upload all succeeded, aeo-freebsd-x86_64 bundle
         # produced). The old Zig-0.13-vs-0.16 cross-link failure is fixed upstream
@@ -252,19 +260,19 @@ jobs:
           echo "built=true" >> "$GITHUB_OUTPUT"
 
       - name: Assemble the aeo-freebsd-x86_64 bundle
-        if: steps.build.outputs.built == 'true'
+        if: ${{ !cancelled() && steps.build.outputs.built == 'true' }}
         run: sh .github/scripts/assemble-aeo-bundle.sh freebsd x86_64
 
       - name: Checksum
         id: sum
-        if: steps.build.outputs.built == 'true'
+        if: ${{ !cancelled() && steps.build.outputs.built == 'true' }}
         run: |
           cd dist
           sha256sum aeo-freebsd-x86_64.tar.gz | tee aeo-freebsd-x86_64.tar.gz.sha256
           echo "sha256=$(cut -d' ' -f1 aeo-freebsd-x86_64.tar.gz.sha256)" >> "$GITHUB_OUTPUT"
 
       - name: Upload artifact
-        if: steps.build.outputs.built == 'true'
+        if: ${{ !cancelled() && steps.build.outputs.built == 'true' }}
         uses: actions/upload-artifact@v4
         with:
           name: aeo-freebsd-x86_64
