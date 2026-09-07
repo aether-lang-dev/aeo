@@ -233,15 +233,14 @@ jobs:
       - name: Build aeo CLI (freebsd, x86_64, cross via zig)
         id: build
         if: steps.gate.outputs.ok == 'true' && steps.provision.outcome == 'success'
-        # STILL non-blocking, for now. The root cause is FIXED upstream: it was a
-        # Zig 0.13-vs-0.16 mismatch (not OpenSSL-specific — a std.io-only program
-        # failed the same way), fixed in aether 0.646.0 (PR #1930) + the Zig 0.16
-        # bump above. The gate is raised to 0.646.0 so this only builds on the
-        # fixed toolchain. `continue-on-error` is KEPT until a dry run proves a
-        # green FreeBSD bundle against a published v0.646.0 — then drop it (and
-        # this comment) to make FreeBSD load-bearing. See
-        # asks/aeo-cli-freebsd-cross-openssl.md (upstream: aether PR #1930).
-        continue-on-error: true
+        # LOAD-BEARING. Proven green on ae 0.646.0 (dry run 34096660809: provision
+        # -> build -> assemble -> upload all succeeded, aeo-freebsd-x86_64 bundle
+        # produced). The old Zig-0.13-vs-0.16 cross-link failure is fixed upstream
+        # (aether 0.646.0 / PR #1930) and the gate above ensures we only build on
+        # that toolchain. No continue-on-error here now: a FreeBSD build failure is
+        # a real regression and should red the release. (The PROVISION step above
+        # stays tolerant — a crossbuild-KIT breakage is outside aeo's control and
+        # cleanly skips the asset via the provision.outcome gate on this step.)
         run: |
           ae build bin/aeo.ae -o bin/aeo --lib lib --target=x86_64-freebsd
           file bin/aeo

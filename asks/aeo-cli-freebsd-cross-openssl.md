@@ -1,7 +1,17 @@
 # aeo CLI FreeBSD cross-build: `error: libc not available`
 
-**Status:** FIXED UPSTREAM (aether 0.646.0), pending a green-run confirmation +
-flipping this repo's job load-bearing. Linux x86_64 + aarch64 ship regardless.
+**Status:** RESOLVED + CONFIRMED (2026-09-07). All three targets
+(linux-x86_64, linux-aarch64, freebsd-x86_64) now build green in
+`release-aeo.yml`; the FreeBSD job is load-bearing.
+
+Confirmed by dry run **34096660809** on the published **aether 0.646.0**:
+build-freebsd's provision -> build -> assemble -> upload all succeeded and the
+`aeo-freebsd-x86_64` bundle was produced. Two things were needed together:
+the upstream Zig-0.16 cross-link fix (aether 0.646.0 / PR #1930), AND dropping
+`pcre2` from this job's `CB_LIBS` (the aeo CLI links no pcre2, and pcre2's
+cross-configure breaks under zig 0.16 — it was cargo-culted from the agent job).
+`continue-on-error` was dropped from the build step; the provision step stays
+tolerant (a crossbuild-kit breakage is outside aeo's control).
 
 ## Resolution (2026-09-07)
 
