@@ -225,8 +225,13 @@ jobs:
         # than fail the whole release, this step is continue-on-error and only
         # sets built=true on real success — so a FreeBSD build gap just omits the
         # FreeBSD asset (like the agent's gated jobs), and Linux still ships.
-        # TODO: broaden the crossbuild deps (CB_LIBS) until this builds, then
-        # drop continue-on-error to make it load-bearing.
+        #
+        # DIAGNOSED: fails `error: libc not available` because the aeo CLI is the
+        # first freebsd-cross target that links OpenSSL (via `import secrets` ->
+        # std.cryptography); the crypto link doesn't resolve against the split
+        # base sysroot under zig-lld. Full analysis + the fix location (aether/
+        # aether-crossbuild, then bump the gate + drop this guard) in
+        # asks/aeo-cli-freebsd-cross-openssl.md.
         continue-on-error: true
         run: |
           ae build bin/aeo.ae -o bin/aeo --lib lib --target=x86_64-freebsd
