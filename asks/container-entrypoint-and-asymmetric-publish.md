@@ -126,12 +126,24 @@ documents this; my ask there was retracted. So the multiline form works TODAY:
         PY
         )
 
-## 5. PLANNED: block grammar `entrypoint(){ ruby(<<RB…RB) }`
+## 5. IMPLEMENTED: block grammar `entrypoint(){ ruby(<<RB…RB) }`
 
-DESIGN AGREED (2026-09-07). NOT blocked (the heredoc non-issue above is resolved)
-— buildable today. Target grammar REPLACES both entrypoint(src) and
-entrypoint_lang(lang) — no back-compat; ripple through the whole repo. Note the
-close marker MUST be alone on its line, `)` on the next:
+DONE (2026-09-07). Replaced entrypoint(src) + entrypoint_lang(lang) with the
+block grammar — no back-compat, rippled through the repo. `entrypoint(_ctx)->ptr`
+opens the block (returns ctx, mirrors health_retry(){}); ONE language verb inside
+stores source + lang: python/ruby/javascript/perl/php (+ js alias). NB `node` was
+NOT usable (it's a Proxmox setter) — the JS verb is `javascript`/`js`, lang
+normalizes to "node". The entrypoint_lang_file/_run/_base table + both drivers +
+runner are unchanged (same config keys). PROVEN live: `entrypoint(){ ruby(<<RB…RB
+\n ) }` compiled + built localhost/aeo-built/<n>:latest with CMD [ruby /app.rb]
+and the heredoc body verbatim in /app.rb. spec item 4 migrated (12 cases). Full
+suite 312/4-skip/0.
+
+NB the ruby:3-alpine default base has no `ruby` on PATH for a bare CMD — a real
+service overrides with base("ruby:3"). Default-base choice, not a grammar issue.
+
+Original design note (kept): the close marker MUST be alone on its line, `)` on
+the next:
 
     container("svc") {
         entrypoint() {

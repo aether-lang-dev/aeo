@@ -9,5 +9,7 @@ in CI):
 
     podman build -t localhost/aeo-examples/silly-add:latest examples/silly_addition_app/
 
-This replaces the old inline `entrypoint(<<PY …)` heredoc: application source lives
-here, the composition just references the tag — pure orchestration.
+This replaces the inline `entrypoint(){ python(<<PY … PY) }` script form:
+application source lives here, the composition just references the tag — pure
+orchestration. (The block form is still available for one-file services — see
+`compose`'s `entrypoint()` + the `python`/`ruby`/`javascript`/`perl`/`php` verbs.)

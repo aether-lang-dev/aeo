@@ -552,7 +552,8 @@ _level_tick(booted: ptr) -> int {
 // Returns (image_or_tag, build_err). build_err "" means ok.
 _container_image(nm: string, engine_pref: string) -> string {
     // Three shapes, same precedence as the VM-nested path (guest_container_up):
-    //   entrypoint() — synthesize a COPY-based image from the Python source.
+    //   entrypoint(){ <lang>(src) } — synthesize a COPY-based image from the
+    //     script source, per the entrypoint_lang table (python/ruby/js/perl/php).
     //   dockerfile() — build the operator's inline Dockerfile.
     //   image()      — a stock image ref, run as-is.
     ep = compose.get_entrypoint(nm)

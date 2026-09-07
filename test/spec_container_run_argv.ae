@@ -106,34 +106,40 @@ main() {
             }
         }
 
-        spec.describe("4. entrypoint_lang() — the script-form entrypoint is language-neutral") {
-            spec.it("default (no entrypoint_lang) is python: app.py / python / python:3-alpine") callback {
+        spec.describe("4. entrypoint(){ <lang>(src) } — the block grammar picks the language") {
+            spec.it("python(src) -> stores source + lang python: app.py / python / python:3-alpine") callback {
                 compose.reset_nodes()
-                compose.system("lp") { c = compose.container("d") { compose.entrypoint("print(1)") } }
+                compose.system("lp") { c = compose.container("d") { compose.entrypoint() { compose.python("print(1)") } } }
+                spec.expect_str(compose.get_entrypoint("d")).to_equal_str("print(1)")
                 spec.expect_str(compose.get_entrypoint_lang("d")).to_equal_str("python")
                 spec.expect_str(compose.entrypoint_lang_file("d")).to_equal_str("app.py")
                 spec.expect_str(compose.entrypoint_lang_run("d")).to_equal_str("python")
                 spec.expect_str(compose.entrypoint_lang_base("d")).to_equal_str("docker.io/library/python:3-alpine")
             }
-            spec.it("ruby -> app.rb / ruby / ruby:3-alpine") callback {
+            spec.it("ruby(src) -> app.rb / ruby / ruby:3-alpine") callback {
                 compose.reset_nodes()
-                compose.system("lr") { c = compose.container("r") { compose.entrypoint_lang("ruby") compose.entrypoint("puts 1") } }
+                compose.system("lr") { c = compose.container("r") { compose.entrypoint() { compose.ruby("puts 1") } } }
+                spec.expect_str(compose.get_entrypoint("r")).to_equal_str("puts 1")
                 spec.expect_str(compose.entrypoint_lang_file("r")).to_equal_str("app.rb")
                 spec.expect_str(compose.entrypoint_lang_run("r")).to_equal_str("ruby")
                 spec.expect_str(compose.entrypoint_lang_base("r")).to_equal_str("docker.io/library/ruby:3-alpine")
             }
-            spec.it("javascript/js alias -> node (app.js / node)") callback {
+            spec.it("javascript(src) and js(src) both -> node (app.js / node)") callback {
                 compose.reset_nodes()
-                compose.system("lj") { c = compose.container("j") { compose.entrypoint_lang("javascript") compose.entrypoint("x") } }
-                spec.expect_str(compose.get_entrypoint_lang("j")).to_equal_str("node")
-                spec.expect_str(compose.entrypoint_lang_file("j")).to_equal_str("app.js")
-                spec.expect_str(compose.entrypoint_lang_run("j")).to_equal_str("node")
+                compose.system("lj") {
+                    a = compose.container("jv") { compose.entrypoint() { compose.javascript("x") } }
+                    b = compose.container("js") { compose.entrypoint() { compose.js("x") } }
+                }
+                spec.expect_str(compose.get_entrypoint_lang("jv")).to_equal_str("node")
+                spec.expect_str(compose.entrypoint_lang_file("jv")).to_equal_str("app.js")
+                spec.expect_str(compose.entrypoint_lang_run("jv")).to_equal_str("node")
+                spec.expect_str(compose.get_entrypoint_lang("js")).to_equal_str("node")
             }
-            spec.it("perl and php resolve their file/interpreter") callback {
+            spec.it("perl(src) and php(src) resolve their file/interpreter") callback {
                 compose.reset_nodes()
                 compose.system("lpp") {
-                    a = compose.container("pl") { compose.entrypoint_lang("perl") compose.entrypoint("x") }
-                    b = compose.container("ph") { compose.entrypoint_lang("php")  compose.entrypoint("x") }
+                    a = compose.container("pl") { compose.entrypoint() { compose.perl("x") } }
+                    b = compose.container("ph") { compose.entrypoint() { compose.php("x") } }
                 }
                 spec.expect_str(compose.entrypoint_lang_run("pl")).to_equal_str("perl")
                 spec.expect_str(compose.entrypoint_lang_file("pl")).to_equal_str("app.pl")
