@@ -1,31 +1,38 @@
 # Releasing aeo
 
-This repo publishes **two independent release lines**, each its own tag prefix,
-workflow, and version:
+**ONE release, ONE version, LOCKSTEP.** A single `v*` tag (e.g. `v0.2.0`) cuts
+one GitHub Release carrying BOTH halves of aeo:
 
-| line | tag | workflow | what ships |
-|---|---|---|---|
-| **aeo-agent** | `aeo-agent-v*` | `release-aeo-agent.yml` | a self-contained in-guest agent binary |
-| **aeo CLI** | `aeo-v*` | `release-aeo.yml` | the `aeo` CLI as a per-platform **bundle** (binary + runtime tree) |
+| half | assets | who consumes it |
+|---|---|---|
+| **aeo CLI** | `aeo-<os>-<arch>.tar.gz` bundles (binary + runtime tree) + `.sha256` | a host operator, via `curl … get.sh \| sh` |
+| **aeo-agent** | `aeo-agent-<os>-<arch>` self-contained binaries + `.sha256` | a guest, fetched via cloud-init / ssh push |
 
-Most of this doc covers **aeo-agent** (below). The **aeo CLI** release is
-documented in its own section at the end: [Releasing the aeo CLI](#releasing-the-aeo-cli).
+The CLI and the agent **share one version counter and release together**. The
+single source of truth for the number is the repo-root `VERSION` file. Tag = `v`
++ that number.
 
-Canonical, human- and LLM-readable guide to cutting an `aeo-agent` release. The
-authoritative source is `.github/workflows/release-aeo-agent.yml`; this doc
-explains it and is the thing to read first. If the two ever disagree, the
-workflow wins — fix this doc to match.
+Authoritative source: `.github/workflows/release.yml` (+
+`.github/scripts/assemble-aeo-bundle.sh` for the CLI bundles). This doc explains
+it; the workflow wins on any disagreement — fix the doc to match.
+
+> **History:** the two halves used to be separate release lines (`aeo-agent-v*`
+> via `release-aeo-agent.yml`, `aeo-v*` via `release-aeo.yml`). They were unified
+> into one `v*` workflow at v0.2.0; the old `aeo-agent-v0.1.x` releases remain on
+> the page for historical pins but that tag line is retired.
 
 ## What gets released
 
-`aeo-agent` — the lean, in-guest orchestration agent a guest **fetches** (via
-cloud-init, or an ssh push) to complete its node and run its workload. It is NOT
-the `aeo` CLI; it is a separate, dedicated binary with its own version line
-(`aeo-agent-v*`), decoupled from any `aeo` versioning.
+One tag → one Release → **14 assets**: the 3 CLI bundles + 3 `.sha256`, and the
+4 agent binaries + 4 `.sha256` — each immutable and retained forever (so a
+pinned SHA in a cloud-init snippet or a CI step never breaks, and you can roll
+back / bisect).
 
-Each release is an **immutable, versioned** GitHub Release: one tag → one set of
-assets → their SHA256s, retained forever (so a pinned SHA in a cloud-init
-snippet never breaks, and you can roll back / bisect).
+- **aeo CLI** — the operator-facing orchestrator. NOT self-contained: it reads
+  `AEO_HOME` for its `lib/` tree and shells `ae` at runtime, so it ships as a
+  per-platform BUNDLE (see the CLI section below), installed by `get.sh`.
+- **aeo-agent** — the lean, in-guest agent a guest FETCHES to complete its node
+  and run its workload. Self-contained single binaries.
 
 ### Assets (as of this writing)
 
@@ -44,34 +51,45 @@ all asset SHA256s to pin.
 
 ## How to cut a release
 
-**A release is triggered by pushing a tag matching `aeo-agent-v*`.**
+Set the shared number in `VERSION`, then push a matching **`v*`** tag:
 
 ```
-git tag aeo-agent-v0.1.3
-git push origin aeo-agent-v0.1.3
+# 1. bump VERSION (the single source of truth), commit it
+echo 0.2.0 > VERSION && git add VERSION && git commit -m "release: 0.2.0"
+# 2. tag v<that number> and push
+git tag v0.2.0
+git push origin main --tags
 ```
 
-That runs the workflow and — because it's a real tag — **publishes** a GitHub
-Release with the assets attached. The latest tag is `aeo-agent-v0.1.2`, so the
-next is `v0.1.3` (bump per your change).
+The `v*` tag runs `release.yml` and — because it's a real tag — **publishes**
+one GitHub Release with all 14 assets (both CLI bundles and agent binaries).
+Keep the tag number identical to `VERSION` so the bundle's self-reported version
+matches the release.
 
 ### Dry run first (no publish)
 
-`workflow_dispatch` builds + checksums but does **NOT** tag or publish — use it
-to test the pipeline before committing to a version:
+`workflow_dispatch` builds + assembles + checksums every asset but does **NOT**
+tag or publish — use it to test the pipeline before committing to a version:
 
 ```
-gh workflow run release-aeo-agent.yml                 # latest aether toolchain
-gh workflow run release-aeo-agent.yml -f ref=<sha>    # pin a specific aether ref
+gh workflow run release.yml                 # latest aether toolchain
+gh workflow run release.yml -f ref=<sha>    # pin a specific aether ref
 ```
 
-or the "Run workflow" button on the Actions tab. Only a pushed `aeo-agent-v*`
-tag creates an actual Release — there is never a rolling/overwritten asset.
+or the "Run workflow" button on the Actions tab. Only a pushed `v*` tag creates
+an actual Release — there is never a rolling/overwritten asset.
 
 ## How the CI builds it (mechanics)
 
-Three build jobs — `build-linux`, `build-windows`, `build-freebsd` — feed a
-`release` job that publishes whatever artifacts they produced.
+Seven build jobs feed one `release` job that publishes whatever artifacts they
+produced:
+- **agent** (self-contained binaries): `agent-build-linux`, `agent-build-linux-arm64`,
+  `agent-build-freebsd`, `agent-build-windows`.
+- **CLI** (bundles via `assemble-aeo-bundle.sh`): `cli-build-linux`,
+  `cli-build-linux-arm64`, `cli-build-freebsd`.
+
+Gated jobs (freebsd/arm64) skip cleanly on an older `ae` and simply omit their
+asset (`fail_on_unmatched_files: false`), so a release ships what built.
 
 ### The runner has no prebuilt `ae` — it builds the toolchain from source
 
@@ -84,14 +102,14 @@ Chain: `get.sh` → Aether source → C → `make` → `ae` on `PATH`.
 The `ref` input (or the latest Aether tag by default) pins **which** Aether
 version is built. That is the same version the FreeBSD gate checks (below).
 
-### `build-linux` — native, static
+### `agent-build-linux` — native, static
 
 Native x86_64 build with `AE_CC="gcc -static"`. The job **asserts** the result
 is an x86_64 ELF *and* statically linked — if not, it fails the build, because
 the asset name would be a lie and a dynamic binary hits the exit-127 trap in
 slim/busybox guests. This is the load-bearing asset.
 
-### `build-freebsd` — cross-compiled, self-gating
+### `agent-build-freebsd` — cross-compiled, self-gating
 
 Cross-compiles on the Linux runner via `ae build --target=x86_64-freebsd` (zig
 under the hood). It fetches a FreeBSD base sysroot + third-party deps from
@@ -106,7 +124,7 @@ doesn't resolve under zig-lld + `-nostdlib` against the split base). Below that
 version the job **skips cleanly**: a tag still ships the linux asset, and the
 FreeBSD asset appears on a later tag once that `ae` is released.
 
-> If you cut a tag and the FreeBSD asset is missing, check the `build-freebsd`
+> If you cut a tag and the FreeBSD asset is missing, check the `agent-build-freebsd`
 > "Gate" step — the toolchain is probably older than `AEO_FREEBSD_MIN_AE`. To
 > test FreeBSD before that release, do a `workflow_dispatch` dry run with
 > `-f ref=<aether-branch-or-sha carrying the fix>`.
@@ -117,7 +135,7 @@ A guest fetches the asset for its OS/arch, **verifies the pinned SHA256**
 (fail-closed), then runs it. Linux example:
 
 ```
-curl -fsSL https://github.com/aether-lang-org/aeo/releases/download/aeo-agent-v0.1.3/aeo-agent-linux-x86_64-static -o /usr/local/bin/aeo-agent
+curl -fsSL https://github.com/aether-lang-dev/aeo/releases/download/v0.2.0/aeo-agent-linux-x86_64-static -o /usr/local/bin/aeo-agent
 echo "<SHA256-from-the-release>  /usr/local/bin/aeo-agent" | sha256sum -c -
 chmod +x /usr/local/bin/aeo-agent
 ```
@@ -128,8 +146,8 @@ Real consumers of this pattern:
 - `examples/checks/proxmox_host_agent_install.sh` — host-side installer.
 - `docs/aeo-and-proxmox.md` — the proxmox delivery narrative.
 
-When you bump the release, update the pinned `aeo-agent-v*` version **and** the
-SHA256 in those consumers (the run summary prints the SHA to copy).
+When you bump the release, update the pinned `v*` version **and** the SHA256 in
+those consumers (the run summary prints the SHA to copy).
 
 ## Adding a new asset permutation (arch/OS)
 
@@ -153,85 +171,58 @@ provisions *and* that the agent can function on, and keep the name honest with a
 
 ---
 
-# Releasing the aeo CLI
+# The CLI half in detail (bundle + install + consume)
 
-Separate from aeo-agent above. Authoritative source:
-`.github/workflows/release-aeo.yml` (+ `.github/scripts/assemble-aeo-bundle.sh`);
-this section explains it. Workflow wins on any disagreement.
+The cut/dry-run/tag mechanics are shared with the agent (above) — one `v*` tag,
+`release.yml`, `workflow_dispatch` for a dry run. This section is only what's
+specific to the CLI bundles.
 
-## What gets released — and why it's a BUNDLE, not a bare binary
+## Why the CLI ships a BUNDLE, not a bare binary
 
-The `aeo` CLI is **not self-contained** the way `aeo-agent` is. At runtime it:
-
-- reads `AEO_HOME` to find `lib/` and `cp`s `$AEO_HOME/lib` into every
-  composition build (`bin/aeo.ae`), exiting if it's unset; and
-- shells `ae` to compile each composition (the build cache key even includes
-  `ae --version`).
-
-So a lone `aeo` binary is useless — it needs its `lib/` tree beside it and an
-`ae` on PATH. The release therefore ships a **bundle** per platform:
+The `aeo` CLI is **not self-contained** the way `aeo-agent` is. At runtime it
+reads `AEO_HOME` to find `lib/` and `cp`s `$AEO_HOME/lib` into every composition
+build (`bin/aeo.ae`, exits if unset), and shells `ae` to compile (the cache key
+even includes `ae --version`). So a lone `aeo` binary is useless — it needs its
+`lib/` tree beside it and an `ae` on PATH. Each `cli-build-*` job therefore ships
+a **bundle** (via `assemble-aeo-bundle.sh`):
 
 ```
 aeo-<os>-<arch>/
-  bin/aeo                       the target-native CLI
-  share/aeo/{bin/aeo,lib,examples}   the runtime tree AEO_HOME points at
-  Makefile                      the install target
-  install.sh                    runs `make -C share/aeo install PREFIX=…`
+  bin/aeo                            the target-native CLI
+  share/aeo/{bin/aeo,lib,examples,VERSION}   the runtime tree AEO_HOME points at
+  install.sh                         COPY-ONLY (no make) — see below
 ```
 
-`make install` copies `share/aeo` to `$PREFIX/share/aeo` and writes a
+`install.sh` stages `share/aeo` to `$PREFIX/share/aeo` and writes a
 `$PREFIX/bin/aeo` **wrapper** that `export AEO_HOME=…; exec …` — so the installed
 `aeo` needs no env var. (Same shape as how `aeb` ships `share/aeb/`.)
 
-### Assets (per tag)
-`aeo-<os>-<arch>.tar.gz` + a companion `.tar.gz.sha256`, for the proven targets:
-`linux-x86_64`, `linux-aarch64` (gated on the ae cross-crypto fix), `freebsd-x86_64`
-(zig-cross, gated on the ae FreeBSD fix). Windows/macos are deferred (aeo's
-substrates are Linux/FreeBSD/macos-via-Docker; no aeo-CLI-on-Windows story yet).
+**The installer is COPY-ONLY — deliberately no `make`.** The bundle is already
+target-native and needs no compile; running `make` would (a) require GNU make on
+the target — a virginal debian-slim / bare VM has none, the exact "GNU make is
+required" failure a prebuilt install exists to avoid — and (b) rebuild bin/aeo
+via `ae`, clobbering the cross-built binary. So `install.sh` reproduces the copy
+phase directly. (Byte-for-byte the aeb fix, aeb commit 87a30b8. Verified on a
+real debian:13-slim with no make: sha256 OK, install clean, `aeo doctor` runs.)
 
-## How to cut a release
+CLI targets: `linux-x86_64`, `linux-aarch64` (gated `AEO_ARM64_MIN_AE`),
+`freebsd-x86_64` (zig-cross, gated `AEO_FREEBSD_MIN_AE=0.646.0` — needs the
+aether 0.646.0 FreeBSD cross-link fix). Windows/macos deferred.
 
-A release is triggered by pushing a tag matching **`aeo-v*`** (e.g. `aeo-v0.1.0`),
-independent of the agent's `aeo-agent-v*` line.
+## Test the bundle locally (no CI)
 
-```sh
-git tag aeo-v0.1.0
-git push origin aeo-v0.1.0
-```
-
-### Dry run first (no publish)
-`workflow_dispatch` builds every asset and assembles the bundles but does **not**
-create a Release (the publish step is `if: github.ref_type == 'tag'`):
-
-```sh
-gh workflow run release-aeo.yml                 # latest aether toolchain
-gh workflow run release-aeo.yml -f ref=<sha>    # pin a specific aether ref
-```
-
-## Mechanics
-Mirrors the agent workflow: each build job installs `ae` from aether's `get.sh`,
-`ae build bin/aeo.ae -o bin/aeo --lib lib` (with `AE_CC="gcc -static"` or
-`--target=` per platform), asserts the binary is honest (`file … | grep`), then
-runs `assemble-aeo-bundle.sh <os> <arch>` to produce `dist/aeo-<os>-<arch>.tar.gz`,
-`sha256sum`s it, and uploads it. The `release` job downloads all artifacts and
-publishes via `softprops/action-gh-release@v2`. Gated jobs (arm64, freebsd) skip
-cleanly on an older `ae` and simply omit their asset (`fail_on_unmatched_files:
-false`).
-
-Test the bundle assembly locally without CI:
 ```sh
 ae build bin/aeo.ae -o bin/aeo --lib lib
 sh .github/scripts/assemble-aeo-bundle.sh linux x86_64
-tar -tzf dist/aeo-linux-x86_64.tar.gz | head
-# then prove the install path:
 tar -xzf dist/aeo-linux-x86_64.tar.gz -C /tmp
-sh /tmp/aeo-linux-x86_64/install.sh /tmp/aeo-prefix
-env -u AEO_HOME /tmp/aeo-prefix/bin/aeo doctor    # works: the wrapper sets AEO_HOME
+sh /tmp/aeo-linux-x86_64/install.sh /tmp/aeo-prefix   # copy-only; runs make-less
+env -u AEO_HOME /tmp/aeo-prefix/bin/aeo doctor        # works: the wrapper sets AEO_HOME
 ```
 
-## Consuming a release
+## Consuming the CLI
+
 End users don't touch these tarballs directly — `get.sh` (repo root) does:
 `curl -fsSL …/aeo/main/get.sh | sh` ensures `ae` + `aeb`, then downloads and
 **sha256-verifies** the `aeo-<os>-<arch>.tar.gz` for the platform and runs its
-`install.sh`. `AEO_REF=aeo-v0.1.0` (or positional `sh -s -- aeo-v0.1.0`) pins the
-release. See the repo README's "Quickly trying it".
+copy-only `install.sh`. `AEO_REF=v0.2.0` (or positional `sh -s -- v0.2.0`) pins
+the release. See the repo README's "Quickly trying it".

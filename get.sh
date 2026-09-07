@@ -4,8 +4,8 @@
 #
 #   EXECUTED (human, one line) — installs ae, aeb, then the aeo CLI bundle:
 #     curl -fsSL https://raw.githubusercontent.com/aether-lang-dev/aeo/main/get.sh | sh
-#     curl -fsSL .../get.sh | sh -s -- aeo-v0.1.0     # pin the aeo release (positional)
-#     AEO_REF=aeo-v0.1.0 AE_PIN=0.645.0 sh get.sh      # pin via env
+#     curl -fsSL .../get.sh | sh -s -- v0.2.0         # pin the aeo release (positional)
+#     AEO_REF=v0.2.0 AE_PIN=0.645.0 sh get.sh          # pin via env
 #
 #   SOURCED (a CI step / another repo) — defines the functions, installs nothing.
 #     Set AEOGET_SOURCE_ONLY=1 so sourcing DEFINES without auto-installing:
@@ -52,7 +52,7 @@
 #   AEB_FROM_SOURCE=1 / AEBBOOT_NO_BINARY=1  force source builds (ae/aeb).
 #
 # ---------------------------------------------------------------------------
-# AEOGET_REV: 1
+# AEOGET_REV: 2
 # ^ PROPAGATION SNIFF MARKER. Bumped by hand on every change. raw.github lags a
 # push by up to minutes; poll the raw URL for `AEOGET_REV: <n>` to know your push
 # redeployed. (A file can't contain its own not-yet-existing commit hash.)
@@ -191,17 +191,26 @@ aeoget_install_aeb_binary() {
 # --- aeo binary install (aeo bundle: bin/aeo + share/aeo/{lib,examples} + install.sh)
 # aeo assets use x86_64/aarch64 words (matching aeo-agent's existing scheme).
 aeoget_aeo_tag() {
+    # aeo now cuts ONE combined release per `v*` tag (agent binaries + CLI
+    # bundles together — lockstep versioning). The repo also carries LEGACY
+    # `aeo-agent-v*` releases; those must be EXCLUDED so we never resolve a
+    # bare-agent release as the CLI source.
     _r="${AEO_REF:-}"
     case "$_r" in
-        aeo-v[0-9]*|v[0-9]*) printf '%s' "$_r"; return 0 ;;   # already a tag
-        [0-9]*.[0-9]*.[0-9]*) printf 'aeo-v%s' "$_r"; return 0 ;;  # 0.1.0 -> aeo-v0.1.0
+        v[0-9]*) printf '%s' "$_r"; return 0 ;;               # already a v* tag
+        [0-9]*.[0-9]*.[0-9]*) printf 'v%s' "$_r"; return 0 ;; # 0.2.0 -> v0.2.0
     esac
-    # latest aeo-v* via /releases/latest (redirect Location), then the tags API.
+    # latest release via /releases/latest (redirect Location) — accept only a
+    # plain vX.Y.Z, never aeo-agent-v* / aeo-v*.
     _loc=$(curl -fsSI "https://github.com/$AEOGET_AEO_REPO/releases/latest" 2>/dev/null \
         | tr -d '\r' | sed -n 's#^[Ll]ocation:[[:space:]]*.*/releases/tag/\(.*\)$#\1#p' | tail -1)
-    case "$_loc" in aeo-v*) printf '%s' "$_loc"; return 0 ;; esac
+    case "$_loc" in
+        aeo-*) : ;;                                           # legacy agent/CLI tag — ignore
+        v[0-9]*) printf '%s' "$_loc"; return 0 ;;
+    esac
+    # Fallback: highest vX.Y.Z from the tags API, excluding any aeo-* prefix.
     curl -fsSL "https://api.github.com/repos/$AEOGET_AEO_REPO/tags?per_page=100" 2>/dev/null \
-        | sed -n 's/.*"name"[[:space:]]*:[[:space:]]*"\(aeo-v[0-9][0-9.]*\)".*/\1/p' | sort -V | tail -1
+        | sed -n 's/.*"name"[[:space:]]*:[[:space:]]*"\(v[0-9][0-9.]*\)".*/\1/p' | sort -V | tail -1
 }
 
 # aeo_ensure : install the aeo CLI from its release bundle. NO source fallback —
@@ -221,7 +230,7 @@ aeo_ensure() {
     _os="${_plat% *}"; _arch="${_plat#* }"
     _base="aeo-$_os-$_arch"
     _tag="$(aeoget_aeo_tag)"
-    [ -n "$_tag" ] || die "could not resolve an aeo release tag (no aeo-v* release yet?). Install from a clone: git clone https://github.com/$AEOGET_AEO_REPO && cd aeo && make install"
+    [ -n "$_tag" ] || die "could not resolve an aeo release tag (no v* release yet?). Install from a clone: git clone https://github.com/$AEOGET_AEO_REPO && cd aeo && make install"
     _url="https://github.com/$AEOGET_AEO_REPO/releases/download/$_tag/$_base.tar.gz"
     _td="$(mktemp -d)"
     say "trying aeo bundle: $_base.tar.gz @ $_tag (with .sha256 verify)"
@@ -350,7 +359,7 @@ _aeoget_main() {
     [ -n "${1:-}" ] && AEO_REF="$1"        # positional arg #1 pins the aeo release
     export AEO_REF="${AEO_REF:-}"
     aeo_bootstrap
-    say "done. Pin this in CI with: AE_PIN=${AE_PIN:-<x.y.z>} AEB_REF=${AEB_REF:-<vX.Y>} AEO_REF=${AEO_REF:-<aeo-vX.Y.Z>}"
+    say "done. Pin this in CI with: AE_PIN=${AE_PIN:-<x.y.z>} AEB_REF=${AEB_REF:-<vX.Y>} AEO_REF=${AEO_REF:-<vX.Y.Z>}"
 }
 
 if [ -z "${AEOGET_SOURCE_ONLY:-}" ]; then

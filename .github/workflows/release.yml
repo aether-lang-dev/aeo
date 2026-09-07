@@ -1,42 +1,45 @@
-# release-aeo-agent.yml — build aeo-agent (linux-amd64, STATIC) and publish it as a
-# GitHub Release asset, so a proxmox_vm guest's cloud-init can `curl` the binary in
-# (the aeo-agent "doer" delivery path) instead of baking it or shipping it over ssh.
+# release.yml — build the WHOLE of aeo (the aeo-agent binaries AND the aeo CLI
+# bundles) and publish them all to ONE GitHub Release.
 #
-# WHY a release asset: a PVE cicustom snippet is text-only and PVE has no snippet-
-# write API, so the guest must FETCH the agent. GitHub Releases is a durable,
-# globally-reachable, checksummed artifact host — the guest curls the asset and
-# VERIFIES a pinned SHA256 before running it (attest()-style, fail-closed). See
-# examples/checks/proxmox_cloudinit.yaml + docs.
+# UNIFIED, LOCKSTEP versioning: a single `v*` tag (e.g. v0.2.0) builds every
+# asset and cuts one release carrying all of them. This replaces the former
+# split lines (aeo-agent-v* + aeo-v*), so the agent and CLI now share a counter
+# and ship together. workflow_dispatch is a BUILD-ONLY dry run (no publish).
 #
-# TRIGGER: a tag matching `aeo-agent-v*` (e.g. aeo-agent-v0.1.0). A DEDICATED tag
-# prefix decouples releasing the agent from any aeo versioning. VERSIONED-ONLY:
-# each tag is an IMMUTABLE release with its own asset + SHA — no rolling/overwritten
-# asset, so a pinned SHA in the cloud-init snippet never breaks and every shipped
-# agent is retained (rollback/bisect). The job prints the SHA256 in its summary so
-# you can pin it. workflow_dispatch is a BUILD-ONLY dry run (no publish) for testing
-# the build without cutting a tag.
+# TWO artifact families in one release:
 #
-# TARGET (in the asset name — linux/x86_64/static): a STATICALLY linked x86_64 ELF.
-# WHY STATIC (2026-07-18, found by the death-forensics arm): the dynamic glibc
-# build grew a libnghttp2.so.14 dependency (std.http-era growth) that
-# debian:stable-slim — the agent-in-container base the recursive chain runs the
-# agent in — does NOT ship, so a fresh dynamic agent exec'd there died exit 127
-# and the whole nested chain broke. Static removes the ENTIRE runtime-deps axis:
-# the same binary runs in a full guest OS, debian-slim, musl Alpine, and bare
-# busybox (all four proven live). The agent needs no runtime NSS/DNS from libc
-# (it binds IP literals and shells to curl), so the static-glibc getaddrinfo
-# caveat doesn't apply. The build step ASSERTS arch+static so the name can't
-# lie. The arm64 guest gets its own matching STATIC asset
-# (aeo-agent-linux-aarch64-static), built NATIVE on an arm64 runner — see
-# build-linux-arm64 for why linux-arm64 follows the native-static rule, not the
-# zig-cross rule the freebsd/windows guest-OS assets use.
+#   aeo-agent — a self-contained in-guest agent BINARY a guest fetches via
+#   cloud-init (or ssh push) to complete its node and run its workload. Four
+#   platform assets + .sha256:
+#     agent-build-linux       native x86_64, STATIC (gcc -static). Load-bearing.
+#     agent-build-linux-arm64 native aarch64 on an arm64 runner, STATIC.
+#     agent-build-freebsd     x86_64 FreeBSD, zig-cross. Serves bhyve guests.
+#     agent-build-windows     x86_64 Windows, zig-cross. Serves Win11 guests.
+#   The linux assets are STATIC (couriered into stripped containers — the
+#   exit-127 axis); freebsd/windows run in a full guest OS so are dynamic.
+#
+#   aeo CLI — NOT a bare binary: at runtime it reads AEO_HOME to find lib/ (it
+#   cp's $AEO_HOME/lib into every composition build) and shells `ae` to compile.
+#   So it ships a per-platform BUNDLE tarball (bin/aeo + share/aeo/{lib,examples,
+#   bin/aeo,VERSION} + a COPY-ONLY install.sh that stages the tree + writes the
+#   $PREFIX/bin/aeo AEO_HOME wrapper, no `make`, so it installs on a bare box).
+#   get.sh (repo root) downloads + sha256-verifies the bundle and runs install.sh.
+#   Three platform assets + .sha256:
+#     cli-build-linux         x86_64
+#     cli-build-linux-arm64   aarch64
+#     cli-build-freebsd       x86_64 FreeBSD, zig-cross
+#
+# All build jobs install `ae` from source via get.sh, ASSERT each binary's
+# arch/OS so an asset name can't lie, and self-gate/skip cleanly when the ae
+# toolchain predates a needed fix. The release job downloads every produced
+# artifact and publishes them under the one tag.
 
-name: release-aeo-agent
+name: release
 
 on:
   push:
     tags:
-      - 'aeo-agent-v*'
+      - 'v*'
   workflow_dispatch:
     inputs:
       ref:
@@ -45,26 +48,13 @@ on:
         default: ''
 
 permissions:
-  contents: write        # create the release + upload the asset
-
-# FOUR build jobs feed one release job:
-#   build-linux       — native x86_64, STATIC (gcc -static). The load-bearing asset.
-#   build-linux-arm64 — native aarch64 on an arm64 runner, STATIC (gcc -static).
-#                       Same static rule as build-linux (couriered into containers);
-#                       gates on the ae cross-crypto HMAC fix. NOT zig-cross — see
-#                       the job header for why linux-arm64 is native-static.
-#   build-freebsd     — x86_64 FreeBSD, CROSS-compiled via zig. Serves bhyve guests.
-#                       Self-gates on the ae FreeBSD-cross pthread fix (see there).
-#   build-windows     — x86_64 Windows, CROSS-compiled via zig. Serves Win11 guests
-#                       (the agent driver_windows path: workload via WSL2+podman).
-#                       No sysroot/base/gate needed (Tier-A + plaintext agent).
-#   The cross assets run in a FULL guest OS (dynamic ok); the two LINUX assets are
-#   STATIC because they're couriered into stripped containers (the exit-127 axis).
-#   All PROVEN end-to-end on a real box of that OS/arch (FreeBSD 15, Win11, Pi 5).
-# The release job downloads every produced artifact and publishes them one tag.
+  contents: write        # create the release + upload the assets
 
 jobs:
-  build-linux:
+  # ===========================================================================
+  # aeo-agent binaries (4 platforms)
+  # ===========================================================================
+  agent-build-linux:
     runs-on: ubuntu-latest
     outputs:
       sha256: ${{ steps.sum.outputs.sha256 }}
@@ -122,7 +112,7 @@ jobs:
             aeo-agent-linux-x86_64-static.sha256
           if-no-files-found: error
 
-  build-freebsd:
+  agent-build-freebsd:
     # x86_64 FreeBSD, cross-compiled on the Linux runner. Runs bhyve guests.
     #
     # GATED on the aether toolchain carrying the FreeBSD-cross pthread fix
@@ -223,7 +213,7 @@ jobs:
             aeo-agent-freebsd-x86_64.sha256
           if-no-files-found: error
 
-  build-windows:
+  agent-build-windows:
     # x86_64 Windows, cross-compiled on the Linux runner via zig. Serves Win11
     # guests (bhyve; docs/development/aeo-agent-windows-pipeline.md). The agent's Windows
     # code path is real: it imports driver_windows and platform()-dispatches the
@@ -294,7 +284,7 @@ jobs:
             aeo-agent-windows-x86_64.exe.sha256
           if-no-files-found: error
 
-  build-linux-arm64:
+  agent-build-linux-arm64:
     # arm64 (aarch64) Linux, NATIVE-STATIC on a GitHub arm64 runner — NOT
     # cross-via-zig like the freebsd/windows jobs. Two reasons this asset must
     # follow the LINUX rule (native-static) and not the CROSS rule (zig-dynamic):
@@ -395,8 +385,263 @@ jobs:
             aeo-agent-linux-aarch64-static.sha256
           if-no-files-found: error
 
+  # ===========================================================================
+  # aeo CLI bundles (3 platforms)
+  # ===========================================================================
+  cli-build-linux:
+    runs-on: ubuntu-latest
+    outputs:
+      sha256: ${{ steps.sum.outputs.sha256 }}
+    steps:
+      - name: Checkout aeo
+        uses: actions/checkout@v4
+
+      - name: Install build prerequisites
+        # libbrotli-dev provides the libbrotlienc.so / libbrotlicommon.so linker
+        # symlinks: ae's link line for the CLI pulls them in via libcurl (built
+        # with brotli), and a clean ubuntu-latest runner doesn't ship them, so the
+        # link dies `cannot find -lbrotlienc`. (Not a static-archive issue — the
+        # dynamic link needs them too.)
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq build-essential curl tar zip libbrotli-dev
+
+      - name: Install the Aether toolchain (ae)
+        run: |
+          curl -sSL https://raw.githubusercontent.com/aether-lang-dev/aether/main/get.sh \
+            | AETHER_REF="${{ github.event.inputs.ref }}" PREFIX="$HOME/.local" sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Verify ae is on PATH
+        run: ae --version
+
+      - name: Build aeo CLI (linux, x86_64)
+        # DYNAMIC on purpose (unlike aeo-agent, which is static because it's
+        # couriered into stripped busybox containers). The aeo CLI runs on a
+        # normal host and ALREADY requires `ae` on PATH at runtime, so a dynamic
+        # link against the host's system libs is fine — and a `-static` link
+        # would need static archives for libcurl's whole transitive closure
+        # (brotli, etc.) for zero benefit. --lib lib compiles the runner in.
+        run: |
+          ae build bin/aeo.ae -o bin/aeo --lib lib
+          file bin/aeo
+          file bin/aeo | grep -q 'ELF 64-bit.*x86-64' \
+            || { echo "not an x86_64 ELF — asset name would be a lie"; exit 1; }
+          chmod +x bin/aeo
+
+      - name: Assemble the aeo-linux-x86_64 bundle
+        id: bundle
+        run: sh .github/scripts/assemble-aeo-bundle.sh linux x86_64
+
+      - name: Checksum
+        id: sum
+        run: |
+          cd dist
+          sha256sum aeo-linux-x86_64.tar.gz | tee aeo-linux-x86_64.tar.gz.sha256
+          echo "sha256=$(cut -d' ' -f1 aeo-linux-x86_64.tar.gz.sha256)" >> "$GITHUB_OUTPUT"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: aeo-linux-x86_64
+          path: |
+            dist/aeo-linux-x86_64.tar.gz
+            dist/aeo-linux-x86_64.tar.gz.sha256
+          if-no-files-found: error
+
+  cli-build-linux-arm64:
+    runs-on: ubuntu-24.04-arm
+    outputs:
+      sha256: ${{ steps.sum.outputs.sha256 }}
+      built: ${{ steps.build.outputs.built }}
+    env:
+      # First released ae with the cross-crypto HMAC fix the agent gates on;
+      # the CLI shares the toolchain floor. Skips cleanly on older ae.
+      AEO_ARM64_MIN_AE: '0.443.0'
+    steps:
+      - name: Checkout aeo
+        uses: actions/checkout@v4
+
+      - name: Install build prerequisites
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq build-essential curl tar zip
+
+      - name: Install the Aether toolchain (ae)
+        run: |
+          curl -sSL https://raw.githubusercontent.com/aether-lang-dev/aether/main/get.sh \
+            | AETHER_REF="${{ github.event.inputs.ref }}" PREFIX="$HOME/.local" sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Gate on ae version (skip cleanly if the cross-crypto fix isn't in yet)
+        id: gate
+        run: |
+          have=$(ae --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+          need="$AEO_ARM64_MIN_AE"
+          low=$(printf '%s\n%s\n' "$have" "$need" | sort -V | head -1)
+          if [ "$have" != "$need" ] && [ "$low" = "$have" ]; then
+            echo "ae $have < $need — skipping linux-arm64 asset."
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build aeo CLI (linux, aarch64)
+        id: build
+        if: steps.gate.outputs.ok == 'true'
+        # DYNAMIC (see build-linux) — the CLI needs `ae` on PATH anyway; no
+        # static-archive closure to satisfy.
+        run: |
+          ae build bin/aeo.ae -o bin/aeo --lib lib
+          file bin/aeo
+          file bin/aeo | grep -q 'ELF 64-bit.*aarch64' \
+            || { echo "not an aarch64 ELF — asset name would be a lie"; exit 1; }
+          chmod +x bin/aeo
+          echo "built=true" >> "$GITHUB_OUTPUT"
+
+      - name: Assemble the aeo-linux-aarch64 bundle
+        if: steps.gate.outputs.ok == 'true'
+        run: sh .github/scripts/assemble-aeo-bundle.sh linux aarch64
+
+      - name: Checksum
+        id: sum
+        if: steps.gate.outputs.ok == 'true'
+        run: |
+          cd dist
+          sha256sum aeo-linux-aarch64.tar.gz | tee aeo-linux-aarch64.tar.gz.sha256
+          echo "sha256=$(cut -d' ' -f1 aeo-linux-aarch64.tar.gz.sha256)" >> "$GITHUB_OUTPUT"
+
+      - name: Upload artifact
+        if: steps.gate.outputs.ok == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: aeo-linux-aarch64
+          path: |
+            dist/aeo-linux-aarch64.tar.gz
+            dist/aeo-linux-aarch64.tar.gz.sha256
+          if-no-files-found: error
+
+  cli-build-freebsd:
+    # x86_64 FreeBSD, cross-compiled via zig on the Linux runner. Same sysroot
+    # provisioning + gate as the agent's freebsd job.
+    runs-on: ubuntu-latest
+    outputs:
+      sha256: ${{ steps.sum.outputs.sha256 }}
+      built: ${{ steps.build.outputs.built }}
+    env:
+      # 0.646.0 is the release carrying the FreeBSD tier-2 cross-link fix under
+      # Zig 0.16 (aether PR #1930: link staged libs by absolute path, only when
+      # used). Below it the aeo CLI's OpenSSL-pulling cross-link dies `error:
+      # libc not available`, so the job skips cleanly on an older ae.
+      AEO_FREEBSD_MIN_AE: '0.646.0'
+      CROSSBUILD_REPO: https://github.com/aether-lang-dev/aether-crossbuild.git
+    steps:
+      - name: Checkout aeo
+        uses: actions/checkout@v4
+
+      - name: Install build prerequisites
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq build-essential curl tar zip
+
+      - name: Install the Aether toolchain (ae)
+        run: |
+          curl -sSL https://raw.githubusercontent.com/aether-lang-dev/aether/main/get.sh \
+            | AETHER_REF="${{ github.event.inputs.ref }}" PREFIX="$HOME/.local" sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Gate on ae version (skip cleanly if the FreeBSD cross fix isn't in yet)
+        id: gate
+        run: |
+          have=$(ae --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+          need="$AEO_FREEBSD_MIN_AE"
+          low=$(printf '%s\n%s\n' "$have" "$need" | sort -V | head -1)
+          if [ "$have" != "$need" ] && [ "$low" = "$have" ]; then
+            echo "ae $have < $need — skipping FreeBSD asset."
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Provision the FreeBSD base sysroot + third-party deps
+        id: provision
+        if: steps.gate.outputs.ok == 'true'
+        # NON-BLOCKING, like the build step below: a crossbuild-kit hiccup (e.g. a
+        # third-party lib whose ./configure breaks under a new zig) must degrade to
+        # "skip the FreeBSD asset", not red the whole release.
+        continue-on-error: true
+        run: |
+          git clone --depth 1 "$CROSSBUILD_REPO" "$HOME/aether-crossbuild"
+          cd "$HOME/aether-crossbuild"
+          ./scripts/get-zig.sh
+          ./scripts/fetch-freebsd-base.sh x86_64 15
+          # CB_LIBS is only what the aeo CLI actually links on FreeBSD: openssl
+          # (std.cryptography via secrets) + zlib (via libcurl). NOT pcre2 — the
+          # CLI imports no std.regex (verified: ldd shows only libcrypto), and
+          # pcre2's cross-configure is currently broken under zig 0.16. Adding a
+          # lib the binary never links only buys failure modes.
+          CB_LIBS="zlib openssl" ./provision.sh x86_64-freebsd15
+          echo "AETHER_SYSROOT=$HOME/aether-crossbuild/bases/x86_64-freebsd15" >> "$GITHUB_ENV"
+          echo "CROSSBUILD_SYSROOT=$HOME/aether-crossbuild/sysroots/x86_64-freebsd15" >> "$GITHUB_ENV"
+          echo "$HOME/aether-crossbuild/toolchain/zig-x86_64-linux-0.16.0" >> "$GITHUB_PATH"
+
+      - name: Build aeo CLI (freebsd, x86_64, cross via zig)
+        id: build
+        # NB the `!cancelled() &&` prefix. The provision step above has
+        # continue-on-error, which flips GitHub's IMPLICIT success() gate on
+        # following steps to false — so a plain `if:` here SKIPS even when
+        # provision genuinely succeeded (observed: run 34097040176). Leading with
+        # a status function (!cancelled()) replaces that implicit gate with our
+        # explicit condition, so the build runs iff the gate passed AND provision
+        # actually succeeded — and this step has NO continue-on-error, so a real
+        # build failure still reds the release.
+        if: ${{ !cancelled() && steps.gate.outputs.ok == 'true' && steps.provision.outcome == 'success' }}
+        # LOAD-BEARING. Proven green on ae 0.646.0 (dry run 34096660809: provision
+        # -> build -> assemble -> upload all succeeded, aeo-freebsd-x86_64 bundle
+        # produced). The old Zig-0.13-vs-0.16 cross-link failure is fixed upstream
+        # (aether 0.646.0 / PR #1930) and the gate above ensures we only build on
+        # that toolchain. No continue-on-error here now: a FreeBSD build failure is
+        # a real regression and should red the release. (The PROVISION step above
+        # stays tolerant — a crossbuild-KIT breakage is outside aeo's control and
+        # cleanly skips the asset via the provision.outcome gate on this step.)
+        run: |
+          ae build bin/aeo.ae -o bin/aeo --lib lib --target=x86_64-freebsd
+          file bin/aeo
+          file bin/aeo | grep -q 'ELF 64-bit.*x86-64' \
+            || { echo "not an x86_64 ELF — asset name would be a lie"; exit 1; }
+          file bin/aeo | grep -qi 'FreeBSD' \
+            || { echo "not a FreeBSD binary — asset name would be a lie"; exit 1; }
+          chmod +x bin/aeo
+          echo "built=true" >> "$GITHUB_OUTPUT"
+
+      - name: Assemble the aeo-freebsd-x86_64 bundle
+        if: ${{ !cancelled() && steps.build.outputs.built == 'true' }}
+        run: sh .github/scripts/assemble-aeo-bundle.sh freebsd x86_64
+
+      - name: Checksum
+        id: sum
+        if: ${{ !cancelled() && steps.build.outputs.built == 'true' }}
+        run: |
+          cd dist
+          sha256sum aeo-freebsd-x86_64.tar.gz | tee aeo-freebsd-x86_64.tar.gz.sha256
+          echo "sha256=$(cut -d' ' -f1 aeo-freebsd-x86_64.tar.gz.sha256)" >> "$GITHUB_OUTPUT"
+
+      - name: Upload artifact
+        if: ${{ !cancelled() && steps.build.outputs.built == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: aeo-freebsd-x86_64
+          path: |
+            dist/aeo-freebsd-x86_64.tar.gz
+            dist/aeo-freebsd-x86_64.tar.gz.sha256
+          if-no-files-found: error
+
+  # ===========================================================================
+  # ONE release carrying every produced asset (agent binaries + CLI bundles)
+  # ===========================================================================
   release:
-    needs: [build-linux, build-linux-arm64, build-freebsd, build-windows]
+    needs:
+      - agent-build-linux
+      - agent-build-linux-arm64
+      - agent-build-freebsd
+      - agent-build-windows
+      - cli-build-linux
+      - cli-build-linux-arm64
+      - cli-build-freebsd
     runs-on: ubuntu-latest
     steps:
       - name: Download all artifacts
@@ -405,43 +650,47 @@ jobs:
           path: dist
           merge-multiple: true
 
-      - name: Summary (pin these SHA256s in the cloud-init snippet)
+      - name: Summary (pin these SHA256s)
         run: |
           {
             if [ "${{ github.ref_type }}" = "tag" ]; then
-              echo "### aeo-agent ${{ github.ref_name }} released"
+              echo "### aeo ${{ github.ref_name }} released (agent + CLI)"
             else
-              echo "### aeo-agent BUILD-ONLY (workflow_dispatch dry run — not published)"
+              echo "### aeo BUILD-ONLY (workflow_dispatch dry run — not published)"
               echo ""
-              echo "Cut a tag to publish: \`git tag aeo-agent-vX.Y.Z && git push origin aeo-agent-vX.Y.Z\`"
+              echo "Cut a tag to publish: \`git tag vX.Y.Z && git push origin vX.Y.Z\`"
             fi
             echo ""
+            echo "#### aeo-agent binaries"
             echo "| asset | SHA256 |"
             echo "|---|---|"
-            echo "| \`aeo-agent-linux-x86_64-static\` | \`${{ needs.build-linux.outputs.sha256 }}\` |"
-            echo "| \`aeo-agent-windows-x86_64.exe\` | \`${{ needs.build-windows.outputs.sha256 }}\` |"
-            if [ "${{ needs.build-linux-arm64.outputs.built }}" = "true" ]; then
-              echo "| \`aeo-agent-linux-aarch64-static\` | \`${{ needs.build-linux-arm64.outputs.sha256 }}\` |"
+            echo "| \`aeo-agent-linux-x86_64-static\` | \`${{ needs.agent-build-linux.outputs.sha256 }}\` |"
+            echo "| \`aeo-agent-windows-x86_64.exe\` | \`${{ needs.agent-build-windows.outputs.sha256 }}\` |"
+            if [ "${{ needs.agent-build-linux-arm64.outputs.built }}" = "true" ]; then
+              echo "| \`aeo-agent-linux-aarch64-static\` | \`${{ needs.agent-build-linux-arm64.outputs.sha256 }}\` |"
             else
-              echo ""
-              echo "> linux-aarch64 asset SKIPPED — the ae toolchain predates the cross-crypto HMAC fix (see build-linux-arm64 gate)."
+              echo "| \`aeo-agent-linux-aarch64-static\` | _SKIPPED — ae predates the cross-crypto HMAC fix_ |"
             fi
-            if [ "${{ needs.build-freebsd.outputs.built }}" = "true" ]; then
-              echo "| \`aeo-agent-freebsd-x86_64\` | \`${{ needs.build-freebsd.outputs.sha256 }}\` |"
+            if [ "${{ needs.agent-build-freebsd.outputs.built }}" = "true" ]; then
+              echo "| \`aeo-agent-freebsd-x86_64\` | \`${{ needs.agent-build-freebsd.outputs.sha256 }}\` |"
             else
-              echo ""
-              echo "> FreeBSD asset SKIPPED — the ae toolchain predates the FreeBSD-cross pthread fix (see build-freebsd gate)."
+              echo "| \`aeo-agent-freebsd-x86_64\` | _SKIPPED — ae predates the FreeBSD-cross pthread fix_ |"
             fi
             echo ""
-            echo "Pin in the guest cloud-init: \`AEO_AGENT_SHA256=<the row for your guest OS/arch>\`"
+            echo "#### aeo CLI bundles"
+            echo "| asset | SHA256 |"
+            echo "|---|---|"
+            echo "| \`aeo-linux-x86_64.tar.gz\` | \`${{ needs.cli-build-linux.outputs.sha256 }}\` |"
+            echo "| \`aeo-linux-aarch64.tar.gz\` | \`${{ needs.cli-build-linux-arm64.outputs.sha256 || '(skipped)' }}\` |"
+            echo "| \`aeo-freebsd-x86_64.tar.gz\` | \`${{ needs.cli-build-freebsd.outputs.sha256 || '(skipped)' }}\` |"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Create the GitHub Release (tags only — immutable, versioned)
         # Publish ONLY on a real tag. workflow_dispatch builds + checksums but
         # does NOT publish — so there is never a rolling/overwritten asset; every
         # release is an immutable versioned tag. `files` globs whatever artifacts
-        # the build jobs produced, so a skipped FreeBSD job simply omits its asset
-        # instead of failing the release.
+        # the build jobs produced, so a skipped job simply omits its asset instead
+        # of failing the release.
         if: github.ref_type == 'tag'
         uses: softprops/action-gh-release@v2
         with:
@@ -454,13 +703,46 @@ jobs:
             dist/aeo-agent-windows-x86_64.exe.sha256
             dist/aeo-agent-freebsd-x86_64
             dist/aeo-agent-freebsd-x86_64.sha256
+            dist/aeo-linux-x86_64.tar.gz
+            dist/aeo-linux-x86_64.tar.gz.sha256
+            dist/aeo-linux-aarch64.tar.gz
+            dist/aeo-linux-aarch64.tar.gz.sha256
+            dist/aeo-freebsd-x86_64.tar.gz
+            dist/aeo-freebsd-x86_64.tar.gz.sha256
           fail_on_unmatched_files: false
           tag_name: ${{ github.ref_name }}
           body: |
-            aeo-agent — the in-guest orchestration agent a guest fetches via
-            cloud-init (or ssh push) to complete its node and run its workload.
+            The whole of aeo — the `aeo` CLI and the in-guest `aeo-agent` — in one
+            release, versioned in lockstep.
 
-            **Assets** (fetch the row matching your guest OS + arch):
+            ## aeo CLI (per-platform bundles)
+
+            The `aeo` orchestrator CLI. Not a bare binary: it ships a bundle
+            (bin/aeo + its runtime lib/ tree) with a copy-only installer.
+
+            **Install (binary-first, sha256-verified):**
+            ```sh
+            curl -fsSL https://raw.githubusercontent.com/aether-lang-dev/aeo/main/get.sh | sh
+            ```
+            get.sh ensures `ae` + `aeb`, then downloads and verifies the bundle for
+            your platform and installs a `~/.local/bin/aeo` wrapper that pins AEO_HOME.
+
+            | bundle | platform |
+            |---|---|
+            | `aeo-linux-x86_64.tar.gz` | x86_64 Linux |
+            | `aeo-linux-aarch64.tar.gz` | arm64 Linux |
+            | `aeo-freebsd-x86_64.tar.gz` | x86_64 FreeBSD |
+
+            Verify a bundle by hand:
+            ```sh
+            curl -fsSLO https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/aeo-linux-x86_64.tar.gz
+            curl -fsSL  https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/aeo-linux-x86_64.tar.gz.sha256 | sha256sum -c
+            ```
+
+            ## aeo-agent (in-guest binaries)
+
+            The in-guest orchestration agent a guest fetches via cloud-init (or ssh
+            push) to complete its node and run its workload.
 
             | asset | guest | linkage |
             |---|---|---|
@@ -474,6 +756,6 @@ jobs:
             Verify + run in cloud-init (linux example):
             ```
             curl -fsSL https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/aeo-agent-linux-x86_64-static -o /usr/local/bin/aeo-agent
-            echo "${{ needs.build-linux.outputs.sha256 }}  /usr/local/bin/aeo-agent" | sha256sum -c -
+            echo "${{ needs.agent-build-linux.outputs.sha256 }}  /usr/local/bin/aeo-agent" | sha256sum -c -
             chmod +x /usr/local/bin/aeo-agent
             ```
