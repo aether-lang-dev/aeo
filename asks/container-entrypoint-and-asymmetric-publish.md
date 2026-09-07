@@ -171,3 +171,23 @@ Migration when implemented:
   what the block verbs stored. Update spec_container_run_argv.ae item 4.
 - No live example uses the current script-form (README migrated to prebuilt
   tags), so the ripple is small.
+
+## 6. FOLLOW-UP (2026-09-07): containerfile()/build_context() path anchor
+
+Verified item 3 live end-to-end against the vendored servirtium SUT: `aeo up`
+built the real `Containerfile.sut` against the `sut/` context and stood the SUT
+up with `Entrypoint=/app/bin/http4k-todo-backend` + `-p 54321:8000`, `GET / ->
+200`. 
+
+One behavior note worth a look: the code comment at `lib/aeo/runner.ae`
+(`_compose_rel`) and `bin/aeo.ae` says containerfile()/build_context() paths are
+"relative to the composition file (anchored by AEO_COMPOSE_DIR = the compose
+file's dir)". Observed behavior on aeo 0.2.0 (clone install), invoking
+`aeo up integration/todobackend/go_aeo/todobackend_go.ae` from the repo root:
+`build_context("../sut")` resolved to `<repo-root>/../sut`
+(`/home/paul/scm/sut`) — i.e. anchored at the INVOCATION cwd, not the compose
+file's dir (`…/go_aeo/`). Using a path relative to the invocation cwd
+(`build_context("integration/todobackend/sut")`) worked. Not a blocker (easy to
+work around), but the anchor differs from the documented AEO_COMPOSE_DIR intent —
+either the resolution or the comment wants a fix so composition-relative paths
+are portable regardless of where `aeo` is invoked from.
