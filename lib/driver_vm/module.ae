@@ -802,7 +802,7 @@ _sleep_s(n: int) {
 //   expose     — the port to publish (from expose()); 0 = none
 // Either dockerfile (build it) OR image (pull+run a stock image, e.g. the
 // redis db tier) — dockerfile wins if both are set.
-guest_container_up(host_vm: string, host_ip: string, name: string, dockerfile: string, entrypoint: string, base: string, image: string, expose: int) -> string {
+guest_container_up(host_vm: string, host_ip: string, name: string, dockerfile: string, entrypoint: string, base: string, ep_file: string, ep_run: string, image: string, expose: int) -> string {
     ip = _guest_ip(host_vm, host_ip)
     if ip == "" {
         return "aeo: guest VM '${host_vm}' has no reachable IP (booted+networked?) for container '${name}'"
@@ -820,10 +820,16 @@ guest_container_up(host_vm: string, host_ip: string, name: string, dockerfile: s
     //   image      — pull + run a stock image (e.g. redis).
     run_part = ""
     if string_length(entrypoint) > 0 {
-        // app.py written verbatim from the clean heredoc; the Dockerfile just
-        // COPYs it — no printf, no escaping, no RUN heredoc.
-        df = "FROM ${base}\nCOPY app.py /app.py\nCMD [\"python\", \"/app.py\"]"
-        run_part = "mkdir -p /home/ubuntu/ctx-${name} && cat > /home/ubuntu/ctx-${name}/app.py <<'AEOPY'\n${entrypoint}\nAEOPY\ncat > /home/ubuntu/ctx-${name}/Dockerfile <<'AEODF'\n${df}\nAEODF\ncd /home/ubuntu/ctx-${name} && podman build -t aeo-${name} . >/dev/null 2>&1 && podman rm -f ${name} >/dev/null 2>&1; podman run -d --name ${name} ${net} aeo-${name} >/dev/null"
+        // Language-neutral: the script body written verbatim to /<ep_file>; the
+        // Dockerfile COPYs it + runs <ep_run> (from compose's entrypoint_lang
+        // table). No printf, no escaping, no RUN heredoc. ep_file/ep_run default
+        // to app.py/python if a caller passes them empty (back-compat).
+        f = ep_file
+        if string_length(f) == 0 { f = "app.py" }
+        r = ep_run
+        if string_length(r) == 0 { r = "python" }
+        df = "FROM ${base}\nCOPY ${f} /${f}\nCMD [\"${r}\", \"/${f}\"]"
+        run_part = "mkdir -p /home/ubuntu/ctx-${name} && cat > /home/ubuntu/ctx-${name}/${f} <<'AEOPY'\n${entrypoint}\nAEOPY\ncat > /home/ubuntu/ctx-${name}/Dockerfile <<'AEODF'\n${df}\nAEODF\ncd /home/ubuntu/ctx-${name} && podman build -t aeo-${name} . >/dev/null 2>&1 && podman rm -f ${name} >/dev/null 2>&1; podman run -d --name ${name} ${net} aeo-${name} >/dev/null"
     } else {
         if string_length(dockerfile) > 0 {
             run_part = "cat > /home/ubuntu/Dockerfile.${name} <<'AEOEOF'\n${dockerfile}\nAEOEOF\ncd /home/ubuntu && podman build -t aeo-${name} -f Dockerfile.${name} . >/dev/null 2>&1 && podman rm -f ${name} >/dev/null 2>&1; podman run -d --name ${name} ${net} aeo-${name} >/dev/null"

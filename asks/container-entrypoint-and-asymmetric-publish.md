@@ -91,3 +91,30 @@ up health-gated, record, tear down verified — is one declarative composition w
 no shell scripting at all. The spike (composition + suite spec + before/after
 writeup) lives at `servirtium-vcr/integration/todobackend/go_aeo/`; it runs green
 against the real vendored SUT today, referencing a pre-built tag.
+
+## 4. entrypoint() script-form generalized beyond Python (2026-09-07)
+
+FOLLOW-UP found while reviewing item 1: the pre-existing `entrypoint(<<…)` script
+form was hardcoded to Python (`app.py` + `CMD ["python","/app.py"]` in BOTH
+driver_linux.build_entrypoint AND driver_vm.guest_container_up) despite the
+generic name. Fixed the wart in anticipation of more languages:
+
+- New optional `entrypoint_lang("ruby")` setter (default "python", back-compat).
+- A language table in compose (single source of truth both drivers resolve
+  through): entrypoint_lang_file/_run/_base -> (filename, interpreter, default
+  FROM). Ships python, ruby, node (alias javascript/js), perl, php. base() still
+  overrides the FROM.
+- driver_linux.build_entrypoint + driver_vm.guest_container_up take file+run;
+  the runner resolves base = base() override else the lang default.
+
+PROVEN: the lang table resolves all 5 languages incl. the js->node alias; a real
+`aeo up` of a Ruby entrypoint built `localhost/aeo-built/<n>:latest` with
+`CMD [ruby /app.rb]` (not python) — the wart is gone. spec_container_run_argv.ae
++4 lang cases (12 total). Full suite 312/4-skip/0.
+
+CAVEAT — the ergonomic `entrypoint(<<LANG … LANG)` HEREDOC form is currently
+BROKEN UPSTREAM: a heredoc in a CALL ARGUMENT fails to parse (E0100), while a
+heredoc RHS works. Filed as aether/asks/heredoc-string-literal-breaks-block-parse.md.
+So today the generalized entrypoint() must be used with a single-line string
+arg; the multiline heredoc becomes usable once that parser bug is fixed. The
+generalization itself is complete and unit-proven regardless.

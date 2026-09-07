@@ -105,6 +105,42 @@ main() {
                 spec.expect_str(compose.get_exec_entrypoint("sut")).to_equal_str("/app/bin/x")
             }
         }
+
+        spec.describe("4. entrypoint_lang() — the script-form entrypoint is language-neutral") {
+            spec.it("default (no entrypoint_lang) is python: app.py / python / python:3-alpine") callback {
+                compose.reset_nodes()
+                compose.system("lp") { c = compose.container("d") { compose.entrypoint("print(1)") } }
+                spec.expect_str(compose.get_entrypoint_lang("d")).to_equal_str("python")
+                spec.expect_str(compose.entrypoint_lang_file("d")).to_equal_str("app.py")
+                spec.expect_str(compose.entrypoint_lang_run("d")).to_equal_str("python")
+                spec.expect_str(compose.entrypoint_lang_base("d")).to_equal_str("docker.io/library/python:3-alpine")
+            }
+            spec.it("ruby -> app.rb / ruby / ruby:3-alpine") callback {
+                compose.reset_nodes()
+                compose.system("lr") { c = compose.container("r") { compose.entrypoint_lang("ruby") compose.entrypoint("puts 1") } }
+                spec.expect_str(compose.entrypoint_lang_file("r")).to_equal_str("app.rb")
+                spec.expect_str(compose.entrypoint_lang_run("r")).to_equal_str("ruby")
+                spec.expect_str(compose.entrypoint_lang_base("r")).to_equal_str("docker.io/library/ruby:3-alpine")
+            }
+            spec.it("javascript/js alias -> node (app.js / node)") callback {
+                compose.reset_nodes()
+                compose.system("lj") { c = compose.container("j") { compose.entrypoint_lang("javascript") compose.entrypoint("x") } }
+                spec.expect_str(compose.get_entrypoint_lang("j")).to_equal_str("node")
+                spec.expect_str(compose.entrypoint_lang_file("j")).to_equal_str("app.js")
+                spec.expect_str(compose.entrypoint_lang_run("j")).to_equal_str("node")
+            }
+            spec.it("perl and php resolve their file/interpreter") callback {
+                compose.reset_nodes()
+                compose.system("lpp") {
+                    a = compose.container("pl") { compose.entrypoint_lang("perl") compose.entrypoint("x") }
+                    b = compose.container("ph") { compose.entrypoint_lang("php")  compose.entrypoint("x") }
+                }
+                spec.expect_str(compose.entrypoint_lang_run("pl")).to_equal_str("perl")
+                spec.expect_str(compose.entrypoint_lang_file("pl")).to_equal_str("app.pl")
+                spec.expect_str(compose.entrypoint_lang_run("ph")).to_equal_str("php")
+                spec.expect_str(compose.entrypoint_lang_file("ph")).to_equal_str("app.php")
+            }
+        }
     }
 
     return spec.run_summary(fw)

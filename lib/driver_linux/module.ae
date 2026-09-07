@@ -1090,12 +1090,14 @@ build_from_containerfile(res_name: string, cf_abs: string, ctx_abs: string, engi
     return ""
 }
 
-// build_entrypoint — build a host container image from an entrypoint() Python
-// source: write app.py + a COPY-based Dockerfile (FROM base; COPY app.py; CMD
-// python /app.py) into the build context, then build. The host-container peer of
-// driver_vm.guest_container_up's entrypoint path. base "" -> python:3-alpine.
-// Returns "" on success else the error.
-build_entrypoint(res_name: string, py: string, base: string, engine_pref: string) -> string {
+// build_entrypoint — build a host container image from an entrypoint() script
+// SOURCE: write the body to /<file> + a COPY-based Dockerfile
+// (FROM base; COPY <file> /<file>; CMD [<run>, /<file>]) into the build context,
+// then build. Language-neutral: `file` (e.g. app.rb) and `run` (e.g. ruby) come
+// from compose's entrypoint_lang table; `base` is the resolved default FROM (or
+// the operator's base() override). The host-container peer of
+// driver_vm.guest_container_up's entrypoint path. Returns "" on success.
+build_entrypoint(res_name: string, src: string, base: string, file: string, run: string, engine_pref: string) -> string {
     eng = engine_resolve(engine_pref)
     if eng == "" {
         return "aeo: no container engine found (need podman or docker)"
@@ -1104,15 +1106,19 @@ build_entrypoint(res_name: string, py: string, base: string, engine_pref: string
     if string_length(b) == 0 {
         b = "docker.io/library/python:3-alpine"
     }
+    f = file
+    if string_length(f) == 0 { f = "app.py" }
+    r = run
+    if string_length(r) == 0 { r = "python" }
     dfdir = "/tmp/aeo-build-${res_name}"
     _ = _mkdir(dfdir)
-    // app.py written verbatim (no escaping); the Dockerfile just COPYs it —
+    // source written verbatim (no escaping); the Dockerfile just COPYs it —
     // builds on every podman, unlike a RUN heredoc.
-    perr = write_atomic("${dfdir}/app.py", py, string_length(py))
+    perr = write_atomic("${dfdir}/${f}", src, string_length(src))
     if perr != "" {
-        return "aeo: cannot write app.py for '${res_name}': ${perr}"
+        return "aeo: cannot write ${f} for '${res_name}': ${perr}"
     }
-    df = "FROM ${b}\nCOPY app.py /app.py\nCMD [\"python\", \"/app.py\"]"
+    df = "FROM ${b}\nCOPY ${f} /${f}\nCMD [\"${r}\", \"/${f}\"]"
     derr = write_atomic("${dfdir}/Dockerfile", df, string_length(df))
     if derr != "" {
         return "aeo: cannot write Dockerfile for '${res_name}': ${derr}"

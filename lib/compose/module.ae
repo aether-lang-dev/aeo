@@ -27,7 +27,7 @@
 // The runner reads the count + per-name fields back via the get_* helpers.
 
 import std.config
-import std.string (string_length, string_char_at, string_from_int, string_substring, string_index_of, string_contains)
+import std.string (string_length, string_char_at, string_from_int, string_substring, string_index_of, string_contains, string_equals)
 
 exports (
     system,
@@ -51,9 +51,10 @@ exports (
     get_policy_reprobe_ms, get_policy_on_drift, get_policy_max_failures, get_policy_reattest_ms,
     count, name_at, get_system, get_host, reset_nodes,
     syscount, sysname_at,
-    entrypoint, base, exec_entrypoint, containerfile, build_context,
+    entrypoint, base, exec_entrypoint, containerfile, build_context, entrypoint_lang,
     get_kind, get_image, get_dockerfile, get_entrypoint, get_base, get_command, get_health, get_dataset, get_ip,
-    get_exec_entrypoint, get_containerfile, get_build_context, get_expose_host, get_expose_inner,
+    get_exec_entrypoint, get_containerfile, get_build_context,
+    get_entrypoint_lang, entrypoint_lang_file, entrypoint_lang_run, entrypoint_lang_base, get_expose_host, get_expose_inner,
     get_depends, get_interval, get_budget,
     get_cpus, get_memory, get_nic, get_expose, get_wsl_distro,
     get_guest_image, image_base, image_has_layer, get_network, get_ssh_key,
@@ -384,6 +385,16 @@ dockerfile(_ctx: ptr, text: string) { config.put("aeo.cmp.dockerfile.${_ctx}", t
 // Dockerfile instructions). `base(image)` overrides the FROM image.
 entrypoint(_ctx: ptr, src: string) { config.put("aeo.cmp.entrypoint.${_ctx}", src) }
 base(_ctx: ptr, image: string)      { config.put("aeo.cmp.base.${_ctx}", image) }
+
+// `entrypoint_lang("ruby")` — the LANGUAGE of an entrypoint() script body, which
+// selects the synthesized image's filename + interpreter + default FROM. Default
+// "python" (so a bare entrypoint() keeps its historical behavior). base() still
+// overrides the FROM. Supported: python, ruby, node (alias javascript/js), perl,
+// php — see entrypoint_lang_file/_run/_base below (the single source of truth the
+// linux + vm drivers both resolve through).
+//   container("svc") { entrypoint_lang("ruby") entrypoint(<<RB … RB) }
+//   -> FROM ruby:3-alpine; COPY app.rb /app.rb; CMD ["ruby","/app.rb"]
+entrypoint_lang(_ctx: ptr, lang: string) { config.put("aeo.cmp.entrypoint_lang.${_ctx}", lang) }
 
 // `exec_entrypoint("/app/bin/prog")` — the container's ENTRYPOINT executable,
 // rendered as podman/docker `--entrypoint <path>` on the run. DISTINCT from the
@@ -1377,6 +1388,51 @@ get_kind(nm: string) -> string    { return config.get("aeo.cmp.kind.${nm}") }
 get_image(nm: string) -> string   { return config.get("aeo.cmp.image.${nm}") }
 get_dockerfile(nm: string) -> string { return config.get("aeo.cmp.dockerfile.${nm}") }
 get_entrypoint(nm: string) -> string { return config.get("aeo.cmp.entrypoint.${nm}") }
+
+// --- entrypoint() language table (the single source of truth) ------------------
+// Resolves an entrypoint_lang() value to the synthesized image's filename,
+// interpreter, and default FROM. Both driver_linux (host container) and
+// driver_vm (guest container) resolve through these, so the language set stays
+// consistent. Unknown/empty lang -> python (the historical default). Aliases:
+// javascript/js -> node. A new language is one row added in all three.
+_norm_lang(nm: string) -> string {
+    l = config.get("aeo.cmp.entrypoint_lang.${nm}")
+    if string_length(l) == 0 { return "python" }
+    if string_equals(l, "javascript") == 1 { return "node" }
+    if string_equals(l, "js") == 1 { return "node" }
+    return l
+}
+get_entrypoint_lang(nm: string) -> string { return _norm_lang(nm) }
+
+// The in-container filename the script body is written to (COPY app.<ext>).
+entrypoint_lang_file(nm: string) -> string {
+    l = _norm_lang(nm)
+    if string_equals(l, "ruby") == 1 { return "app.rb" }
+    if string_equals(l, "node") == 1 { return "app.js" }
+    if string_equals(l, "perl") == 1 { return "app.pl" }
+    if string_equals(l, "php") == 1  { return "app.php" }
+    return "app.py"
+}
+
+// The interpreter the CMD invokes (CMD ["<run>", "/<file>"]).
+entrypoint_lang_run(nm: string) -> string {
+    l = _norm_lang(nm)
+    if string_equals(l, "ruby") == 1 { return "ruby" }
+    if string_equals(l, "node") == 1 { return "node" }
+    if string_equals(l, "perl") == 1 { return "perl" }
+    if string_equals(l, "php") == 1  { return "php" }
+    return "python"
+}
+
+// The default FROM image when base() is unset (base() overrides this).
+entrypoint_lang_base(nm: string) -> string {
+    l = _norm_lang(nm)
+    if string_equals(l, "ruby") == 1 { return "docker.io/library/ruby:3-alpine" }
+    if string_equals(l, "node") == 1 { return "docker.io/library/node:alpine" }
+    if string_equals(l, "perl") == 1 { return "docker.io/library/perl:5-slim" }
+    if string_equals(l, "php") == 1  { return "docker.io/library/php:8-cli-alpine" }
+    return "docker.io/library/python:3-alpine"
+}
 // The base image for an entrypoint() container; defaults to python:3-alpine.
 get_base(nm: string) -> string {
     b = config.get("aeo.cmp.base.${nm}")

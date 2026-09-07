@@ -557,7 +557,13 @@ _container_image(nm: string, engine_pref: string) -> string {
     //   image()      — a stock image ref, run as-is.
     ep = compose.get_entrypoint(nm)
     if ep != "" {
-        eerr = driver_linux.build_entrypoint(nm, ep, compose.get_base(nm), engine_pref)
+        // Language-neutral: base() override wins, else the lang's default FROM;
+        // file + interpreter come from the entrypoint_lang table.
+        epbase = compose.get_base(nm)
+        if string_length(epbase) == 0 {
+            epbase = compose.entrypoint_lang_base(nm)
+        }
+        eerr = driver_linux.build_entrypoint(nm, ep, epbase, compose.entrypoint_lang_file(nm), compose.entrypoint_lang_run(nm), engine_pref)
         if eerr != "" {
             return "ERR:${eerr}"
         }
@@ -802,7 +808,13 @@ driver_up(nm: string, k: string) -> string {
             // the host VM's ipam-resolved IP (same binding bhyve_up used) — so
             // the container path ssh's to the right guest, not a hardcoded .50.
             hip = ipam.resolve_ip(compose.get_system(host), host)
-            return driver_vm.guest_container_up(host, hip, nm, compose.get_dockerfile(nm), compose.get_entrypoint(nm), compose.get_base(nm), compose.get_image(nm), compose.get_expose(nm))
+            // base() override wins, else the entrypoint_lang default FROM; file +
+            // interpreter come from the same lang table as the host path.
+            gbase = compose.get_base(nm)
+            if string_length(gbase) == 0 {
+                gbase = compose.entrypoint_lang_base(nm)
+            }
+            return driver_vm.guest_container_up(host, hip, nm, compose.get_dockerfile(nm), compose.get_entrypoint(nm), gbase, compose.entrypoint_lang_file(nm), compose.entrypoint_lang_run(nm), compose.get_image(nm), compose.get_expose(nm))
         }
         img = _container_image(nm, "")
         if string_starts_err(img) == 1 {
