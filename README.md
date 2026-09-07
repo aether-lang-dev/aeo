@@ -86,46 +86,49 @@ Containment](https://paulhammant.com/2016/12/14/principles-of-containment/) (see
 
 ## Quickly trying it
 
-All you need is the [Aether language's `ae` toolchain](https://github.com/aether-lang-dev/aether)
-and **any container engine — podman or Docker, on Linux or macOS** (container
-kinds are engine-gated, not OS-gated). aeo builds with `ae build` — no other
-build tool. (It *can* shell out to the [`aeb`](https://github.com/aether-lang-dev/aeb)
-build runner at runtime if a composition asks it to build an image, but that's
-optional and demand-driven, not needed to build or run aeo.)
+You need **any container engine** — podman or Docker, on Linux or macOS
+(container kinds are engine-gated, not OS-gated) — and the `aeo` CLI.
 
-**Don't have Aether's `ae` yet?** One line installs it (Aether's own installer, into
-`~/.local`; `PREFIX=` to override):
+**Install `aeo`** — one line, into `~/.local` (no sudo; `PREFIX=` to override).
+Like the rest of the ecosystem this is **binary-first**: it downloads the
+prebuilt, **sha256-verified** bundle for your platform, and it also ensures the
+[`ae`](https://github.com/aether-lang-dev/aether) toolchain and the
+[`aeb`](https://github.com/aether-lang-dev/aeb) build runner that aeo relies on
+at runtime (aeo compiles each composition by shelling `ae`, and can shell `aeb`
+to build an image):
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/aether-lang-dev/aether/main/get.sh | sh
+curl -fsSL https://raw.githubusercontent.com/aether-lang-dev/aeo/main/get.sh | sh
 ```
 
-This installs `ae` to `~/.local/bin`. Make sure that's on your `PATH` (the
-installer prints a note if it isn't):
+Make sure `~/.local/bin` is on your `PATH` (the installer prints a note if it
+isn't):
 
 ```sh
-command -v ae || export PATH="$HOME/.local/bin:$PATH"   # add to your shell rc to persist
+command -v aeo || export PATH="$HOME/.local/bin:$PATH"   # add to your shell rc to persist
 ```
 
-Then clone aeo and build its binary (relative paths — run these from the repo
-root; nothing extra needed):
+The installed `aeo` is a small wrapper that pins `AEO_HOME` at its own runtime
+tree — so `aeo` just works, no env var to set.
+
+> **From a clone instead** (development, or a platform with no prebuilt bundle):
+> ```sh
+> git clone https://github.com/aether-lang-dev/aeo && cd aeo && make install
+> ```
+> `make install` builds `bin/aeo` (via `ae build`, so `ae` must be on `PATH`) and
+> installs the same wrapper. For a pure dev loop, `make build` then
+> `export AEO_HOME="$PWD"` and run `bin/aeo` in place.
+
+Then drive the 60-second demo. The example compositions ship in the install
+tree (`~/.local/share/aeo/examples/` after `get.sh`, or `examples/` in a clone);
+`cd` there so the paths below resolve:
 
 ```sh
-git clone https://github.com/aether-lang-dev/aeo && cd aeo
-ae build bin/aeo.ae -o ~/.local/bin/aeo --lib lib
-```
-
-To *run* it, set `AEO_HOME` to the aeo tree: the `aeo` runtime reads it on every
-invocation to find `lib/` (the actor/runner modules it stages into each
-composition's build), and exits with a diagnostic if it's unset. From the repo
-root that's just `$PWD` — add it to your shell rc to persist.
-
-```sh
-export AEO_HOME="$PWD"                         # you're in the aeo clone
+cd ~/.local/share/aeo        # or: cd path/to/your/aeo/clone
 
 aeo doctor                                    # what can THIS host run?
 docker build -t localhost/aeo-examples/silly-add:latest \
-    $AEO_HOME/examples/silly_addition_app/    # the demo app image (podman works too)
+    examples/silly_addition_app/              # the demo app image (podman works too)
 aeo up examples/silly_addition_containers.ae  # redis ◄ app, dependency-ordered,
                                               # health-gated, level-parallel
 curl http://localhost:8080/add/40/2           # -> 42 (the app, live)
@@ -133,6 +136,19 @@ aeo status examples/silly_addition_containers.ae   # states + attestation postur
 aeo exec  examples/silly_addition_containers.ae db "redis-cli ping"
 aeo down  examples/silly_addition_containers.ae    # reverse levels, disappearance VERIFIED
 ```
+
+**Bootstrapping a repo or CI step** that needs the toolchain? The same
+[`get.sh`](get.sh) is *also a sourceable library* — set `AEOGET_SOURCE_ONLY=1`
+and it defines `aeo_bootstrap` / `ae_ensure` / `aeb_ensure` / `aeo_ensure`
+without installing, so a CI step can pin and call them:
+
+```sh
+AEOGET_SOURCE_ONLY=1 . <(curl -fsSL https://raw.githubusercontent.com/aether-lang-dev/aeo/main/get.sh)
+AE_PIN=0.645.0 aeo_bootstrap        # ensures ae + aeb, then the aeo CLI
+```
+
+Everything is binary-first (prebuilt gh-release tarballs, sha256-verified),
+falling back to a source build for `ae`/`aeb` where no asset exists.
 
 Repeat invocations are fast — the front door content-hashes its inputs (compose
 + lib/ + toolchain) and skips the rebuild when nothing changed (`AEO_REBUILD=1`
@@ -386,14 +402,22 @@ for the architecture.
 
 ## Running it
 
-aeo compiles your composition into a supervised runner and executes it. Point
-`AEO_HOME` at the aeo tree, then (assuming `ae` is on `PATH` — if not, install it
-first, see [Try it in 60 seconds](#try-it-in-60-seconds)):
+aeo compiles your composition into a supervised runner and executes it. Once
+installed (see [Quickly trying it](#quickly-trying-it) — `curl … get.sh | sh`, or
+`make install` from a clone), the installed `aeo` wrapper already pins `AEO_HOME`,
+so you just run:
 
 ```
-export AEO_HOME=/path/to/aeo
-ae build $AEO_HOME/bin/aeo.ae -o ~/.local/bin/aeo --lib $AEO_HOME/lib
 aeo up examples/silly_addition_containers.ae
+```
+
+For a dev loop from a clone without installing, build in place and point
+`AEO_HOME` at the tree yourself (it reads it on every invocation to find `lib/`):
+
+```
+export AEO_HOME="$PWD"                        # in the aeo clone
+make build                                    # ae build bin/aeo.ae -o bin/aeo --lib lib
+bin/aeo up examples/silly_addition_containers.ae
 ```
 
 The front-door (Decision 1B — native Aether, no bash trampoline) assembles a
