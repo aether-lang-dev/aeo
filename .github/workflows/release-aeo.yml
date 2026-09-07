@@ -176,7 +176,11 @@ jobs:
       sha256: ${{ steps.sum.outputs.sha256 }}
       built: ${{ steps.build.outputs.built }}
     env:
-      AEO_FREEBSD_MIN_AE: '0.428.0'
+      # 0.646.0 is the release carrying the FreeBSD tier-2 cross-link fix under
+      # Zig 0.16 (aether PR #1930: link staged libs by absolute path, only when
+      # used). Below it the aeo CLI's OpenSSL-pulling cross-link dies `error:
+      # libc not available`, so the job skips cleanly on an older ae.
+      AEO_FREEBSD_MIN_AE: '0.646.0'
       CROSSBUILD_REPO: https://github.com/aether-lang-dev/aether-crossbuild.git
     steps:
       - name: Checkout aeo
@@ -219,19 +223,14 @@ jobs:
       - name: Build aeo CLI (freebsd, x86_64, cross via zig)
         id: build
         if: steps.gate.outputs.ok == 'true'
-        # NON-BLOCKING: the aeo CLI pulls in more of libcurl's dep closure than
-        # the agent, and the FreeBSD cross-link can hit "libc not available" /
-        # missing third-party libs the provisioned sysroot doesn't cover. Rather
-        # than fail the whole release, this step is continue-on-error and only
-        # sets built=true on real success — so a FreeBSD build gap just omits the
-        # FreeBSD asset (like the agent's gated jobs), and Linux still ships.
-        #
-        # DIAGNOSED: fails `error: libc not available` because the aeo CLI is the
-        # first freebsd-cross target that links OpenSSL (via `import secrets` ->
-        # std.cryptography); the crypto link doesn't resolve against the split
-        # base sysroot under zig-lld. Full analysis + the fix location (aether/
-        # aether-crossbuild, then bump the gate + drop this guard) in
-        # asks/aeo-cli-freebsd-cross-openssl.md.
+        # STILL non-blocking, for now. The root cause is FIXED upstream: it was a
+        # Zig 0.13-vs-0.16 mismatch (not OpenSSL-specific — a std.io-only program
+        # failed the same way), fixed in aether 0.646.0 (PR #1930) + the Zig 0.16
+        # bump above. The gate is raised to 0.646.0 so this only builds on the
+        # fixed toolchain. `continue-on-error` is KEPT until a dry run proves a
+        # green FreeBSD bundle against a published v0.646.0 — then drop it (and
+        # this comment) to make FreeBSD load-bearing. See
+        # asks/aeo-cli-freebsd-cross-openssl.md (upstream: aether PR #1930).
         continue-on-error: true
         run: |
           ae build bin/aeo.ae -o bin/aeo --lib lib --target=x86_64-freebsd

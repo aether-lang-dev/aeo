@@ -1,8 +1,42 @@
-# aeo CLI FreeBSD cross-build: `error: libc not available` (OpenSSL link)
+# aeo CLI FreeBSD cross-build: `error: libc not available`
 
-**Status:** open. The `aeo-freebsd-x86_64` bundle does NOT build in
-`release-aeo.yml`; the FreeBSD job is `continue-on-error` and omits the asset.
-Linux x86_64 + aarch64 ship fine. This tracks the work to add FreeBSD.
+**Status:** FIXED UPSTREAM (aether 0.646.0), pending a green-run confirmation +
+flipping this repo's job load-bearing. Linux x86_64 + aarch64 ship regardless.
+
+## Resolution (2026-09-07)
+
+Fixed in **aether 0.646.0** via **PR #1930** ("FreeBSD tier-2 cross-link under
+Zig 0.16 — link staged libs by path, only when used"), plus a **Zig 0.13 -> 0.16**
+bump across aether-crossbuild (`deps.lock`) and this repo's release workflows
+(commit `4d8572a`).
+
+**Root cause was NOT OpenSSL-specific** — the correction to the diagnosis below.
+The sibling reproduced on the real crossbuild kit that *a program importing only
+`std.io` fails identically*. The trigger was a **Zig version mismatch**:
+`tools/ae_cross.c`'s FreeBSD/tier-2 wiring is written for Zig 0.16, but the kit
+pinned Zig 0.13, which can't resolve the base libc/CRT from `--sysroot` for a
+FreeBSD target -> `libc not available`. The 0.16 bump then exposed two tier-2
+link bugs 0.13 had masked, also fixed in #1930: (1) over-linking staged-but-
+unused libs (0.16 hard-errors on a dangling `-l`), now gated on the program's
+import closure; (2) `-L$SYSROOT/lib` mangled under `--sysroot`, now linked by
+absolute archive path.
+
+The crypto correlation I first saw (agent green, CLI red) was real but
+MISLEADING — the CLI just happened to be the first freebsd-cross target built
+after the kit landed. My original ask flagged exactly this risk ("if the minimal
+repro passes, the trigger is more specific than 'imports crypto'"); it went the
+other way (an even simpler program also failed), which is what let the sibling
+locate the Zig mismatch fast. Lesson kept: the hedge earned its place.
+
+**Remaining aeo-side step:** once v0.646.0 is a published release and a
+`release-aeo.yml` dry run produces a green `aeo-freebsd-x86_64` bundle, drop
+`continue-on-error` on build-freebsd (gate already raised to 0.646.0) to make it
+load-bearing.
+
+---
+
+Original diagnosis (kept for the record — the correlation was right, the
+mechanism was corrected above):
 
 ## Symptom
 
