@@ -1,4 +1,15 @@
-# Releasing aeo-agent
+# Releasing aeo
+
+This repo publishes **two independent release lines**, each its own tag prefix,
+workflow, and version:
+
+| line | tag | workflow | what ships |
+|---|---|---|---|
+| **aeo-agent** | `aeo-agent-v*` | `release-aeo-agent.yml` | a self-contained in-guest agent binary |
+| **aeo CLI** | `aeo-v*` | `release-aeo.yml` | the `aeo` CLI as a per-platform **bundle** (binary + runtime tree) |
+
+Most of this doc covers **aeo-agent** (below). The **aeo CLI** release is
+documented in its own section at the end: [Releasing the aeo CLI](#releasing-the-aeo-cli).
 
 Canonical, human- and LLM-readable guide to cutting an `aeo-agent` release. The
 authoritative source is `.github/workflows/release-aeo-agent.yml`; this doc
@@ -139,3 +150,88 @@ provisions *and* that the agent can function on, and keep the name honest with a
   platform()-dispatches the workload to WSL2+podman. Note the workload path
   needs WSL2+podman IN the guest; the agent CORE (boot/contain/protocol/health)
   runs regardless, which is the same bar the FreeBSD asset ships at.
+
+---
+
+# Releasing the aeo CLI
+
+Separate from aeo-agent above. Authoritative source:
+`.github/workflows/release-aeo.yml` (+ `.github/scripts/assemble-aeo-bundle.sh`);
+this section explains it. Workflow wins on any disagreement.
+
+## What gets released — and why it's a BUNDLE, not a bare binary
+
+The `aeo` CLI is **not self-contained** the way `aeo-agent` is. At runtime it:
+
+- reads `AEO_HOME` to find `lib/` and `cp`s `$AEO_HOME/lib` into every
+  composition build (`bin/aeo.ae`), exiting if it's unset; and
+- shells `ae` to compile each composition (the build cache key even includes
+  `ae --version`).
+
+So a lone `aeo` binary is useless — it needs its `lib/` tree beside it and an
+`ae` on PATH. The release therefore ships a **bundle** per platform:
+
+```
+aeo-<os>-<arch>/
+  bin/aeo                       the target-native CLI
+  share/aeo/{bin/aeo,lib,examples}   the runtime tree AEO_HOME points at
+  Makefile                      the install target
+  install.sh                    runs `make -C share/aeo install PREFIX=…`
+```
+
+`make install` copies `share/aeo` to `$PREFIX/share/aeo` and writes a
+`$PREFIX/bin/aeo` **wrapper** that `export AEO_HOME=…; exec …` — so the installed
+`aeo` needs no env var. (Same shape as how `aeb` ships `share/aeb/`.)
+
+### Assets (per tag)
+`aeo-<os>-<arch>.tar.gz` + a companion `.tar.gz.sha256`, for the proven targets:
+`linux-x86_64`, `linux-aarch64` (gated on the ae cross-crypto fix), `freebsd-x86_64`
+(zig-cross, gated on the ae FreeBSD fix). Windows/macos are deferred (aeo's
+substrates are Linux/FreeBSD/macos-via-Docker; no aeo-CLI-on-Windows story yet).
+
+## How to cut a release
+
+A release is triggered by pushing a tag matching **`aeo-v*`** (e.g. `aeo-v0.1.0`),
+independent of the agent's `aeo-agent-v*` line.
+
+```sh
+git tag aeo-v0.1.0
+git push origin aeo-v0.1.0
+```
+
+### Dry run first (no publish)
+`workflow_dispatch` builds every asset and assembles the bundles but does **not**
+create a Release (the publish step is `if: github.ref_type == 'tag'`):
+
+```sh
+gh workflow run release-aeo.yml                 # latest aether toolchain
+gh workflow run release-aeo.yml -f ref=<sha>    # pin a specific aether ref
+```
+
+## Mechanics
+Mirrors the agent workflow: each build job installs `ae` from aether's `get.sh`,
+`ae build bin/aeo.ae -o bin/aeo --lib lib` (with `AE_CC="gcc -static"` or
+`--target=` per platform), asserts the binary is honest (`file … | grep`), then
+runs `assemble-aeo-bundle.sh <os> <arch>` to produce `dist/aeo-<os>-<arch>.tar.gz`,
+`sha256sum`s it, and uploads it. The `release` job downloads all artifacts and
+publishes via `softprops/action-gh-release@v2`. Gated jobs (arm64, freebsd) skip
+cleanly on an older `ae` and simply omit their asset (`fail_on_unmatched_files:
+false`).
+
+Test the bundle assembly locally without CI:
+```sh
+ae build bin/aeo.ae -o bin/aeo --lib lib
+sh .github/scripts/assemble-aeo-bundle.sh linux x86_64
+tar -tzf dist/aeo-linux-x86_64.tar.gz | head
+# then prove the install path:
+tar -xzf dist/aeo-linux-x86_64.tar.gz -C /tmp
+sh /tmp/aeo-linux-x86_64/install.sh /tmp/aeo-prefix
+env -u AEO_HOME /tmp/aeo-prefix/bin/aeo doctor    # works: the wrapper sets AEO_HOME
+```
+
+## Consuming a release
+End users don't touch these tarballs directly — `get.sh` (repo root) does:
+`curl -fsSL …/aeo/main/get.sh | sh` ensures `ae` + `aeb`, then downloads and
+**sha256-verifies** the `aeo-<os>-<arch>.tar.gz` for the platform and runs its
+`install.sh`. `AEO_REF=aeo-v0.1.0` (or positional `sh -s -- aeo-v0.1.0`) pins the
+release. See the repo README's "Quickly trying it".
