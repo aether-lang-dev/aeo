@@ -190,7 +190,7 @@ jobs:
           CB_LIBS="zlib pcre2 openssl" ./provision.sh x86_64-freebsd15
           echo "AETHER_SYSROOT=$HOME/aether-crossbuild/bases/x86_64-freebsd15" >> "$GITHUB_ENV"
           echo "CROSSBUILD_SYSROOT=$HOME/aether-crossbuild/sysroots/x86_64-freebsd15" >> "$GITHUB_ENV"
-          echo "$HOME/aether-crossbuild/toolchain/zig-linux-x86_64-0.13.0" >> "$GITHUB_PATH"
+          echo "$HOME/aether-crossbuild/toolchain/zig-x86_64-linux-0.16.0" >> "$GITHUB_PATH"
 
       - name: Build aeo-agent (freebsd, x86_64)
         id: build
@@ -243,7 +243,7 @@ jobs:
       sha256: ${{ steps.sum.outputs.sha256 }}
       built: ${{ steps.build.outputs.built }}
     env:
-      ZIG_VERSION: '0.13.0'
+      ZIG_VERSION: '0.16.0'
     steps:
       - name: Checkout aeo
         uses: actions/checkout@v4
@@ -259,7 +259,8 @@ jobs:
 
       - name: Install zig (the cross-compiler ae --target drives)
         run: |
-          zdir="zig-linux-x86_64-${ZIG_VERSION}"
+          # Zig 0.16 renamed the archive: zig-<arch>-<os>-<ver> (was <os>-<arch>).
+          zdir="zig-x86_64-linux-${ZIG_VERSION}"
           curl -fsSL "https://ziglang.org/download/${ZIG_VERSION}/${zdir}.tar.xz" -o /tmp/zig.tar.xz
           tar -xJf /tmp/zig.tar.xz -C "$HOME"
           echo "$HOME/${zdir}" >> "$GITHUB_PATH"

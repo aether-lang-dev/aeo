@@ -214,7 +214,7 @@ jobs:
           CB_LIBS="zlib pcre2 openssl" ./provision.sh x86_64-freebsd15
           echo "AETHER_SYSROOT=$HOME/aether-crossbuild/bases/x86_64-freebsd15" >> "$GITHUB_ENV"
           echo "CROSSBUILD_SYSROOT=$HOME/aether-crossbuild/sysroots/x86_64-freebsd15" >> "$GITHUB_ENV"
-          echo "$HOME/aether-crossbuild/toolchain/zig-linux-x86_64-0.13.0" >> "$GITHUB_PATH"
+          echo "$HOME/aether-crossbuild/toolchain/zig-x86_64-linux-0.16.0" >> "$GITHUB_PATH"
 
       - name: Build aeo CLI (freebsd, x86_64, cross via zig)
         id: build
