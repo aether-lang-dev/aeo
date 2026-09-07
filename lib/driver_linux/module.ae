@@ -27,7 +27,7 @@ import host
 
 exports (
     name, engine_resolve, ensure_engine,
-    up, up_net, up_confined, up_green, alias_move, network_ensure, network_ensure_internal, down, down_many, down_many_command, probe, inspect_argv, inspect_state, death_argv, death_state, list_running, extract_argv, extract_facts, image_digest, exec_capture, build, build_entrypoint, built_tag, run_argv_shared,
+    up, up_net, up_confined, up_confined2, up_green, alias_move, network_ensure, network_ensure_internal, down, down_many, down_many_command, probe, inspect_argv, inspect_state, death_argv, death_state, list_running, extract_argv, extract_facts, image_digest, exec_capture, build, build_entrypoint, build_from_containerfile, built_tag, run_argv_shared, run_argv_full,
     ps_running_argv, ps_all_running_argv, running_names, run_argv, run_argv_net, run_argv_confined, stop_argv, rm_argv, exec_health_argv,
     net_disconnect_argv, net_connect_alias_argv,
     pasta_dropin_path, pasta_dropin_content, pasta_forwarder_ensure, pasta_forwarder_active, pasta_forwarder_clear,
@@ -193,15 +193,38 @@ run_argv_shared(res_name: string, image: string, cmd: string, expose: int, net: 
     return _run_argv_core(res_name, image, cmd, expose, net, env, confine, shares, 1)
 }
 
+// run_argv_full — the full pure argv surface incl. `inner` (asymmetric publish
+// container-port; 0=symmetric) and `ep` (exec_entrypoint path; ""=sh -c form).
+// The spec-testable peer of up_confined2. up_confined2 threads the same signals.
+run_argv_full(res_name: string, image: string, cmd: string, expose: int, inner: int, ep: string, net: string, env: string, confine: string, shares: string) -> ptr {
+    return _run_argv_core2(res_name, image, cmd, expose, inner, ep, net, env, confine, shares, 1)
+}
+
 // The engine-portable core. `with_replace` 1 emits podman's `--replace`
 // (in-place idempotency); 0 omits it — docker has no such flag, so the docker
 // path gets its idempotency from a pre-`rm -f` in up_confined/up_green instead.
 _run_argv_core(res_name: string, image: string, cmd: string, expose: int, net: string, env: string, confine: string, shares: string, with_replace: int) -> ptr {
+    return _run_argv_core2(res_name, image, cmd, expose, 0, "", net, env, confine, shares, with_replace)
+}
+
+// _run_argv_core2 — _run_argv_core plus two additive signals:
+//   inner  — the container-side port for an ASYMMETRIC publish; 0 means
+//            symmetric (fall back to `expose:expose`). Renders `-p expose:inner`.
+//   ep     — an exec_entrypoint() path; when non-empty, emit `--entrypoint <ep>`
+//            and pass `cmd` as the container's ARGS (split on spaces), NOT wrapped
+//            in `/bin/sh -c`. Empty ep keeps the shell-string convenience form.
+_run_argv_core2(res_name: string, image: string, cmd: string, expose: int, inner: int, ep: string, net: string, env: string, confine: string, shares: string, with_replace: int) -> ptr {
     av = list_new()
     list_add(av, "run")
     list_add(av, "-d")
     if with_replace == 1 {
         list_add(av, "--replace")
+    }
+    // exec_entrypoint -> --entrypoint <path> (before the image, podman/docker
+    // semantics). Distinct from the sh -c convenience form below.
+    if string_length(ep) > 0 {
+        list_add(av, "--entrypoint")
+        list_add(av, ep)
     }
     list_add(av, "--name")
     list_add(av, res_name)
@@ -221,18 +244,33 @@ _run_argv_core(res_name: string, image: string, cmd: string, expose: int, net: s
         _add_env_args(av, env)
     }
     // publish the port UNLESS the node is network-isolated (--network none).
+    // Asymmetric map: `-p expose:inner`. inner<=0 collapses to expose:expose (the
+    // symmetric expose() form).
     no_net = string_contains(confine, "--network none")
     if expose > 0 {
         if no_net == 0 {
+            hostside = expose
+            contside = expose
+            if inner > 0 {
+                contside = inner
+            }
             list_add(av, "-p")
-            list_add(av, "${_itoa(expose)}:${_itoa(expose)}")
+            list_add(av, "${_itoa(hostside)}:${_itoa(contside)}")
         }
     }
     list_add(av, image)
+    // With an exec_entrypoint, cmd is the container's ARGS (space-split), NOT a
+    // shell string — matching `podman run --entrypoint EP IMAGE arg1 arg2`. This
+    // also avoids `sh -c` mis-parsing a leading-dash arg. Without an entrypoint,
+    // keep the `/bin/sh -c "<cmd>"` convenience form.
     if string_length(cmd) > 0 {
-        list_add(av, "/bin/sh")
-        list_add(av, "-c")
-        list_add(av, cmd)
+        if string_length(ep) > 0 {
+            _add_token_args(av, cmd)
+        } else {
+            list_add(av, "/bin/sh")
+            list_add(av, "-c")
+            list_add(av, cmd)
+        }
     }
     return av
 }
@@ -558,6 +596,15 @@ up_net(res_name: string, image: string, cmd: string, expose: int, net: string, e
 // up_confined — up_net plus `confine`, the lib/confine_linux flag string
 // (cgroup caps + cap-drop/seccomp + netpolicy). The CONFINED host-container path.
 up_confined(res_name: string, image: string, cmd: string, expose: int, net: string, env: string, confine: string, shares: string, engine_pref: string) -> string {
+    return up_confined2(res_name, image, cmd, expose, 0, "", net, env, confine, shares, engine_pref)
+}
+
+// up_confined2 — up_confined plus `inner` (asymmetric publish container-port; 0
+// = symmetric) and `ep` (exec_entrypoint path; "" = sh -c form). The runner
+// calls this directly for container nodes so publish(ext,inn)/exec_entrypoint()
+// reach the run argv; the 9-arg up_confined stays as the default-args shim for
+// every other caller.
+up_confined2(res_name: string, image: string, cmd: string, expose: int, inner: int, ep: string, net: string, env: string, confine: string, shares: string, engine_pref: string) -> string {
     eng = ensure_engine(engine_pref)
     if eng == "" {
         return "aeo: no container engine found (need podman or docker on PATH; auto-install failed or disabled)"
@@ -582,7 +629,7 @@ up_confined(res_name: string, image: string, cmd: string, expose: int, net: stri
     laststatus = 0
     while t < RUN_RETRIES() {
         with_replace = _pre_clear_for(eng, res_name)
-        av = _run_argv_core(res_name, image, cmd, expose, net, env, confine, shares, with_replace)
+        av = _run_argv_core2(res_name, image, cmd, expose, inner, ep, net, env, confine, shares, with_replace)
         out, status, err = run_capture(eng, av, null)
         list_free(av)
         if err == "" {
@@ -1015,6 +1062,30 @@ build(res_name: string, text: string, engine_pref: string) -> string {
     }
     if status != 0 {
         return "aeo: image build failed for '${res_name}' (exit ${status}): ${out}"
+    }
+    return ""
+}
+
+// build_from_containerfile — build from an EXISTING Containerfile against a
+// source-tree context (the out-of-line form: `containerfile()`+`build_context()`).
+// Both paths must already be ABSOLUTE (the runner resolves them against the
+// composition dir). Unlike build()/build_entrypoint(), it writes nothing to a
+// temp dir — it builds the real Containerfile against the real context, so a
+// multi-stage `COPY . /src` build sees the actual project. Returns "" on success.
+build_from_containerfile(res_name: string, cf_abs: string, ctx_abs: string, engine_pref: string) -> string {
+    eng = engine_resolve(engine_pref)
+    if eng == "" {
+        return "aeo: no container engine found (need podman or docker)"
+    }
+    tag = built_tag(res_name)
+    av = build_argv(tag, cf_abs, ctx_abs)
+    out, status, err = run_capture(eng, av, null)
+    list_free(av)
+    if err != "" {
+        return "aeo: image build spawn failed for '${res_name}': ${err}"
+    }
+    if status != 0 {
+        return "aeo: image build failed for '${res_name}' (exit ${status}) from ${cf_abs}: ${out}"
     }
     return ""
 }

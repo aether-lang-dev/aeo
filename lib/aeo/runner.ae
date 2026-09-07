@@ -563,6 +563,27 @@ _container_image(nm: string, engine_pref: string) -> string {
         }
         return driver_linux.built_tag(nm)
     }
+    // Out-of-line build: containerfile() + optional build_context(), paths
+    // relative to the composition file (anchored by AEO_COMPOSE_DIR, set by the
+    // front-door). Builds the REAL Containerfile against the REAL context (so a
+    // multi-stage `COPY . /src` sees the project) — vs dockerfile()'s inline temp.
+    cf = compose.get_containerfile(nm)
+    if cf != "" {
+        cfabs = _compose_rel(cf)
+        ctx = compose.get_build_context(nm)
+        ctxabs = ""
+        if ctx != "" {
+            ctxabs = _compose_rel(ctx)
+        } else {
+            // default context = the Containerfile's own directory.
+            ctxabs = _dir_of(cfabs)
+        }
+        cberr = driver_linux.build_from_containerfile(nm, cfabs, ctxabs, engine_pref)
+        if cberr != "" {
+            return "ERR:${cberr}"
+        }
+        return driver_linux.built_tag(nm)
+    }
     df = compose.get_dockerfile(nm)
     if df == "" {
         return compose.get_image(nm)
@@ -574,6 +595,37 @@ _container_image(nm: string, engine_pref: string) -> string {
         return "ERR:${berr}"
     }
     return driver_linux.built_tag(nm)
+}
+
+// _compose_rel — resolve a composition-relative path to absolute against
+// AEO_COMPOSE_DIR (the front-door sets it to the compose file's dir). An
+// already-absolute path is returned as-is; a missing anchor falls back to the
+// path verbatim (best-effort — the build will error clearly if it's wrong).
+_compose_rel(p: string) -> string {
+    if string_length(p) == 0 {
+        return ""
+    }
+    if string_char_at(p, 0) == 47 {   // '/' -> already absolute
+        return p
+    }
+    base = _envc("AEO_COMPOSE_DIR")
+    if string_length(base) == 0 {
+        return p
+    }
+    return "${base}/${p}"
+}
+
+// _dir_of — the directory portion of an absolute path (strip the last /segment).
+// Returns "/" if there's no slash beyond root, or the path itself if no slash.
+_dir_of(p: string) -> string {
+    i = string_length(p) - 1
+    while i > 0 {
+        if string_char_at(p, i) == 47 {
+            return string_substring(p, 0, i)
+        }
+        i = i - 1
+    }
+    return p
 }
 
 // --- image realization (the recipe executor) -------------------------------
@@ -810,7 +862,10 @@ driver_up(nm: string, k: string) -> string {
         // pins docker). This is the fix for the old second-class docker path —
         // docker-pinned nodes now get the SAME shared-net + env + confine
         // treatment as podman ones, differing only in the engine binary.
-        return driver_linux.up_confined(nm, img, compose.get_command(nm), compose.get_expose(nm), net, compose.get_env(nm), confine, _shares_of(nm), eng)
+        // up_confined2 threads the asymmetric publish (host=get_expose_host,
+        // container=get_expose_inner — publish(ext,inn) wins over expose()) and
+        // the exec_entrypoint() path (-> --entrypoint, cmd-as-args).
+        return driver_linux.up_confined2(nm, img, compose.get_command(nm), compose.get_expose_host(nm), compose.get_expose_inner(nm), compose.get_exec_entrypoint(nm), net, compose.get_env(nm), confine, _shares_of(nm), eng)
     }
     if k == "jail" {
         return driver_bsd.up(nm, compose.get_dataset(nm), "", compose.get_ip(nm), compose.get_command(nm))

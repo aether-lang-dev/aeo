@@ -51,8 +51,9 @@ exports (
     get_policy_reprobe_ms, get_policy_on_drift, get_policy_max_failures, get_policy_reattest_ms,
     count, name_at, get_system, get_host, reset_nodes,
     syscount, sysname_at,
-    entrypoint, base,
+    entrypoint, base, exec_entrypoint, containerfile, build_context,
     get_kind, get_image, get_dockerfile, get_entrypoint, get_base, get_command, get_health, get_dataset, get_ip,
+    get_exec_entrypoint, get_containerfile, get_build_context, get_expose_host, get_expose_inner,
     get_depends, get_interval, get_budget,
     get_cpus, get_memory, get_nic, get_expose, get_wsl_distro,
     get_guest_image, image_base, image_has_layer, get_network, get_ssh_key,
@@ -383,6 +384,26 @@ dockerfile(_ctx: ptr, text: string) { config.put("aeo.cmp.dockerfile.${_ctx}", t
 // Dockerfile instructions). `base(image)` overrides the FROM image.
 entrypoint(_ctx: ptr, src: string) { config.put("aeo.cmp.entrypoint.${_ctx}", src) }
 base(_ctx: ptr, image: string)      { config.put("aeo.cmp.base.${_ctx}", image) }
+
+// `exec_entrypoint("/app/bin/prog")` — the container's ENTRYPOINT executable,
+// rendered as podman/docker `--entrypoint <path>` on the run. DISTINCT from the
+// script-form `entrypoint()` above (which is a program SOURCE body aeo wraps in
+// a synthesized image): this names a path inside an EXISTING image() and pairs
+// with command() as its args (NOT wrapped in /bin/sh -c). Two different verbs on
+// purpose — one builds an image, one flags the run.
+//   container("app") { image("todobackend-sut"); exec_entrypoint("/app/bin/x"); command("8000 http://…") }
+//   -> podman run --entrypoint /app/bin/x todobackend-sut 8000 http://…
+exec_entrypoint(_ctx: ptr, path: string) { config.put("aeo.cmp.exec_entrypoint.${_ctx}", path) }
+
+// Out-of-line image build: `containerfile("path")` + optional
+// `build_context("dir")` build an EXISTING Containerfile against a source-tree
+// context (paths relative to the composition file), vs `dockerfile()`'s inline
+// text built in a temp dir. build_context defaults to the Containerfile's own
+// directory. `aeo up` runs this before boot via driver build_argv.
+//   container("sut") { containerfile("integration/todobackend/Containerfile.sut")
+//                      build_context("integration/todobackend/sut") }
+containerfile(_ctx: ptr, path: string)  { config.put("aeo.cmp.containerfile.${_ctx}", path) }
+build_context(_ctx: ptr, dir: string)   { config.put("aeo.cmp.build_context.${_ctx}", dir) }
 
 health(_ctx: ptr, v: string)  { config.put("aeo.cmp.health.${_ctx}", v) }
 dataset(_ctx: ptr, v: string) { config.put("aeo.cmp.dataset.${_ctx}", v) }
@@ -1205,6 +1226,9 @@ get_lb_substrate(nm: string) -> string { return config.get("aeo.cmp.lbsubstrate.
 get_listens(nm: string) -> string      { return config.get("aeo.cmp.listens.${nm}") }
 get_publish(nm: string) -> string       { return config.get("aeo.cmp.publish.ext.${nm}") }
 get_publish_inner(nm: string) -> string { return config.get("aeo.cmp.publish.inner.${nm}") }
+get_exec_entrypoint(nm: string) -> string { return config.get("aeo.cmp.exec_entrypoint.${nm}") }
+get_containerfile(nm: string) -> string   { return config.get("aeo.cmp.containerfile.${nm}") }
+get_build_context(nm: string) -> string    { return config.get("aeo.cmp.build_context.${nm}") }
 get_balance_to(nm: string) -> string    { return config.get("aeo.cmp.balanceto.${nm}") }
 get_weight(nm: string) -> string        { return config.get("aeo.cmp.weight.${nm}") }
 get_lb_health_path(nm: string) -> string   { return config.get("aeo.cmp.lbhealthpath.${nm}") }
@@ -1298,10 +1322,13 @@ lb_model_errors() -> string {
                 out = _lb_err(out, "load_balancer '${nm}' substrate '${sub}' is not yet supported — only :container is realized (:vm/:host need cross-network routing, the multi-host epic; docs §7)")
             }
         }
-        // (1) publish only on a boundary node (the LB itself).
+        // (1) publish(): legal on the LB boundary AND on a standalone container
+        // (host<->container port map, the expose() peer). ILLEGAL only on a
+        // BACKEND — a node whose parent IS a load_balancer: the LB is its
+        // boundary, so a backend must not also publish to the host.
         if string_length(get_publish(nm)) > 0 {
-            if is_load_balancer(nm) == 0 {
-                out = _lb_err(out, "node '${nm}' declares publish() but is not a load_balancer (a backend cannot be published)")
+            if parent_is_lb == 1 {
+                out = _lb_err(out, "node '${nm}' declares publish() but is a load_balancer BACKEND (its LB is the boundary; a backend cannot be published)")
             }
         }
         // (2) balancer_weight only under a load_balancer parent.
@@ -1661,6 +1688,27 @@ get_expose(nm: string) -> int {
         return 0
     }
     return _to_int(v)
+}
+
+// Effective HOST-side published port for a container: publish(ext[,inn]) wins
+// over expose(N); 0 = nothing published. Lets a container use the LB-style
+// publish grammar for an asymmetric host<->container map.
+get_expose_host(nm: string) -> int {
+    p = config.get("aeo.cmp.publish.ext.${nm}")
+    if string_length(p) > 0 {
+        return _to_int(p)
+    }
+    return get_expose(nm)
+}
+
+// Effective CONTAINER-side port: publish(ext,inn)'s inner if set, else the host
+// port (symmetric). 0 = nothing published. The driver renders `-p host:inner`.
+get_expose_inner(nm: string) -> int {
+    pi = config.get("aeo.cmp.publish.inner.${nm}")
+    if string_length(pi) > 0 {
+        return _to_int(pi)
+    }
+    return get_expose_host(nm)
 }
 
 // memory defaults to 512M if unset.

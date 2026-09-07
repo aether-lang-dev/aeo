@@ -32,7 +32,7 @@ import std.os
 import host (family, profile)
 import driver_linux (engine_resolve)
 import secrets
-import std.fs (write_atomic, mkdir_p)
+import std.fs (write_atomic, mkdir_p, path_dirname, realpath)
 import std.list
 import std.string (string_length, string_concat, string_trim, string_char_at, string_substring)
 import std.io (stderr_write, println)
@@ -300,6 +300,18 @@ main() {
     // process group + forward signals + reap the group: a Ctrl-C during
     // bring-up forwards to the whole tree.
     _ = _setenv("AEO_CMD", cmd)
+    // AEO_COMPOSE_DIR — the ABSOLUTE directory of the composition file, so the
+    // runner can resolve containerfile()/build_context() paths (declared relative
+    // to the compose file) at up. The runner runs from the staged build dir, not
+    // the operator's cwd, so a relative path is meaningless without this anchor.
+    if stub_compose == 0 {
+        cdir = path_dirname(compose_path)
+        if string_length(cdir) == 0 { cdir = "." }
+        cabs, _ckind, _cerr = realpath(cdir)
+        if string_length(cabs) > 0 {
+            _ = _setenv("AEO_COMPOSE_DIR", cabs)
+        }
+    }
     // The optional 3rd arg: snapshot/rollback TAG, `--json` (status), or
     // `--no-supervisor` (up/down: opt out of the resident supervisor -> ephemeral
     // fire-and-exit, today's behavior).

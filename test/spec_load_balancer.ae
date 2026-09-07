@@ -158,7 +158,7 @@ main() {
                     container("app-1") { listens(8080); publish(8443) }   // ILLEGAL
                 }
                 errs = lb_model_errors()
-                spec.expect_int(_has(errs, "node 'app-1' declares publish() but is not a load_balancer")).to_be_truthy()
+                spec.expect_int(_has(errs, "node 'app-1' declares publish() but is a load_balancer BACKEND")).to_be_truthy()
             }
         }
 

@@ -1,11 +1,17 @@
 # container: `--entrypoint`, asymmetric `publish(ext,inn)`, and out-of-line Containerfile builds
 
-**Status:** OPEN (2026-09-07). Found while spiking a real workload
-(servirtium-vcr's Go todobackend record standup) as an aeo composition. The
-lifecycle mechanics (health-gated up, verified teardown) worked great; three
-compose-DSL / linux-driver gaps stopped the composition from owning the full
-build→up→record→down flow declaratively — two block the run invocation, one keeps
-the image `podman build` a manual pre-step.
+**Status:** IMPLEMENTED (2026-09-07). All three items shipped + verified live on
+podman 4.3.1/Linux against the vendored todobackend SUT (a real `aeo up` gave
+`Entrypoint=/app/bin/http4k-todo-backend` with args unwrapped, `-p 54321:8000`,
+and an image built from the out-of-line Containerfile+context). Pure-argv +
+model coverage in `test/spec_container_run_argv.ae` (8 cases). Suite green.
+
+NOTE on item 1's naming: `entrypoint()` was ALREADY taken — it's the inline
+program-SOURCE form (a body aeo wraps in a synthesized image, default
+python:3-alpine + `CMD ["python","/app.py"]`), a BUILD-TIME thing. The new
+run-time `--entrypoint` verb is therefore **`exec_entrypoint("/path/in/image")`**
+(a path inside an existing image()), left the script-form `entrypoint()`
+untouched. Two different axes; two verbs.
 
 Verified on: aeo 0.2.0 (clone `make install`), podman 4.3.1, Linux.
 

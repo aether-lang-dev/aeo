@@ -1,0 +1,127 @@
+// spec_container_run_argv.ae — the container run-argv grammar added for the
+// servirtium-vcr todobackend workload (asks/container-entrypoint-and-asymmetric-
+// publish.md):
+//   1. exec_entrypoint()  -> podman/docker `--entrypoint <path>`, and command()
+//      passed as the container's ARGS (not wrapped in /bin/sh -c).
+//   2. publish(ext)/publish_map(ext,inn) on a plain container -> `-p ext:inn`
+//      (asymmetric host<->container map; the expose() peer).
+//   3. containerfile()+build_context() model round-trip (the out-of-line build
+//      form; the actual build is a live podman step, proven end-to-end, not here).
+//
+// PURE surface: driver_linux.run_argv_full renders the argv without spawning; the
+// live up_confined2 threads the same signals. Behavioral proof (a real container
+// with the right --entrypoint + port map, serving) is the up path, not this.
+//
+//   sh test/run-spec.sh test/spec_container_run_argv.ae
+
+import std.spec
+import compose
+import driver_linux
+import std.list (list_get_raw, list_size, list_free)
+import std.string
+
+main() {
+    fw = spec.init()
+    spec.describe(fw, "container run-argv: exec_entrypoint / asymmetric publish / out-of-line build") {
+
+        spec.describe("1. exec_entrypoint() -> --entrypoint + cmd-as-args") {
+            spec.it("emits --entrypoint <path> and passes command as args (no /bin/sh -c)") callback {
+                av = driver_linux.run_argv_full("app", "todobackend-sut", "8000 http://x", 0, 0, "/app/bin/http4k-todo-backend", "", "", "", "")
+                j = _join(av)
+                spec.expect_str(j).to_contain("--entrypoint /app/bin/http4k-todo-backend")
+                spec.expect_str(j).to_contain("todobackend-sut 8000 http://x")
+                list_free(av)
+            }
+            spec.it("without exec_entrypoint, keeps the /bin/sh -c convenience form") callback {
+                av = driver_linux.run_argv_full("app", "img", "echo hi", 0, 0, "", "", "", "", "")
+                j = _join(av)
+                spec.expect_str(j).to_contain("/bin/sh -c")
+                list_free(av)
+            }
+        }
+
+        spec.describe("2. asymmetric publish -> -p ext:inn") {
+            spec.it("inner set renders -p host:inner") callback {
+                av = driver_linux.run_argv_full("app", "img", "", 54321, 8000, "", "", "", "", "")
+                j = _join(av)
+                spec.expect_str(j).to_contain("-p 54321:8000")
+                list_free(av)
+            }
+            spec.it("inner 0 collapses to symmetric -p N:N (the expose() form)") callback {
+                av = driver_linux.run_argv_full("app", "img", "", 8080, 0, "", "", "", "", "")
+                j = _join(av)
+                spec.expect_str(j).to_contain("-p 8080:8080")
+                list_free(av)
+            }
+        }
+
+        spec.describe("2b. publish grammar on a plain container (compose model)") {
+            spec.it("publish_map(ext,inn) records ext/inner; get_expose_host/inner fold over expose()") callback {
+                compose.reset_nodes()
+                compose.system("pubtest") {
+                    c = compose.container("web") {
+                        compose.image("img")
+                        compose.publish_map(54321, 8000)
+                    }
+                }
+                spec.expect_int(compose.get_expose_host("web")).to_equal(54321)
+                spec.expect_int(compose.get_expose_inner("web")).to_equal(8000)
+            }
+            spec.it("single-arg publish(p) is symmetric (host==container==p)") callback {
+                compose.reset_nodes()
+                compose.system("pubtest2") {
+                    c = compose.container("web") {
+                        compose.image("img")
+                        compose.publish(9000)
+                    }
+                }
+                spec.expect_int(compose.get_expose_host("web")).to_equal(9000)
+                spec.expect_int(compose.get_expose_inner("web")).to_equal(9000)
+            }
+            spec.it("a standalone container publishing is NOT a model error (only a LB BACKEND is)") callback {
+                compose.reset_nodes()
+                compose.system("pubtest3") {
+                    c = compose.container("web") {
+                        compose.image("img")
+                        compose.publish_map(54321, 8000)
+                    }
+                }
+                spec.expect_str(compose.lb_model_errors()).to_equal_str("")
+            }
+        }
+
+        spec.describe("3. out-of-line build (containerfile + build_context) model") {
+            spec.it("records the Containerfile path and context dir") callback {
+                compose.reset_nodes()
+                compose.system("bldtest") {
+                    c = compose.container("sut") {
+                        compose.containerfile("Containerfile.sut")
+                        compose.build_context("sut")
+                        compose.exec_entrypoint("/app/bin/x")
+                    }
+                }
+                spec.expect_str(compose.get_containerfile("sut")).to_equal_str("Containerfile.sut")
+                spec.expect_str(compose.get_build_context("sut")).to_equal_str("sut")
+                spec.expect_str(compose.get_exec_entrypoint("sut")).to_equal_str("/app/bin/x")
+            }
+        }
+    }
+
+    return spec.run_summary(fw)
+}
+
+_join(av: ptr) -> string {
+    s = ""
+    n = list_size(av)
+    i = 0
+    while i < n {
+        it = list_get_raw(av, i)
+        if i == 0 {
+            s = "${it}"
+        } else {
+            s = "${s} ${it}"
+        }
+        i = i + 1
+    }
+    return s
+}
