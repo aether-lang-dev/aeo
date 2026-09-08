@@ -192,6 +192,19 @@ work around), but the anchor differs from the documented AEO_COMPOSE_DIR intent 
 either the resolution or the comment wants a fix so composition-relative paths
 are portable regardless of where `aeo` is invoked from.
 
+**RESOLVED — could not reproduce on current main (2026-09-08).** Re-tested the
+exact shape from a FOREIGN cwd (compose in a subdir, invoke `aeo` from the repo
+root) with the cache disabled (AEO_REBUILD=1): both `containerfile("ctx/…")` +
+`build_context("ctx")` AND the reporter's `build_context("../sut")` form built
+their images with the path correctly anchored at the COMPOSE FILE's directory,
+not cwd — `AEO_COMPOSE_DIR` is set by the front-door (bin/aeo.ae) and read by
+`_compose_rel` as documented. The most likely cause of the 0.2.0 observation is
+the BUILD CACHE: AEO_COMPOSE_DIR is a run-time env, but the build-input hash that
+decides cache reuse doesn't include it, so a cached image from a prior
+cwd-relative attempt could be reused. Behavior on main is correct; no code change
+needed. (If it recurs, the fix would be to fold AEO_COMPOSE_DIR into the build
+cache key so a dir change invalidates the cache.)
+
 ---
 
 ## Message back to the aeo maintainer (2026-09-07, from the servirtium side)
