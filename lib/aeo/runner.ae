@@ -577,10 +577,22 @@ _container_image(nm: string, engine_pref: string) -> string {
     cf = compose.get_containerfile(nm)
     if cf != "" {
         cfabs = _compose_rel(cf)
+        // A composition-relative containerfile() MUST resolve to an absolute
+        // path here. The runner runs from the staged build dir (not the
+        // operator's cwd), so a still-relative path would silently anchor at the
+        // wrong place and podman would build the wrong Containerfile/context.
+        // AEO_COMPOSE_DIR (front-door -> os.setenv -> child env) is the anchor;
+        // if it failed to reach us, fail LOUD rather than guess a cwd.
+        if string_char_at(cfabs, 0) != 47 {
+            return "ERR:[${nm}] cannot anchor containerfile(\"${cf}\") — AEO_COMPOSE_DIR is unset in the runner, so the composition-relative path cannot be resolved. This is an internal wiring fault (the front-door sets it before spawning the runner); re-run and, if it persists, report it. (Workaround: give containerfile() an absolute path.)"
+        }
         ctx = compose.get_build_context(nm)
         ctxabs = ""
         if ctx != "" {
             ctxabs = _compose_rel(ctx)
+            if string_char_at(ctxabs, 0) != 47 {
+                return "ERR:[${nm}] cannot anchor build_context(\"${ctx}\") — AEO_COMPOSE_DIR is unset in the runner. (Workaround: give build_context() an absolute path.)"
+            }
         } else {
             // default context = the Containerfile's own directory.
             ctxabs = _dir_of(cfabs)

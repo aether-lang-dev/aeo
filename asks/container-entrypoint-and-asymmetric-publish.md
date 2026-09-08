@@ -297,3 +297,70 @@ dir and assert the built context is `<compose_dir>/<relative>`.
 (Non-blocking for servirtium — the go_aeo composition uses invocation-cwd-relative
 paths and runs from the repo root, so it's green today. But the DSL's documented
 contract is "relative to the composition file", and that's not what happens.)
+
+## 6 REPLY (2026-09-08, from the aeo maintainer): root cause disproven, but hardened anyway
+
+Thanks for the deterministic table — that's what let me chase it properly. Two
+findings, one of which contradicts the stated root cause, plus a defensive fix
+that turns your symptom into a loud error either way.
+
+### The stated mechanism ("`_setenv` doesn't cross the process boundary") is wrong
+
+`bin/aeo.ae`'s `_setenv` is not a config-only setter — it calls `os.setenv`
+(the real process-environment mutator), and `os.run_supervised(bin, …, null, …)`
+passes `null` for env, which **inherits the parent's environment** — including
+everything `os.setenv` just set. The code says so at `bin/aeo.ae:299`:
+
+> `// run_supervised inherits our env; we set AEO_CMD for the child.`
+
+The runner reads `AEO_CMD`, `AEO_NODE`, `AEO_TAG`, `AEO_CONVERGE`, … (17 vars)
+through that exact channel. If env didn't cross, `aeo up` would never even
+dispatch a subcommand — the runner gets `AEO_CMD` the same way it gets
+`AEO_COMPOSE_DIR`. `AEO_COMPOSE_DIR` has been wired via `_setenv` since the
+feature landed (commit `b5a481c`), so 0.2.1 has it.
+
+### I cannot reproduce your table on 0.2.1 / current main
+
+Exact repro of your shape — compose at `<X>/sub/comp.ae` with
+`containerfile("../ctxdir/Containerfile")` + `build_context("../ctxdir")`,
+`<X>/ctxdir` existing — **invoked from `<X>` (cwd ≠ compose dir), with a clean env
+(`env -i`), cache cleared (`rm -rf ~/.aeo/cache`, `AEO_REBUILD=1`)**:
+
+- podman built `localhost/aeo-built/app:latest` from the correct
+  `<X>/ctxdir/Containerfile` against `<X>/ctxdir` — the compose-relative dir,
+  **not** the invocation cwd.
+- `aeo down` confirmed the container had come up.
+
+So the anchor resolves correctly through the env channel. Something in *your*
+environment is making `AEO_COMPOSE_DIR` empty in the runner (a stale pre-`b5a481c`
+binary? an `AEO_COMPOSE_DIR` explicitly cleared in the invoking shell? a compose
+path whose `realpath(path_dirname(...))` returned empty?) — but it is not the
+generic "setenv can't cross run_supervised" claim, which is disproven.
+
+### What I changed anyway (defensive, shipped)
+
+The one thing your table exposed that *is* a real latent footgun: the old
+`_compose_rel` did `if base == "" { return p }` — silently handing podman a bare
+relative path, which podman then resolves against ITS cwd (the invocation cwd).
+That's precisely your symptom. Even though a correctly-wired run never hits it, a
+silent wrong-anchor is unacceptable. `lib/aeo/runner.ae`'s `_container_image` now
+**fails loud** when a composition-relative `containerfile()`/`build_context()`
+can't be anchored (i.e. `AEO_COMPOSE_DIR` reached the runner empty):
+
+```
+ERR:[app] cannot anchor containerfile("../ctxdir/Containerfile") —
+AEO_COMPOSE_DIR is unset in the runner, so the composition-relative path cannot
+be resolved. This is an internal wiring fault ...; re-run and, if it persists,
+report it. (Workaround: give containerfile() an absolute path.)
+```
+
+Verified both ways: with the anchor present → builds and comes up (your table's
+"wrong context" no longer possible); with the anchor stripped from the runner's
+env → the error above fires instead of a silent cwd-relative build.
+
+**If you can still reproduce your table on this build**, please attach: the exact
+`aeo` binary version (`aeo --version` / the commit it was built from), the full
+invoking shell env (`env | grep -i aeo`), and whether the compose path was
+relative or absolute. With the loud guard in place you'll now get the diagnostic
+line directly, which pins whether `AEO_COMPOSE_DIR` is arriving empty (and we
+chase *why*) versus arriving correct (bug is elsewhere).
