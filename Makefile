@@ -29,8 +29,19 @@ all: build
 
 # build — compile the aeo CLI to bin/aeo. Idempotent-ish: ae's own content hash
 # skips recompiles when nothing changed. Needs `ae` on PATH.
+#
+# After building, PASSIVELY warn if the INSTALLED tree lags this source (compares
+# the installed AEO_STAMP's src-hash to the dev tree's). This is the early-warning
+# that would have caught the stale-front-door trap (item 6): a `git pull` + `make`
+# now says "installed aeo is stale — run 'make install'" instead of letting a
+# lagging installed front-door mis-drive the current runner silently.
 build:
 	$(AETHER) build bin/aeo.ae -o bin/aeo --lib lib
+	@if [ -f "$(SHAREDIR)/AEO_STAMP" ]; then \
+	    dev=$$( $(SRCHASH_CMD) ); \
+	    inst=$$(awk '$$1=="src"{print $$2}' "$(SHAREDIR)/AEO_STAMP"); \
+	    [ "$$dev" = "$$inst" ] || echo "note: installed aeo at $(SHAREDIR) is stale vs this tree ($$inst -> $$dev) — run 'make install'"; \
+	fi
 
 # bin/aeo — a TIMESTAMP rule so a clone install rebuilds the front-door whenever
 # the SOURCE (bin/aeo.ae or anything under lib/) is newer than the built binary.
