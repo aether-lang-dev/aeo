@@ -528,3 +528,78 @@ and the absolute-path workaround (`containerfile("/abs/…")`) sidesteps it enti
 — so this doesn't block anyone. It's now a runtime bug to hand upstream, not an
 aeo-source bug. Env details unchanged from my last reply (aeo 2cb5a1b, ae 0.645.0,
 aeb v0.298, Debian/crostini x86_64, podman 4.3.1, /bin/sh=dash).
+
+## 6 (reply, 2026-09-08): it's a STALE FRONT-DOOR, not a runtime argv bug — one-command check
+
+I ran your exact requested repro and it PASSES here — which points the finger back
+at the install, not the C runtime. Please do the one check below before we escalate
+to aether; I'm ~95% sure this is a stale `aeo` binary on your PATH.
+
+### Your requested repro (run_supervised → child argv) — works on my box
+
+```
+// parent: os.run_supervised(<child>, ["--aeo-cmd","up","--aeo-compose-dir","/x/sub"], null, 1,1,0,1)
+// child:  prints its own aether_args_get(0..)
+CHILD argc=5
+CHILD argv[0]=[…/argvchild]
+CHILD argv[1]=[--aeo-cmd]
+CHILD argv[2]=[up]
+CHILD argv[3]=[--aeo-compose-dir]
+CHILD argv[4]=[/x/sub]
+```
+
+So `os.run_supervised` DOES deliver argv[1..] to the child here (same ae 0.645.0,
+glibc, dash). `os_run_supervised_raw` is not dropping argv at the layer you
+suspected — at least not universally.
+
+### The actual mechanism: you updated the runner but not the front-door
+
+The front-door and the runner are TWO SEPARATE artifacts with DIFFERENT update
+lifecycles:
+
+- **The runner** (`lib/aeo/runner.ae`) is copied from `$AEO_HOME/lib` and
+  **recompiled on every `aeo up`** (cache keyed on the lib hash). Clearing
+  `~/.aeo` forces that recompile — which is why your `DBG` line printed AT ALL:
+  your runner IS at 2cb5a1b (it has `_seed_args_into_config`).
+- **The front-door** (`aeo` on PATH → `$PREFIX/share/aeo/bin/aeo`) is a
+  **separately built + installed binary**. `aeo up` NEVER rebuilds it (grep
+  confirms: the front-door has no self-rebuild path). Clearing `~/.aeo` does
+  nothing to it. And `make install` only rebuilds `bin/aeo` if it's MISSING
+  (Makefile:44 `[ -x bin/aeo ] || make build`) — a `git pull` that changes
+  `bin/aeo.ae` does NOT force a rebuild of an already-present `bin/aeo`.
+
+So the likely state on your box: **NEW runner (looks for `--aeo-*` flags), OLD
+front-door (still builds an empty `rav` — the pre-2cb5a1b env-based code).** Old
+front-door spawns new runner with empty argv → runner sees `argv[0]` only → guard
+fires. I reproduced your exact symptom deterministically by spawning the 2cb5a1b
+runner with an EMPTY `rav`:
+```
+OLD-FRONTDOOR spawning NEW runner with EMPTY rav
+aeo: [app] up failed: [app] cannot anchor containerfile("../ctxdir/Containerfile")
+  — AEO_COMPOSE_DIR is unset in the runner …
+```
+Identical to yours.
+
+### The one-command check (do this first)
+
+```
+# from your aeo clone at 2cb5a1b:
+grep -c '_rarg' bin/aeo.ae          # source: should be > 0 (the new argv path)
+strings "$(command -v aeo | xargs readlink -f | xargs dirname)/../share/aeo/bin/aeo" \
+  | grep -c -- '--aeo-compose-dir'  # INSTALLED front-door: 0 = STALE, rebuild needed
+```
+If the installed binary shows `0`, it predates the migration. Fix:
+```
+cd <aeo clone at 2cb5a1b>
+make build     # force-rebuild bin/aeo from the new bin/aeo.ae  (ae's hash may skip;
+rm -f bin/aeo && make build     # …so delete it first to be certain)
+make install   # copy the fresh front-door onto PATH
+rm -rf ~/.aeo  # drop the runner cache so it recompiles too
+aeo up integration/todobackend/go_aeo/todobackend_go.ae
+```
+Then the front-door emits `--aeo-compose-dir <abs>` and the runner's DBG will show
+argv[1..]. If after a verified-fresh front-door (the `strings` check shows the
+flag) you STILL get argv[0]-only in the runner, THEN it's a genuine
+`os_run_supervised_raw` platform bug and I'll build the minimal `ae run` repro for
+the aether maintainer — but let's confirm the install first, because the repro
+above already works here.
