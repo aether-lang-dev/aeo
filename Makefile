@@ -32,16 +32,33 @@ all: build
 build:
 	$(AETHER) build bin/aeo.ae -o bin/aeo --lib lib
 
+# bin/aeo — a TIMESTAMP rule so a clone install rebuilds the front-door whenever
+# the SOURCE (bin/aeo.ae or anything under lib/) is newer than the built binary.
+# This is the fix for a nasty footgun: `git pull` changing bin/aeo.ae used to
+# leave a stale bin/aeo in place (the old guard was just `[ -x bin/aeo ]`), so
+# `make install` would ship a front-door that lagged the runner — the two are
+# separate artifacts and only the runner recompiles at `aeo up`. A stale
+# front-door silently mis-passed parameters to the current runner (see item 6).
+# Guarded on `ae` being present so a release-bundle box (prebuilt bin/aeo, no
+# toolchain) never tries to rebuild — there the shipped binary is authoritative
+# and, being newer-on-unpack, won't trip this rule anyway.
+bin/aeo: bin/aeo.ae $(shell find lib -type f 2>/dev/null)
+	@if command -v $(AETHER) >/dev/null 2>&1; then \
+	    echo "bin/aeo is stale (source newer) — rebuilding"; \
+	    $(AETHER) build bin/aeo.ae -o bin/aeo --lib lib; \
+	    touch bin/aeo; \
+	else \
+	    echo "NOTE: $(AETHER) not on PATH — using the existing prebuilt bin/aeo (bundle install)"; \
+	fi
+
 # install — copy the runtime tree to $(SHAREDIR) and drop a wrapper at
 # $(BINDIR)/aeo that pins AEO_HOME at the installed copy. The wrapper is
 # regenerated each install so PREFIX changes are picked up.
 #
-# bin/aeo must exist first. From a clone that means `make build` (or `make
-# install` depends on it); from a release bundle bin/aeo is already the shipped,
-# target-native binary — so we DON'T force a rebuild here (the bundle box may
-# have no `ae`). Build only if the binary is absent.
-install:
-	@[ -x bin/aeo ] || { echo "bin/aeo not built — running 'make build'"; $(MAKE) build; }
+# Depends on the bin/aeo timestamp rule above: from a clone, a source change
+# forces a front-door rebuild BEFORE the copy (no more stale-front-door footgun);
+# from a release bundle (no `ae`), the prebuilt bin/aeo is used as-is.
+install: bin/aeo
 	@mkdir -p $(BINDIR) $(SHAREDIR) $(SHAREDIR)/bin
 	rm -f $(BINDIR)/aeo
 	rm -rf $(SHAREDIR)/lib $(SHAREDIR)/examples $(SHAREDIR)/bin/aeo

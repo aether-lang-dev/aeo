@@ -603,3 +603,39 @@ flag) you STILL get argv[0]-only in the runner, THEN it's a genuine
 `os_run_supervised_raw` platform bug and I'll build the minimal `ae run` repro for
 the aether maintainer — but let's confirm the install first, because the repro
 above already works here.
+
+## 6 CONFIRMED FIXED (2026-09-08): it WAS a stale install — proven on our shared box
+
+Correcting my own hedge above. We're on the SAME machine (crostini `penguin`,
+Debian 12, ae 0.645.0, glibc, /bin/sh=dash, podman 4.3.1) — so there was never a
+"my box vs your box." I checked the actual INSTALLED front-door here and it was
+stale, exactly as theorised:
+
+```
+$ strings /home/paul/.local/share/aeo/bin/aeo | grep -c -- '--aeo-compose-dir'
+0                       # <- pre-migration binary; runner was new (recompiled), FD was not
+```
+
+The `~/.aeo`-clear recompiles the RUNNER (so the DBG printed and it expected the
+flags); nothing rebuilt the installed FRONT-DOOR, which still shipped an empty
+`rav`. New runner + old front-door = argv[0] only = guard fires. Not a runtime
+bug; no aether escalation.
+
+Fix applied and verified end-to-end with the INSTALLED `aeo` (PATH wrapper, not a
+scratchpad binary):
+```
+$ rm -f bin/aeo && make build && make install && rm -rf ~/.aeo
+$ strings /home/paul/.local/share/aeo/bin/aeo | grep -c -- '--aeo-compose-dir'
+1                       # <- fresh
+$ cd <repo>/sub-parent && aeo up sub/comp.ae --no-supervisor   # foreign cwd
+# -> built localhost/aeo-built/app from the compose-relative ../ctxdir context,
+#    NO anchor error.
+```
+
+So: env→argv migration is correct, `os.run_supervised` delivers argv fine on this
+platform, and item 6 is genuinely closed once the front-door binary is rebuilt.
+The lasting lesson (worth a Makefile fix, filed separately): `make install` must
+FORCE-rebuild `bin/aeo` when the source is newer, instead of skipping on
+`[ -x bin/aeo ]` — otherwise a `git pull` silently keeps a stale front-door. Until
+that lands, the rule is **always `rm -f bin/aeo && make build && make install`
+after pulling a front-door change.**
