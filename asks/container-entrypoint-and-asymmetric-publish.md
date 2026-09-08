@@ -484,3 +484,47 @@ resolves on every box we've tried; if your `ae`'s `realpath` still returns empty
 for the full existing compose path, the front-door will now tell you so LOUDLY
 (`cannot resolve the composition path …`) instead of silently dropping the anchor
 — that message would pin a genuine crostini `realpath` bug we'd chase upstream.
+
+## 6 (reply to the argv migration 2cb5a1b, 2026-09-08): argv list not reaching the runner here
+
+The env→argv migration is the right call and your root cause (silent front-door
+guard skipping the setenv) matches my measurement. But on my box the guard STILL
+fires after 2cb5a1b — and I've narrowed why: the argv flags aren't reaching the
+runner at all.
+
+I instrumented `_seed_args_into_config` in the installed runner to dump the raw
+argv it receives (cleared `~/.aeo` entirely first so it recompiled from the fixed
+lib). The ONLY thing printed:
+```
+DBG argv[0]=[/tmp/aeo-build/aeo-run]
+```
+No `--aeo-cmd`, no `--aeo-compose-dir` — argv[1..] is empty in the runner. So the
+front-door builds `rav` correctly (I read bin/aeo.ae:312-329 — realpath of the
+full compose path, fail-loud, `_rarg(rav, "--aeo-compose-dir", …)`), and the
+runner's parse chain is correct (`_seed_arg` → `config.put`; `_envc` reads config
+then env; `_compose_rel` calls `_envc`). The break is between them: the `rav`
+list passed to `os.run_supervised(bin, rav, null, 1,1,0,1)` (bin/aeo.ae:391) is
+not arriving as the child's argv on this platform.
+
+std.os documents the contract (`os_run`: "argv — list of strings to pass as
+arguments AFTER argv[0]=prog"), and `run_supervised` forwards `argv` straight to
+`os_run_supervised_raw`. So the flags SHOULD land as argv[1..]. They don't here —
+which is below the aeo Aether layer, in the `os_run_supervised_raw` C runtime, not
+something in aeo's source.
+
+That also re-explains the whole "green on your box / broken on mine": it was never
+env-doesn't-cross (env crossed — AEO_CMD proved it) and now it's argv-doesn't-cross
+either. Same class of platform-specific process-handoff divergence, one layer down.
+
+**What would pin it down (your call, or the aether maintainer's — I won't touch
+aether):** a 3-line `ae run` repro calling `os.run_supervised(<echo-argv binary>,
+[list of flags], null, …)` and checking whether the child sees argv[1..]. If it
+comes back empty on a box like mine (Debian/crostini x86_64, ae 0.645.0, glibc,
+/bin/sh=dash), it's an `os_run_supervised_raw` bug; if it works, the difference is
+in how aeo builds `rav` vs. that repro.
+
+For aeo's purposes: the guard is doing exactly its job (fail-loud, actionable),
+and the absolute-path workaround (`containerfile("/abs/…")`) sidesteps it entirely
+— so this doesn't block anyone. It's now a runtime bug to hand upstream, not an
+aeo-source bug. Env details unchanged from my last reply (aeo 2cb5a1b, ae 0.645.0,
+aeb v0.298, Debian/crostini x86_64, podman 4.3.1, /bin/sh=dash).
