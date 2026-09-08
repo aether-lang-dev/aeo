@@ -3650,22 +3650,66 @@ _run_phase_specs(phase: string) -> int {
     return worst
 }
 
-// Run one spec file as a child process. Uses the spec runner if present (it wires
-// the aeocha module path), else a bare `ae run`. Returns the child's exit status.
+// Run one composition-declared spec (from check()/smoke()/suite()) as a child
+// process. Builds the spec DIRECTLY against aeo's own lib and runs the fresh
+// binary — no `test/run-spec.sh` trampoline. That script is aeo's INTERNAL test
+// harness (FreeBSD-skips, capsicum C/python staging, the AETHER_PIN warning, the
+// spec_*.ae glob); it ships only in the clone, not in the get.sh/make-install
+// bundle, so shelling it made check/smoke/suite silently no-op on an installed
+// CLI ("cannot open test/run-spec.sh"). A composition spec needs none of that
+// harness — just compile it with std.spec (+ aeo's lib) and run it — so building
+// directly is both the fix (nothing to package) and correct (identical from a
+// clone and an install).
+//
+// The spec path is COMPOSITION-RELATIVE (e.g. suite("checks/foo.spec.ae")), so
+// anchor it via _compose_rel (AEO_COMPOSE_DIR — set by the front-door). This also
+// fixes a second latent bug: the old code resolved the spec against AEO_HOME (the
+// installed tree), which only ever worked for aeo's own examples/ specs that
+// happened to live under AEO_HOME. Build-then-run (not `ae run`): `ae run` caches
+// by content and can serve a stale compiled dep — a fresh build each time makes
+// edits always take (the same discipline run-spec.sh uses).
 _run_one_spec(spec: string) -> int {
-    av = list_new()
-    list_add(av, "-c")
-    // Prefer the project's spec harness (sets AEOCHA + lib path); fall back to a
-    // direct `ae run` with aeo's own lib. AEO_HOME is the aeo tree root.
     home = _envc("AEO_HOME")
     if string_length(home) == 0 {
         home = os_getenv("AEO_HOME")
     }
-    list_add(av, "cd ${home} && sh test/run-spec.sh ${spec}")
+    specabs = _compose_rel(spec)
+    if string_char_at(specabs, 0) != 47 {   // not absolute
+        println("aeo: cannot anchor spec \"${spec}\" — AEO_COMPOSE_DIR unset in the runner (internal wiring fault). (Workaround: give the check()/smoke()/suite() path as an absolute path.)")
+        return 1
+    }
+    bin = "/tmp/aeo-phasespec-${_spec_binname(specabs)}"
+    av = list_new()
+    list_add(av, "-c")
+    list_add(av, "ae build '${specabs}' -o '${bin}' --lib '${home}/lib' && '${bin}'")
     out, status, err = run_capture("/bin/sh", av, null)
     list_free(av)
     println(out)
     return status
+}
+
+// _spec_binname — a filesystem-safe basename for the built spec binary: the last
+// path segment with any trailing ".ae" dropped. (Two specs sharing a basename
+// would collide, but they run sequentially and the build is fresh each time, so a
+// reused path is harmless.)
+_spec_binname(p: string) -> string {
+    base = p
+    i = string_length(p) - 1
+    while i >= 0 {
+        if string_char_at(p, i) == 47 {          // last '/'
+            base = string_substring(p, i + 1, string_length(p))
+            i = -1
+        } else {
+            i = i - 1
+        }
+    }
+    n = string_length(base)
+    if n > 3 {
+        if string_equals(string_substring(base, n - 3, n), ".ae") == 1 {
+            base = string_substring(base, 0, n - 3)
+        }
+    }
+    return base
 }
 
 // The snapshot/rollback/backup tag (AEO_TAG, set by the front-door from the CLI
