@@ -236,3 +236,64 @@ so aeo's `get.sh` pulls a make-less aeb bundle. Then `aeo` installs clean on a
 bare CI box and servirtium can pin `AEO_REF=v0.2.0` in CI. Until then, aeo/aeb
 install on a fresh box needs the `-dev` libs (or a clone). No aeo change needed —
 noting it here since aeo's install story depends on it.
+
+## 6 (REOPENED, 2026-09-08): path anchor IS reproducible — root-caused
+
+Re item 6 marked "resolved — not reproducible" (commit 26b0700): it reproduces
+deterministically on aeo **0.2.1**, and I've root-caused it. Not a
+did-you-clear-the-cache thing — I cleared `~/.aeo/cache` before each run.
+
+### Deterministic repro
+
+A composition at `<X>/sub/comp.ae` with `build_context("../ctxdir")`, where
+`<X>/ctxdir` EXISTS (i.e. the path is correct *relative to the compose file's
+dir*). Invoked from three different cwds, cache cleared each time:
+
+| invocation cwd | resolved build context (from the `context must be a directory` error) |
+|---|---|
+| `/tmp`         | `/ctxdir`        (= `/tmp/../ctxdir`) |
+| `/home/paul`   | `/home/ctxdir`   (= `/home/paul/../ctxdir`) |
+| `<X>/sub` (the compose file's own dir) | *no error* — `../ctxdir` = `<X>/ctxdir`, which exists |
+
+The resolved path tracks the **invocation cwd**, never `<X>/sub` (the compose
+file's dir). So a composition-relative path is only correct when you happen to
+invoke aeo from the compose file's own directory — which is exactly why "run it
+from the right place" made it look resolved.
+
+### Root cause (two files)
+
+- `bin/aeo.ae:312` — the front-door DOES `_setenv("AEO_COMPOSE_DIR", cabs)` with
+  the correct absolute compose dir. Good.
+- `lib/aeo/runner.ae:618` — `_compose_rel` reads it back with
+  `_envc("AEO_COMPOSE_DIR")`, and **on empty returns the path UNCHANGED**:
+  ```
+  base = _envc("AEO_COMPOSE_DIR")
+  if string_length(base) == 0 { return p }   // ← p stays "../ctxdir"
+  return "${base}/${p}"
+  ```
+  podman then resolves that relative `p` against ITS cwd (the invocation cwd).
+
+The `_setenv` in the front-door process does not reach the runner: the runner is
+a separately compiled+spawned binary (`os.run_supervised`, "runs from the staged
+build dir" per the comment), and the front-door's `_setenv` doesn't cross that
+process boundary into the child's environment. So `AEO_COMPOSE_DIR` is set in the
+front-door but **empty in the runner** — `_compose_rel` hits its silent
+return-unchanged fallback every time.
+
+That also explains the "not reproducible": anywhere `AEO_COMPOSE_DIR` happens to
+already be in the runner's env (a direct `_compose_rel` unit test that sets it, a
+build/run path that shares the env, or invoking from the compose dir so cwd ==
+compose dir by luck) makes it look correct.
+
+### Suggested fix
+
+Export `AEO_COMPOSE_DIR` into the runner's spawn environment (thread it through
+`os.run_supervised`'s env, same way other AEO_* vars reach the runner), OR pass
+the absolute compose dir to the runner as an argument rather than via env. Either
+way `_compose_rel` gets a non-empty base and composition-relative paths become
+portable regardless of cwd. A regression test: invoke from a cwd != the compose
+dir and assert the built context is `<compose_dir>/<relative>`.
+
+(Non-blocking for servirtium — the go_aeo composition uses invocation-cwd-relative
+paths and runs from the repo root, so it's green today. But the DSL's documented
+contract is "relative to the composition file", and that's not what happens.)
