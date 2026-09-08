@@ -5,12 +5,12 @@
 #   EXECUTED (human, one line) — installs ae, aeb, then the aeo CLI bundle:
 #     curl -fsSL https://raw.githubusercontent.com/aether-lang-dev/aeo/main/get.sh | sh
 #     curl -fsSL .../get.sh | sh -s -- v0.2.0         # pin the aeo release (positional)
-#     AEO_REF=v0.2.0 AE_PIN=0.645.0 sh get.sh          # pin via env
+#     AEO_REF=v0.2.2 AE_PIN=0.650.0 sh get.sh          # pin via env
 #
 #   SOURCED (a CI step / another repo) — defines the functions, installs nothing.
 #     Set AEOGET_SOURCE_ONLY=1 so sourcing DEFINES without auto-installing:
 #     AEOGET_SOURCE_ONLY=1 . <(curl -fsSL https://raw.githubusercontent.com/aether-lang-dev/aeo/main/get.sh)
-#     AE_PIN=0.645.0 aeo_bootstrap        # ensures ae + aeb, then the aeo CLI
+#     AE_PIN=0.650.0 aeo_bootstrap        # ensures ae + aeb, then the aeo CLI
 #     #   or the pieces:  ae_ensure ; aeb_ensure ; aeo_ensure
 #
 # Mirrors aeb's get.sh in shape (say/die/have, positional|env|latest resolution,

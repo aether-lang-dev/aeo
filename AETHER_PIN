@@ -107,4 +107,15 @@
 # If you are diagnosing an old-toolchain failure, those are what bites, not
 # this line. Do not read this bump as license to chase releases; the next
 # move of this number should go back to requiring evidence.
-0.645.0
+#
+# 0.650.0 — another TRACKING bump, same policy caveat as 0.645.0 above: NOT an
+# evidence bump. Nothing in the tree started needing a 0.650.0 primitive, and no
+# correctness/portability bug aeo hit was fixed here. Measured on 0.650.0: all
+# binaries (aeo + aeo-agent) build and the suite reports 0 failing, exit 0
+# (spec_container_run_argv 12/12). The floor moved only to match the toolchain
+# aeo is now developed and released against — the release cut alongside this bump
+# was built and published on 0.650.0. The REAL floor (what actually breaks a
+# too-old ae) is unchanged: std.spec (0.538.0), the skip verbs (0.545.0), and the
+# run_summary-returns-verdict correctness fix (0.612.0). Next move of this number
+# should return to requiring evidence.
+0.650.0
