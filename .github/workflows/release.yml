@@ -76,7 +76,7 @@ jobs:
         # /usr/local needs root and 'install' fails "Operation not permitted" on the
         # runner), then add its bin to PATH for later steps.
         run: |
-          curl -sSL https://raw.githubusercontent.com/aether-lang-org/aether/main/get.sh \
+          curl -sSL https://raw.githubusercontent.com/aether-lang-dev/aether/main/get.sh \
             | AETHER_REF="${{ github.event.inputs.ref }}" PREFIX="$HOME/.local" sh
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
@@ -137,7 +137,7 @@ jobs:
       # First ae version whose --target=x86_64-freebsd includes the libthr fix.
       # TODO: set to the real released version, then this gate self-clears.
       AEO_FREEBSD_MIN_AE: '0.428.0'
-      CROSSBUILD_REPO: https://github.com/aether-lang-org/aether-crossbuild.git
+      CROSSBUILD_REPO: https://github.com/aether-lang-dev/aether-crossbuild.git
     steps:
       - name: Checkout aeo
         uses: actions/checkout@v4
@@ -147,7 +147,7 @@ jobs:
 
       - name: Install the Aether toolchain (ae)
         run: |
-          curl -sSL https://raw.githubusercontent.com/aether-lang-org/aether/main/get.sh \
+          curl -sSL https://raw.githubusercontent.com/aether-lang-dev/aether/main/get.sh \
             | AETHER_REF="${{ github.event.inputs.ref }}" PREFIX="$HOME/.local" sh
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
@@ -257,7 +257,7 @@ jobs:
 
       - name: Install the Aether toolchain (ae)
         run: |
-          curl -sSL https://raw.githubusercontent.com/aether-lang-org/aether/main/get.sh \
+          curl -sSL https://raw.githubusercontent.com/aether-lang-dev/aether/main/get.sh \
             | AETHER_REF="${{ github.event.inputs.ref }}" PREFIX="$HOME/.local" sh
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
@@ -347,7 +347,7 @@ jobs:
 
       - name: Install the Aether toolchain (ae)
         run: |
-          curl -sSL https://raw.githubusercontent.com/aether-lang-org/aether/main/get.sh \
+          curl -sSL https://raw.githubusercontent.com/aether-lang-dev/aether/main/get.sh \
             | AETHER_REF="${{ github.event.inputs.ref }}" PREFIX="$HOME/.local" sh
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
