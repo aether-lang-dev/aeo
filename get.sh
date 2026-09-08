@@ -23,9 +23,10 @@
 #   * ae:  aether-<ver>-<os>-x86_64.tar.gz from aether's gh-releases (root layout
 #          bin/ include/ lib/ share/ -> PREFIX/). No .sha256 upstream, so trust is
 #          github-over-HTTPS. Source fallback: aether's own get.sh (make install).
-#   * aeb: aeb-<os>-amd64.tar.gz + its .sha256 from aeb's gh-releases; checksum
+#   * aeb: aeb-<os>-<arch>.tar.gz + its .sha256 from aeb's gh-releases; checksum
 #          VERIFIED (mismatch fatal). Then the bundle's own install.sh. Source
-#          fallback: the aeb repo install.sh.
+#          fallback: the aeb repo install.sh. NB aeb's x86 arch WORD changed
+#          (amd64 through v0.298 -> x86_64 by v0.300), so we try both in order.
 #   * aeo: aeo-<os>-<arch>.tar.gz + its .sha256 from aeo's gh-releases; checksum
 #          VERIFIED. The bundle is bin/aeo + share/aeo/{lib,examples} + install.sh
 #          — extract, run install.sh $PREFIX (copies the tree + writes a wrapper
@@ -34,8 +35,9 @@
 #          platform, we say so and point at the clone path.
 # A cold box thus skips the per-tool compile.
 #
-#   NOTE the arch-word asymmetry: aether assets use x86_64, aeb assets use amd64,
-#   aeo assets use x86_64/aarch64 (matching aeo-agent's existing scheme).
+#   NOTE the arch-word asymmetry: aether assets use x86_64/arm64, aeb assets use
+#   x86_64/arm64 now (were amd64/arm64 <= v0.298 — both tried), aeo assets use
+#   x86_64/aarch64 (matching aeo-agent's existing scheme).
 #
 # TRUST MODEL (deliberate). The aeb/aeo .sha256 is fetched at RUNTIME and compared
 # — it catches transit corruption, not a compromised release. No pinned hash
@@ -154,15 +156,31 @@ aeoget_install_aeb_binary() {
     _prefix="${PREFIX:-$HOME/.local}"
     _plat="$(aeoget_platform)"; [ -n "$_plat" ] || return 1
     _os="${_plat% *}"; _narch="${_plat#* }"
-    case "$_narch" in x86_64) _arch=amd64 ;; aarch64) _arch=arm64 ;; *) return 1 ;; esac
-    _base="aeb-$_os-$_arch"
+    # aeb's asset arch word CHANGED: it was `amd64` through v0.298, then switched
+    # to `x86_64` by v0.300 (aarch64 has stayed `arm64` throughout). So try the
+    # candidate names in order and take the first that exists — this resolves both
+    # a current aeb (x86_64) and an older pinned AEB_REF (amd64) without a second
+    # code path. The plain (glibc) bundle is preferred over the -musl variant.
+    case "$_narch" in
+        x86_64)  _cands="x86_64 amd64" ;;
+        aarch64) _cands="arm64 aarch64" ;;
+        *) return 1 ;;
+    esac
     _tag="$(aeoget_aeb_tag)"
     [ -n "$_tag" ] || { say "  could not resolve an aeb release tag — will build from source"; return 1; }
-    _url="https://github.com/$AEOGET_AEB_REPO/releases/download/$_tag/$_base.tar.gz"
     _td="$(mktemp -d)"
-    say "trying aeb binary: $_base.tar.gz @ $_tag (with .sha256 verify)"
-    if ! curl -fsSL "$_url" -o "$_td/aeb.tgz" 2>/dev/null; then
-        rm -rf "$_td"; say "  no aeb binary for $_os-$_arch @ $_tag — will build from source"; return 1
+    _base=""; _url=""
+    for _aw in $_cands; do
+        _try="aeb-$_os-$_aw"
+        _tryurl="https://github.com/$AEOGET_AEB_REPO/releases/download/$_tag/$_try.tar.gz"
+        say "trying aeb binary: $_try.tar.gz @ $_tag (with .sha256 verify)"
+        if curl -fsSL "$_tryurl" -o "$_td/aeb.tgz" 2>/dev/null; then
+            _base="$_try"; _url="$_tryurl"; break
+        fi
+        say "  no aeb binary named $_try.tar.gz @ $_tag — trying next arch word"
+    done
+    if [ -z "$_base" ]; then
+        rm -rf "$_td"; say "  no aeb binary for $_os ($_cands) @ $_tag — will build from source"; return 1
     fi
     if curl -fsSL "$_url.sha256" -o "$_td/aeb.sha256" 2>/dev/null; then
         _want="$(awk '{print $1}' "$_td/aeb.sha256")"; _got="$(sha256_of "$_td/aeb.tgz")"

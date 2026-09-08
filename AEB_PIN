@@ -52,4 +52,18 @@
 # before now aeo carried no aeb pin at all (aeb is a seam, and the tree has
 # no unconditional aeb build/run edge), so there was nothing to build below.
 # Recording it closes the "we depend on aeb but never say which aeb" gap.
-0.297.0
+#
+# 0.300.0 — an EVIDENCE bump. aeo's get.sh installs aeb from its prebuilt bundle
+# on a bare box; two things about v0.300 made this the known-good to record:
+#   (1) v0.300's bundle install.sh is COPY-ONLY (no `make`, no compiler) — the
+#       bare-box blocker the servirtium handover flagged is cleared (aeb 87a30b8,
+#       released past v0.297).
+#   (2) aeb CHANGED its x86 asset arch word from `amd64` (<= v0.298) to `x86_64`
+#       (by v0.300). aeo's get.sh looked only for `aeb-linux-amd64.tar.gz`, missed
+#       the new asset, fell back to a source build, and hit "GNU make required" —
+#       so the fixed aeb bundle did NOT unblock aeo until get.sh was taught to try
+#       both arch words. Fixed in the same change that records this pin.
+# VERIFIED end to end on a virgin debian:13-slim: `sh get.sh` installs ae (binary),
+# aeb v0.300 (binary, sha256 OK, copy-only), and aeo v0.2.3 (bundle) — no make, no
+# source fallback, all three on PATH. That full-chain success IS the evidence.
+0.300.0
