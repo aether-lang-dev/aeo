@@ -295,34 +295,51 @@ main() {
     }
     bin = string_concat(work, "/aeo-run")
 
-    // --- run supervised, passing the subcommand via AEO_CMD ---
-    // run_supervised inherits our env; we set AEO_CMD for the child. Own
-    // process group + forward signals + reap the group: a Ctrl-C during
+    // --- run supervised, passing every parameter as an argv FLAG ---
+    // The runner's parameters cross as `--aeo-<key> <value>` argv pairs, NOT as
+    // environment variables. This is the containment discipline (paul_hammant.com
+    // "Principles of Containment", 2016): the container hands the contained an
+    // EXPLICIT, exec-scoped input rather than smearing ambient authority across
+    // the environment. Env vars are INHERITED by every grandchild the runner
+    // spawns (podman, VMs, guests) — so AEO_TAG/AEO_NODE/AEO_COMPOSE_DIR would
+    // otherwise leak into every workload aeo launches. argv does not leak: it is
+    // scoped to this one process. The runner seeds these flags into its config
+    // (_seed_args_into_config) so existing readers see them, env-first-fallback
+    // retained only for operator-supplied vars (AEO_HOME, AEO_TOKEN*, …).
+    //
+    // Own process group + forward signals + reap the group: a Ctrl-C during
     // bring-up forwards to the whole tree.
-    _ = _setenv("AEO_CMD", cmd)
+    rav = list_new()
+    _rarg(rav, "--aeo-cmd", cmd)             // the subcommand (always present)
+
     // AEO_COMPOSE_DIR — the ABSOLUTE directory of the composition file, so the
     // runner can resolve containerfile()/build_context() paths (declared relative
-    // to the compose file) at up. The runner runs from the staged build dir, not
-    // the operator's cwd, so a relative path is meaningless without this anchor.
+    // to the compose file). The runner runs from the staged build dir, not the
+    // operator's cwd, so a relative path is meaningless without this anchor.
+    // Resolve via realpath of the FULL compose path (which MUST exist — we copied
+    // it into the build dir above), then take its dirname; this is robust where
+    // realpath of a bare relative dirname is not. FAIL LOUD if it can't resolve,
+    // rather than silently omit the anchor and let a relative path hit podman.
     if stub_compose == 0 {
-        cdir = path_dirname(compose_path)
-        if string_length(cdir) == 0 { cdir = "." }
-        cabs, _ckind, _cerr = realpath(cdir)
-        if string_length(cabs) > 0 {
-            _ = _setenv("AEO_COMPOSE_DIR", cabs)
+        cpabs, _ckind, _cerr = realpath(compose_path)
+        if string_length(cpabs) == 0 {
+            _diag("aeo: cannot resolve the composition path '${compose_path}' to an absolute path (realpath: ${_cerr}) — containerfile()/build_context() paths could not be anchored. Give an existing compose path (and containerfile()/build_context() absolute paths as a workaround).")
+            exit(1)
         }
+        _rarg(rav, "--aeo-compose-dir", path_dirname(cpabs))
     }
+
     // The optional 3rd arg: snapshot/rollback TAG, `--json` (status), or
     // `--no-supervisor` (up/down: opt out of the resident supervisor -> ephemeral
     // fire-and-exit, today's behavior).
     if tag == "--json" {
-        _ = _setenv("AEO_STATUS_JSON", "1")   // `aeo status <compose.ae> --json`
+        _rarg(rav, "--aeo-status-json", "1")   // `aeo status <compose.ae> --json`
     } else {
         if tag == "--no-supervisor" {
-            _ = _setenv("AEO_NO_SUPERVISOR", "1")
+            _rarg(rav, "--aeo-no-supervisor", "1")
         } else {
             if tag != "" {
-                _ = _setenv("AEO_TAG", tag)
+                _rarg(rav, "--aeo-tag", tag)
             }
         }
     }
@@ -330,48 +347,47 @@ main() {
     // detect + audit only — a containment tool must not silently mutate). For watch,
     // an optional interval-seconds rides arg4 -> AEO_WATCH_INTERVAL.
     if cmd == "reconcile" {
-        if tag == "--converge" { _ = _setenv("AEO_CONVERGE", "1") }
+        if tag == "--converge" { _rarg(rav, "--aeo-converge", "1") }
     }
     if cmd == "watch" {
-        if tag == "--converge" { _ = _setenv("AEO_CONVERGE", "1") }
-        if argc >= 5 { _ = _setenv("AEO_WATCH_INTERVAL", aether_args_get(4)) }
+        if tag == "--converge" { _rarg(rav, "--aeo-converge", "1") }
+        if argc >= 5 { _rarg(rav, "--aeo-watch-interval", aether_args_get(4)) }
     }
     // exec/restart: the target node (exec also passes the command).
     if cmd == "exec" {
-        _ = _setenv("AEO_NODE", exec_node)
-        _ = _setenv("AEO_EXEC_CMD", exec_cmd)
+        _rarg(rav, "--aeo-node", exec_node)
+        _rarg(rav, "--aeo-exec-cmd", exec_cmd)
     }
     if cmd == "restart" {
-        _ = _setenv("AEO_NODE", exec_node)
+        _rarg(rav, "--aeo-node", exec_node)
     }
     // cutover: the blue node + the optional new image (via the reused cmd slot).
     if cmd == "cutover" {
-        _ = _setenv("AEO_NODE", exec_node)
+        _rarg(rav, "--aeo-node", exec_node)
         if exec_cmd != "" {
-            _ = _setenv("AEO_CUTOVER_IMAGE", exec_cmd)
+            _rarg(rav, "--aeo-cutover-image", exec_cmd)
         }
     }
     // pasta: the mode (on|off|status) rides the node slot -> AEO_NODE.
     if cmd == "pasta" {
-        _ = _setenv("AEO_NODE", exec_node)
+        _rarg(rav, "--aeo-node", exec_node)
     }
     // apply-node: the target node rides the node slot -> AEO_NODE.
     if cmd == "apply-node" {
-        _ = _setenv("AEO_NODE", exec_node)
+        _rarg(rav, "--aeo-node", exec_node)
     }
-    // backup: AEO_TAG (the tag arg, already set above) + the output dir.
+    // backup: --aeo-tag (the tag arg, already added above) + the output dir.
     if cmd == "backup" {
         if backup_dir != "" {
-            _ = _setenv("AEO_BACKUP_DIR", backup_dir)
+            _rarg(rav, "--aeo-backup-dir", backup_dir)
         }
     }
     // prune: the keep-count rides in the `tag` slot (arg3) -> AEO_KEEP.
     if cmd == "prune" {
         if tag != "" {
-            _ = _setenv("AEO_KEEP", tag)
+            _rarg(rav, "--aeo-keep", tag)
         }
     }
-    rav = list_new()
     code, outcome = os.run_supervised(bin, rav, null, 1, 1, 0, 1)
     list_free(rav)
     if outcome != "exited" {
@@ -748,15 +764,17 @@ _cp(src: string, dst: string) -> int {
     return status
 }
 
-// setenv via std.os's PORTABLE wrapper (io_setenv_raw underneath) — NOT a raw
-// libc `extern setenv`, which is undeclared on Windows (mingw uses _putenv /
-// SetEnvironmentVariable) and broke the x86_64-windows cross-compile. os.setenv
-// returns an err-string ("" ok); we keep the int-returning shape (1 ok / 0 fail)
-// so the 17 `_ = _setenv(...)` call sites are unchanged.
-_setenv(name: string, value: string) -> int {
-    e = os.setenv(name, value)
-    if string_length(e) > 0 {
-        return 0
+// _rarg — append a `--aeo-<key> <value>` flag PAIR to the runner's argv list,
+// but only when the value is non-empty (an absent optional parameter emits no
+// flag, so the runner's config stays unset and its env-fallback/default applies).
+// This replaced the old env-var handoff (`_setenv` -> os.setenv), which leaked
+// ambient authority into every grandchild the runner spawned. argv is scoped to
+// the child exec; see the containment note at the run_supervised call site and
+// _seed_args_into_config in lib/aeo/runner.ae.
+_rarg(argv: ptr, flag: string, value: string) {
+    if string_length(value) == 0 {
+        return
     }
-    return 1
+    list_add(argv, flag)
+    list_add(argv, value)
 }

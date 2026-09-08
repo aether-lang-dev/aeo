@@ -18,7 +18,7 @@
 // AEO_CMD env (the front-door sets it): up (default) / down / status.
 
 import std.config
-import std.string (string_length, string_substring, string_index_of, string_char_at, string_from_char, string_starts_with)
+import std.string (string_length, string_substring, string_index_of, string_char_at, string_from_char, string_starts_with, string_equals)
 import std.list
 import driver_linux
 import driver_lxc
@@ -581,10 +581,11 @@ _container_image(nm: string, engine_pref: string) -> string {
         // path here. The runner runs from the staged build dir (not the
         // operator's cwd), so a still-relative path would silently anchor at the
         // wrong place and podman would build the wrong Containerfile/context.
-        // AEO_COMPOSE_DIR (front-door -> os.setenv -> child env) is the anchor;
-        // if it failed to reach us, fail LOUD rather than guess a cwd.
+        // AEO_COMPOSE_DIR is the anchor — the front-door passes it as the
+        // `--aeo-compose-dir` argv flag (_seed_args_into_config seeds it into
+        // config); if it failed to reach us, fail LOUD rather than guess a cwd.
         if string_char_at(cfabs, 0) != 47 {
-            return "ERR:[${nm}] cannot anchor containerfile(\"${cf}\") — AEO_COMPOSE_DIR is unset in the runner, so the composition-relative path cannot be resolved. This is an internal wiring fault (the front-door sets it before spawning the runner); re-run and, if it persists, report it. (Workaround: give containerfile() an absolute path.)"
+            return "ERR:[${nm}] cannot anchor containerfile(\"${cf}\") — AEO_COMPOSE_DIR is unset in the runner, so the composition-relative path cannot be resolved. This is an internal wiring fault (the front-door passes --aeo-compose-dir before spawning the runner); re-run and, if it persists, report it. (Workaround: give containerfile() an absolute path.)"
         }
         ctx = compose.get_build_context(nm)
         ctxabs = ""
@@ -3398,6 +3399,7 @@ _plan_live_diff() {
 // "down", "status", or "dry-run". The operator's declaration is run first
 // so the resource tree exists for every subcommand.
 main() {
+    _seed_args_into_config()     // front-door params arrive as argv flags (containment)
     aeo_orchestration()          // operator compose populates the tree (data)
     cmd = config.get("AEO_CMD")
     if cmd == "" {
@@ -3714,3 +3716,65 @@ _atoi_simple(s: string) -> int {
 
 import std.os (os_getenv, run_capture)
 extern exit(code: int)
+extern aether_args_count() -> int
+extern aether_args_get(index: int) -> string
+
+// _seed_args_into_config — the front-door hands the runner its parameters as
+// argv FLAGS (`--aeo-<key> <value>` pairs), not environment variables. This is
+// the containment discipline (paul_hammant.com "Principles of Containment",
+// 2016): the parent passes an EXPLICIT, exec-scoped input to the child rather
+// than smearing ambient authority across the environment — where every AEO_*
+// var would otherwise be INHERITED by every grandchild the runner spawns
+// (podman, VMs, guests). argv is scoped to this one process; it does not leak.
+//
+// We seed the parsed flags into `config` under the historical AEO_* keys, so
+// EVERY existing reader (_envc + the inline config.get/os_getenv readers) picks
+// them up unchanged: the precedence becomes argv (config) -> env fallback. The
+// env fallback is retained ONLY as a transition/compat path and for the
+// operator-supplied vars (AEO_HOME, AEO_TOKEN*, AEO_AGENT_*, …) which are
+// legitimately ambient operator inputs, NOT front-door handoff.
+//
+// Flag -> config key map (front-door emits the left, readers see the right):
+//   --aeo-cmd -> AEO_CMD                 --aeo-node -> AEO_NODE
+//   --aeo-compose-dir -> AEO_COMPOSE_DIR --aeo-exec-cmd -> AEO_EXEC_CMD
+//   --aeo-tag -> AEO_TAG                 --aeo-cutover-image -> AEO_CUTOVER_IMAGE
+//   --aeo-status-json -> AEO_STATUS_JSON --aeo-backup-dir -> AEO_BACKUP_DIR
+//   --aeo-no-supervisor -> AEO_NO_SUPERVISOR  --aeo-keep -> AEO_KEEP
+//   --aeo-converge -> AEO_CONVERGE       --aeo-watch-interval -> AEO_WATCH_INTERVAL
+_seed_arg(flag: string, key: string, i: int) -> int {
+    // If argv[i] == flag, put argv[i+1] under key and return the next index to
+    // skip the consumed value; else return i unchanged.
+    if string_equals(aether_args_get(i), flag) == 1 {
+        n = aether_args_count()
+        if i + 1 < n {
+            config.put(key, aether_args_get(i + 1))
+        }
+        return i + 1
+    }
+    return i
+}
+
+_seed_args_into_config() {
+    n = aether_args_count()
+    i = 1                       // argv[0] is the program
+    while i < n {
+        j = i
+        j = _seed_arg("--aeo-cmd", "AEO_CMD", j)
+        j = _seed_arg("--aeo-compose-dir", "AEO_COMPOSE_DIR", j)
+        j = _seed_arg("--aeo-tag", "AEO_TAG", j)
+        j = _seed_arg("--aeo-status-json", "AEO_STATUS_JSON", j)
+        j = _seed_arg("--aeo-no-supervisor", "AEO_NO_SUPERVISOR", j)
+        j = _seed_arg("--aeo-converge", "AEO_CONVERGE", j)
+        j = _seed_arg("--aeo-watch-interval", "AEO_WATCH_INTERVAL", j)
+        j = _seed_arg("--aeo-node", "AEO_NODE", j)
+        j = _seed_arg("--aeo-exec-cmd", "AEO_EXEC_CMD", j)
+        j = _seed_arg("--aeo-cutover-image", "AEO_CUTOVER_IMAGE", j)
+        j = _seed_arg("--aeo-backup-dir", "AEO_BACKUP_DIR", j)
+        j = _seed_arg("--aeo-keep", "AEO_KEEP", j)
+        if j == i {
+            i = i + 1          // unrecognized token — skip it
+        } else {
+            i = j + 1          // consumed flag (+ its value at j); advance past
+        }
+    }
+}

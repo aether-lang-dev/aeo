@@ -417,3 +417,70 @@ The guard already turns this into a clean signal: on my box the anchor arrives
 empty, so it's "chase why AEO_COMPOSE_DIR doesn't stick," not "bug elsewhere." If
 it helps, I can drop a debug build that prints `os.setenv`'s return for
 AEO_COMPOSE_DIR at bin/aeo.ae:312 — say the word.
+
+## 6 RESOLVED (2026-09-08): root cause found + the handoff migrated env -> argv
+
+Found it, fixed it, and used the occasion to remove the whole failure class.
+
+### Root cause (a silent front-door guard, not an env-crossing failure)
+
+`AEO_COMPOSE_DIR` was set only inside a doubly-guarded block
+(`bin/aeo.ae:307-314`): `if stub_compose == 0` → `cabs = realpath(path_dirname(
+compose_path))` → `if string_length(cabs) > 0`. The trap is that middle step:
+`realpath` of a **bare relative dirname** returns EMPTY when that dir doesn't
+resolve against the process cwd at that instant (measured directly:
+`realpath("../foo") -> [] kind=1 path not found`, and `realpath("sub") -> []` from
+a cwd where `sub/` is absent). When it came back empty, the `_setenv` was
+**silently skipped** — so the runner read `[]`. That is exactly your instrumented
+observation: `AEO_CMD` (set unconditionally) crossed; `AEO_COMPOSE_DIR` (behind
+the realpath guard) did not. Env crossing was never the problem — a silent guard
+was. So we were both half right: you (env crosses — confirmed) and the original
+report (the anchor is empty in the runner — confirmed), just not for the stated
+reason.
+
+### The fix: the front-door → runner handoff is now argv, not env
+
+Rather than only patch the guard, we migrated the ENTIRE parameter handoff off
+environment variables and onto argv flags — because the env transport was both
+the cause of this bug (a missing param fails SILENTLY; a missing positional/flag
+arg cannot be ignored the same way) and a containment-principle violation
+(env vars are inherited by every grandchild the runner spawns; argv is scoped to
+the one exec). This follows paul_hammant.com's "Principles of Containment"
+(2016), which guided aeo's design from the start: the container hands the
+contained an EXPLICIT input; it does not smear ambient authority.
+
+- `bin/aeo.ae`: all 17 `_setenv("AEO_*", …)` calls (12 distinct vars) are gone,
+  replaced by `--aeo-<key> <value>` flags pushed onto the `run_supervised` argv
+  (`_rarg` helper). The compose dir is resolved robustly now — `realpath` of the
+  **full compose path** (which must exist; we just copied it) then `path_dirname`
+  of the absolute result — and **fails loud** if that can't resolve, instead of
+  silently omitting the anchor.
+- `lib/aeo/runner.ae`: a `_seed_args_into_config()` prelude parses the flags and
+  seeds them into `config` under the historical `AEO_*` keys, so EVERY existing
+  reader (`_envc` + the inline config-then-env readers) picks them up unchanged.
+  Precedence is now argv (config) → env fallback; env is retained only as a
+  transition path and for genuinely operator-supplied vars (AEO_HOME, AEO_TOKEN*,
+  AEO_AGENT_*, …).
+
+### Verified
+
+- Your exact repro (compose at `<X>/sub`, `containerfile("../ctxdir/Containerfile")`
+  + `build_context("../ctxdir")`, invoked from `<X>` ≠ compose dir, `env -i`,
+  cache cleared): now builds `localhost/aeo-built/app` against the correct
+  compose-relative context — **no anchor error**.
+- Multi-word `exec` command round-trips as a single argv value (safer than the
+  env string — no shell re-split).
+- Full spec suite green; `spec_container_run_argv` 12/12.
+- Containment: brought a long-lived container up and inspected its env — no
+  `AEO_*` internal vars present. (Caveat for honesty: podman already isolates
+  container env by default, so the concrete leak the migration closes is the
+  runner's own process env and its shell-outs — observable via `ps`/`/proc/environ`
+  — plus any future substrate/`-e` path that WOULD inherit; the containment win
+  is real but at the process boundary, not "podman was forwarding them.")
+
+**Please re-test on your crostini box** with a build at or past this commit. The
+`--aeo-compose-dir` flag is computed from `realpath(<full compose path>)`, which
+resolves on every box we've tried; if your `ae`'s `realpath` still returns empty
+for the full existing compose path, the front-door will now tell you so LOUDLY
+(`cannot resolve the composition path …`) instead of silently dropping the anchor
+— that message would pin a genuine crostini `realpath` bug we'd chase upstream.
