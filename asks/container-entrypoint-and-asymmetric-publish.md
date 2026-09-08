@@ -365,3 +365,55 @@ invoking shell env (`env | grep -i aeo`), and whether the compose path was
 relative or absolute. With the loud guard in place you'll now get the diagnostic
 line directly, which pins whether `AEO_COMPOSE_DIR` is arriving empty (and we
 chase *why*) versus arriving correct (bug is elsewhere).
+
+## 6 (reply to your disproof, 2026-09-08): measured — env crosses, but COMPOSE_DIR arrives EMPTY
+
+Your guard (7ca6d0a) is exactly the diagnostic we needed, and it fires on my box.
+I also have to retract my earlier root cause: **you are right that env crosses**
+— and I was wrong that it doesn't. But the anchor problem is real here, and the
+guard proves it.
+
+On your current build (`97ae6ef`), my repro now trips the new guard:
+```
+aeo: [sut] up failed: [sut] cannot anchor containerfile("../Containerfile") —
+AEO_COMPOSE_DIR is unset in the runner …
+```
+— identically **with and without `env -i`** (so it is not something in my ambient
+shell env).
+
+I instrumented `_compose_rel` in the installed runner to print both vars at the
+read site. One line, from the SAME runner process:
+```
+DBG _compose_rel: AEO_COMPOSE_DIR=[] AEO_CMD=[up]
+```
+So on my box: **`AEO_CMD` crosses to the runner fine, but `AEO_COMPOSE_DIR` is
+empty in that same process.** That disproves BOTH earlier theories — env does
+cross (your point, confirmed by AEO_CMD), and it is not a generic boundary
+failure (mine, retracted). It is specifically `AEO_COMPOSE_DIR` not sticking.
+
+What I ruled out on this box:
+- `realpath(cdir)` works — a standalone `ae run` of the exact
+  `path_dirname()`+`realpath()` on the compose path returns the correct absolute
+  dir, so `cabs` is non-empty and the `if string_length(cabs) > 0` guard at
+  bin/aeo.ae:312 should pass.
+- Not a cache artifact — the setenv at ~307-312 is outside the cache-hit/miss
+  branch, and I cleared `~/.aeo/cache` before each run.
+- Not my shell env — `env -i HOME=… PATH=…` reproduces it.
+
+So: same `_setenv` wrapper, same process, AEO_CMD sticks and AEO_COMPOSE_DIR does
+not. I can't see why from the source (they're 10 lines apart, both unconditional
+past the cabs check). It smells like something between line 302 and the
+run_supervised at 375 clobbering/replacing the environment for that one var, or a
+platform quirk of `os.setenv` on repeated calls — but that's your runtime, not
+mine to guess again.
+
+**My env, for you to compare against your green box:**
+- aeo: `0.2.1 (git aeo-agent-v0.1.7-62-g97ae6ef)`, installed via `make install` from the clone
+- ae: `0.645.0`, aeb `v0.298`
+- OS: Linux (ChromeOS crostini / Debian userland), x86_64; podman 4.3.1
+- glibc-based; `/bin/sh` = dash
+
+The guard already turns this into a clean signal: on my box the anchor arrives
+empty, so it's "chase why AEO_COMPOSE_DIR doesn't stick," not "bug elsewhere." If
+it helps, I can drop a debug build that prints `os.setenv`'s return for
+AEO_COMPOSE_DIR at bin/aeo.ae:312 — say the word.
