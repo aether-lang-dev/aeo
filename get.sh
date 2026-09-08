@@ -177,9 +177,12 @@ aeoget_install_aeb_binary() {
     fi
     _here="$_td/$_base"
     [ -f "$_here/install.sh" ] || { rm -rf "$_td"; say "  aeb bundle had no install.sh — will build from source"; return 1; }
-    if ! have make && ! have gmake; then
-        rm -rf "$_td"; say "  GNU make absent (the aeb bundle's installer needs it) — will build from source"; return 1
-    fi
+    # NB: aeb's bundle install.sh is COPY-ONLY as of aeb v0.298 (no make, no
+    # compiler — stages the prebuilt tree + writes the wrapper). A prior gate here
+    # pre-checked for GNU make and bailed to a source build when absent, which made
+    # the aeb step require make on a bare box (the exact failure a prebuilt bundle
+    # avoids) — and blocked `aeo` install on a fresh CI box. Removed; just run
+    # install.sh (the check below catches a real failure). Mirrors aeb get.sh's fix.
     if ! sh "$_here/install.sh" "$_prefix" >/dev/null 2>&1; then
         rm -rf "$_td"; say "  aeb bundle install.sh failed — will build from source"; return 1
     fi
