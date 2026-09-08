@@ -313,7 +313,8 @@ everything `os.setenv` just set. The code says so at `bin/aeo.ae:299`:
 
 > `// run_supervised inherits our env; we set AEO_CMD for the child.`
 
-The runner reads `AEO_CMD`, `AEO_NODE`, `AEO_TAG`, `AEO_CONVERGE`, … (17 vars)
+The runner reads `AEO_CMD`, `AEO_NODE`, `AEO_TAG`, `AEO_CONVERGE`, … — the 12
+distinct `AEO_*` vars the front-door sets across its 17 `_setenv` call sites —
 through that exact channel. If env didn't cross, `aeo up` would never even
 dispatch a subcommand — the runner gets `AEO_CMD` the same way it gets
 `AEO_COMPOSE_DIR`. `AEO_COMPOSE_DIR` has been wired via `_setenv` since the
