@@ -266,6 +266,12 @@ main() {
         list_add(bav, binnew)
         list_add(bav, "--lib")
         list_add(bav, libdst)
+        // C-compiler fallback: `ae build` needs a C backend and dead-ends ("no C
+        // compiler found") on a box with no gcc/cc — which every `aeo up` would
+        // hit on a get.sh-installed, compiler-less machine (a newcomer can't run
+        // ANY composition). Ensure a compiler the same way aeb does: if none,
+        // hot-install a pinned `zig cc` and point the build at it via AE_CC.
+        _ensure_cc()
         _diag("aeo: building composition")
         bout, bstatus, berr = os.run_capture("ae", bav, null)
         list_free(bav)
@@ -579,6 +585,91 @@ _path_exists(p: string) -> int {
         return 1
     }
     return 0
+}
+
+// _sh1(cmd) — run one shell command, return its stdout trimmed (or "" on error).
+_sh1(cmd: string) -> string {
+    av = list_new()
+    list_add(av, "-c")
+    list_add(av, cmd)
+    out, status, err = os.run_capture("/bin/sh", av, null)
+    list_free(av)
+    if err != "" {
+        return ""
+    }
+    return string_trim(out)
+}
+
+// --- C-compiler fallback: hot-install a pinned `zig cc` when none is found ----
+// aeo shells `ae build` on every `aeo up` (and every declared-spec run), and
+// `ae build` needs a C backend compiler — it dead-ends "no C compiler found
+// (looked for gcc, then cc)" on a compiler-less box. A get.sh newcomer thus
+// installs ae+aeb+aeo (all prebuilt) and then can't run a single composition.
+//
+// aether already honors $AE_CC / $CC over PATH, and already drives `zig cc` for
+// every --target cross-compile, so zig cc is a known-good compiler in this
+// toolchain. When NO system compiler resolves, fetch a pinned zig (the SAME
+// ~/.cache/aeb/zig/<ref>/ layout aeb uses, so the two share one cache) and point
+// the build at it via AE_CC. FALLBACK ONLY: an explicit $AE_CC/$CC or a present
+// gcc/cc short-circuits it and nothing is fetched. Opt out with AEO_NO_ZIG=1 to
+// keep aether's own hard error (strict-hermetic CI). Mirrors aeb's `aeb`
+// trampoline block (aeb commit 4f5709e) — same pin, same cache, same env gate.
+_cc_present() -> int {
+    // Mirror aether's resolution order so the probe matches the real build.
+    if string_length(os.getenv("AE_CC")) > 0 { return 1 }
+    if string_length(os.getenv("CC")) > 0 { return 1 }
+    if string_length(_which("gcc")) > 0 { return 1 }
+    if string_length(_which("cc")) > 0 { return 1 }
+    return 0
+}
+
+_ensure_cc() {
+    if _cc_present() == 1 { return }
+    if string_length(os.getenv("AEO_NO_ZIG")) > 0 {
+        return   // opt-out: leave AE_CC unset so aether emits its own hard error
+    }
+    zref = os.getenv("ZIG_REF")
+    if string_length(zref) == 0 { zref = "0.16.0" }
+
+    // Per-platform zig tarball slug (ziglang.org naming: <arch>-<os>).
+    kern = _sh1("uname -s")
+    zos = ""
+    if kern == "Linux" { zos = "linux" }
+    if kern == "Darwin" { zos = "macos" }
+    if kern == "FreeBSD" { zos = "freebsd" }
+    mach = _sh1("uname -m")
+    zarch = ""
+    if mach == "x86_64" { zarch = "x86_64" }
+    if mach == "amd64" { zarch = "x86_64" }
+    if mach == "arm64" { zarch = "aarch64" }
+    if mach == "aarch64" { zarch = "aarch64" }
+    if string_length(zos) == 0 { return }   // unknown platform — let aether error
+    if string_length(zarch) == 0 { return }
+
+    // Cache root SHARED with aeb: $XDG_CACHE_HOME|$HOME/.cache /aeb/zig/<ref>/.
+    croot = os.getenv("XDG_CACHE_HOME")
+    if string_length(croot) == 0 {
+        croot = "${os.getenv("HOME")}/.cache"
+    }
+    zcache = "${croot}/aeb/zig/${zref}"
+    zdir = "${zcache}/zig-${zarch}-${zos}-${zref}"
+    zbin = "${zdir}/zig"
+
+    if _path_exists(zbin) == 0 {
+        _diag("aeo: no system C compiler found — fetching pinned zig ${zref} (one-time, to ${zcache}) to use `zig cc`")
+        _ = mkdir_p(zcache)
+        zurl = "https://ziglang.org/download/${zref}/zig-${zarch}-${zos}-${zref}.tar.xz"
+        // download to a temp file, extract into the cache. Escape-free command
+        // (interpolated Aether string), repo-free paths.
+        _ = _sh1("t=$(mktemp -d); curl -fsSL '${zurl}' -o \"$t/zig.tar.xz\" && tar -xf \"$t/zig.tar.xz\" -C '${zcache}'; rm -rf \"$t\"")
+    }
+
+    if _path_exists(zbin) == 1 {
+        _ = os.setenv("AE_CC", "${zbin} cc")
+        _diag("aeo: no system C compiler found — using pinned zig ${zref} (`zig cc`) at ${zbin}")
+    } else {
+        _diag("aeo: could not fetch zig ${zref} for ${zarch}-${zos} — install a C compiler (gcc/cc) or set \$CC; or AEO_NO_ZIG=1 to silence this.")
+    }
 }
 
 // --- build-cache helpers -----------------------------------------------------
