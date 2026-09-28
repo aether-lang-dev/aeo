@@ -35,7 +35,7 @@ import secrets
 import std.fs (write_atomic, mkdir_p, path_dirname, realpath)
 import std.list
 import std.string (string_length, string_concat, string_trim, string_char_at, string_substring)
-import std.io (stderr_write, println)
+import std.io (stderr_write)
 
 extern aether_args_count() -> int
 extern aether_args_get(index: int) -> string
