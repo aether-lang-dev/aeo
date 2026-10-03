@@ -22,7 +22,7 @@ import std.spec
 import std.os (run_capture)
 import std.config
 import std.string
-import std.list (list_new, list_add, list_free)
+import std.list
 
 const UP_PORT = 19771
 const GW_PORT = 19772

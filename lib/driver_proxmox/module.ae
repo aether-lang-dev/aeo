@@ -37,7 +37,7 @@
 
 import compose
 import std.os (run_capture, getenv)
-import std.string (
+import std.string (bytes, 
     string_length, string_concat, string_from_int,
     string_index_of, string_substring, string_char_at, string_from_char
 )
@@ -134,7 +134,7 @@ _pve(nm: string, method: string, path: string, fields: ptr) -> ptr {
     }
     body = _form_encode(fields)
     if string_length(body) > 0 {
-        _b = set_body(req, body, string_length(body), "application/x-www-form-urlencoded")
+        _b = set_body(req, bytes(body), "application/x-www-form-urlencoded")
     }
     resp, err = send_request(req)
     if err != "" {

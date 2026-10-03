@@ -46,7 +46,7 @@
 
 import std.os (run_capture, os_which, getenv)
 import std.list
-import std.string (string_length, string_char_at, string_from_char, string_from_int, string_get_int, string_substring)
+import std.string (bytes, string_length, string_char_at, string_from_char, string_from_int, string_get_int, string_substring)
 import std.fs (write_atomic)
 import death (unit_death_line)
 
@@ -179,7 +179,7 @@ up(res_name: string, image: string, cpus: int, mem: string) -> string {
     }
     cfg = config_json(kernel_path(image), rootfs_path(image), vc, mem_mib(mem))
     cfgpath = configfile_for(res_name)
-    werr = write_atomic(cfgpath, cfg, string_length(cfg))
+    werr = write_atomic(cfgpath, bytes(cfg))
     if werr != "" {
         return "aeo: cannot write firecracker config for '${res_name}': ${werr}"
     }

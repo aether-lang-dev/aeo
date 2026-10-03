@@ -23,7 +23,7 @@
 
 import std.nanoid
 import std.cryptography (hmac_sha256_hex)
-import std.string (string_length, string_char_at)
+import std.string (bytes, string_length, string_char_at)
 
 exports ( mint_secret, verify, mac )
 
@@ -51,7 +51,7 @@ mint_secret() -> string {
 // std.cryptography surface takes strings directly and returns (hex, err).
 mac(secret: string) -> string {
     chal = _challenge()
-    h, err = hmac_sha256_hex(secret, string_length(secret), chal, string_length(chal))
+    h, err = hmac_sha256_hex(bytes(secret), bytes(chal))
     if err != "" {
         return ""
     }

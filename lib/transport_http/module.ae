@@ -24,7 +24,7 @@ import std.http (server_create, server_set_host, server_get, server_post,
 import std.http.client (request, set_header, set_body, set_timeout, send_request,
                         response_status, response_body, response_free, request_free)
 import std.config
-import std.string (string_length, string_char_at, string_substring)
+import std.string (bytes, string_length, string_char_at, string_substring)
 import protocol
 import agent_auth
 
@@ -190,7 +190,7 @@ _qtail() -> int {
 // its OWN /dispatch handler) use send_command_status, which never reads the body.
 send_command(base: string, token: string, line: string) -> string {
     req = request("POST", "${base}/dispatch")
-    set_body(req, line, string_length(line), "text/plain")
+    set_body(req, bytes(line), "text/plain")
     set_timeout(req, 10s)
     resp, err = send_request(req)
     request_free(req)
@@ -214,7 +214,7 @@ send_command(base: string, token: string, line: string) -> string {
 // accepted+handled the command (for `boot`, => the child's node is up).
 send_command_status(base: string, token: string, line: string) -> int {
     req = request("POST", "${base}/dispatch")
-    set_body(req, line, string_length(line), "text/plain")
+    set_body(req, bytes(line), "text/plain")
     set_timeout(req, 10s)
     resp, err = send_request(req)
     request_free(req)
@@ -234,7 +234,7 @@ send_command_status(base: string, token: string, line: string) -> int {
 // /dispatch command shape.
 post_path(base: string, path: string, body: string) -> string {
     req = request("POST", "${base}${path}")
-    set_body(req, body, string_length(body), "text/plain")
+    set_body(req, bytes(body), "text/plain")
     set_timeout(req, 60s)
     resp, err = send_request(req)
     request_free(req)

@@ -6,7 +6,7 @@
 
 import std.string (
     string_length, string_index_of, string_substring, string_contains,
-    string_char_at, string_get_int, string_to_lower
+    string_char_at, string_get_int, string_to_lower, bytes
 )
 import std.tcp (read_n, write_n, poll2)
 
@@ -228,7 +228,7 @@ write_all(sock: ptr, data: string, length: int) -> {
     off = 0
     while off < length {
         chunk = string_substring(data, off, length)
-        n, err = write_n(sock, chunk, length - off)
+        n, err = write_n(sock, bytes(chunk)[0..length - off])
         if string_length(err) > 0 {
             return off, err
         }

@@ -58,10 +58,10 @@ derive_key(courier: string) -> ptr {
     ikm = _sbytes(courier)
     salt = _sbytes("aeo-secure-channel-v1")
     info = _sbytes("ascon-aead128-key")
-    // hkdf(algo, salt, salt_len, ikm, ikm_len, info, info_len, out_len)
-    return hkdf("sha256", salt, bytes_len_of("aeo-secure-channel-v1"),
-                ikm, string_length(courier),
-                info, bytes_len_of("ascon-aead128-key"), 16)
+    // hkdf(algo, salt, ikm, info, out_len): byte[] slices since Aether 0.758
+    return hkdf("sha256", bytes.view(salt)[0..bytes_len_of("aeo-secure-channel-v1")],
+                bytes.view(ikm)[0..string_length(courier)],
+                bytes.view(info)[0..bytes_len_of("ascon-aead128-key")], 16)
 }
 
 // --- frame test -------------------------------------------------------------
@@ -102,7 +102,7 @@ seal_line(courier: string, plaintext: string) -> string {
     pt = _sbytes(stamped)
     ptlen = string_length(stamped)
     aad = _sbytes(PREFIX())                 // bind the version tag as AAD
-    ct = aead_seal(key, nonce, aad, bytes_len_of(PREFIX()), pt, ptlen)
+    ct = aead_seal(key, nonce, bytes.view(aad)[0..bytes_len_of(PREFIX())], bytes.view(pt)[0..ptlen])
     if ct == null {
         return ""
     }
@@ -154,7 +154,7 @@ open_line_ex(courier: string, frame: string) -> (string, string, string) {
         return "", "", "malformed"
     }
     aad = _sbytes(PREFIX())
-    pt, err = aead_open(key, nonce, aad, bytes_len_of(PREFIX()), ct, bytes.length(ct))
+    pt, err = aead_open(key, nonce, bytes.view(aad)[0..bytes_len_of(PREFIX())], bytes.view(ct)[0..bytes.length(ct)])
     if err != "" {
         return "", "", "bad_key"            // wrong key OR tamper -> fail closed
     }

@@ -23,7 +23,7 @@ import compose
 import driver_linux
 import std.os (run_capture, getenv)
 import std.fs (write_atomic)
-import std.string (
+import std.string (bytes, 
     string_length, string_concat, string_from_int, string_index_of, string_substring,
     string_get_int
 )
@@ -129,7 +129,7 @@ ensure_image(lb: string) -> string {
         return "aeo: staging ${binname} binary failed: ${cperr}"
     }
     df = _dockerfile(binname)
-    werr = write_atomic("${ctx}/Dockerfile", df, string_length(df))
+    werr = write_atomic("${ctx}/Dockerfile", bytes(df))
     if string_length(werr) > 0 {
         return "aeo: cannot write ${binname} Dockerfile: ${werr}"
     }

@@ -118,4 +118,16 @@
 # too-old ae) is unchanged: std.spec (0.538.0), the skip verbs (0.545.0), and the
 # run_summary-returns-verdict correctness fix (0.612.0). Next move of this number
 # should return to requiring evidence.
-0.650.0
+#
+# Raised 0.650.0 -> 0.766.0 (2026-10-03). A REAL floor move, and the family-wide
+# floor Paul set for every Aether repo. Real: Aether 0.758 (#2301) turned the
+# byte-payload std calls into byte[] slices and dropped their length arguments,
+# and aeo now calls the slice forms -- fs.write_atomic, cryptography.
+# hmac_sha256_hex, http client set_body, hkdf, ascon_aead128 aead_seal/open,
+# tcp.write_n (bytes(s), bytes.view(buf)[0..n]) -- so it cannot compile
+# below 0.758. Verified on the installed 0.766.0 release (macOS arm64): make
+# build and bin/aeo-agent.ae clean; 47 test/spec_* suites pass (secrets,
+# agent_auth, egress_relay, transport_http, death, ...) and all 14
+# examples/checks model specs. The rest need FreeBSD (capsicum/bhyve), a Linux
+# VM or a container engine, and fail identically on 0.741 with the pre-port code.
+0.766.0

@@ -21,7 +21,7 @@
 
 import std.os (run_capture, run_full, os_which)
 import std.list
-import std.string (string_length, string_contains, string_char_at, string_substring, string_index_of, string_ends_with, string_get_int)
+import std.string (bytes, string_length, string_contains, string_char_at, string_substring, string_index_of, string_ends_with, string_get_int)
 import std.fs (write_atomic)
 import host
 
@@ -1049,7 +1049,7 @@ build(res_name: string, text: string, engine_pref: string) -> string {
     dfdir = "/tmp/aeo-build-${res_name}"
     _ = _mkdir(dfdir)
     dfpath = "${dfdir}/Dockerfile"
-    werr = write_atomic(dfpath, text, string_length(text))
+    werr = write_atomic(dfpath, bytes(text))
     if werr != "" {
         return "aeo: cannot write Dockerfile for '${res_name}': ${werr}"
     }
@@ -1114,12 +1114,12 @@ build_entrypoint(res_name: string, src: string, base: string, file: string, run:
     _ = _mkdir(dfdir)
     // source written verbatim (no escaping); the Dockerfile just COPYs it —
     // builds on every podman, unlike a RUN heredoc.
-    perr = write_atomic("${dfdir}/${f}", src, string_length(src))
+    perr = write_atomic("${dfdir}/${f}", bytes(src))
     if perr != "" {
         return "aeo: cannot write ${f} for '${res_name}': ${perr}"
     }
     df = "FROM ${b}\nCOPY ${f} /${f}\nCMD [\"${r}\", \"/${f}\"]"
-    derr = write_atomic("${dfdir}/Dockerfile", df, string_length(df))
+    derr = write_atomic("${dfdir}/Dockerfile", bytes(df))
     if derr != "" {
         return "aeo: cannot write Dockerfile for '${res_name}': ${derr}"
     }

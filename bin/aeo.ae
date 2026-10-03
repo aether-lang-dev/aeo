@@ -34,7 +34,7 @@ import driver_linux (engine_resolve)
 import secrets
 import std.fs (write_atomic, mkdir_p, path_dirname, realpath)
 import std.list
-import std.string (string_length, string_concat, string_trim, string_char_at, string_substring)
+import std.string (string_length, string_concat, string_trim, string_char_at, string_substring, bytes)
 import std.io (stderr_write)
 
 extern aether_args_count() -> int
@@ -239,7 +239,7 @@ main() {
         _ = mkdir_p(cmpdir)
         if stub_compose == 1 {
             stub = "exports ( aeo_orchestration )\naeo_orchestration() { }\n"
-            _ = write_atomic(string_concat(cmpdir, "/module.ae"), stub, string_length(stub))
+            _ = write_atomic(string_concat(cmpdir, "/module.ae"), bytes(stub))
         } else {
             if _cp(compose_path, string_concat(cmpdir, "/module.ae")) != 0 {
                 _diag("aeo: cannot read compose file '${compose_path}'")
@@ -296,7 +296,7 @@ main() {
         // completed build (a failed/interrupted build leaves no hash, so the
         // next run rebuilds). "" hash (no sha tool) records nothing.
         if string_length(inputs_hash) > 0 {
-            _werr = write_atomic("${work}/.aeo-inputs-hash", inputs_hash, string_length(inputs_hash))
+            _werr = write_atomic("${work}/.aeo-inputs-hash", bytes(inputs_hash))
         }
     }
     bin = string_concat(work, "/aeo-run")
