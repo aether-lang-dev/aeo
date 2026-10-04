@@ -144,7 +144,7 @@ without installing, so a CI step can pin and call them:
 
 ```sh
 AEOGET_SOURCE_ONLY=1 . <(curl -fsSL https://raw.githubusercontent.com/aether-lang-dev/aeo/main/get.sh)
-AE_PIN=0.766.0 aeo_bootstrap        # ensures ae + aeb, then the aeo CLI
+AE_PIN=0.778.0 aeo_bootstrap        # ensures ae + aeb, then the aeo CLI
 ```
 
 Everything is binary-first (prebuilt gh-release tarballs, sha256-verified),

@@ -6,10 +6,10 @@ that keep it coherent, the footguns. Re-read at the start of every session. **Fo
 an observer wanting to *use* aeo for its purpose:** the "What aeo is for" and "A
 composition, end to end" sections are your entry; the rest is the engine room.
 
-Not a CLAUDE.md. Short, opinionated, current as of ae 0.766.0 (2026-10-03).
-`AETHER_PIN` is 0.766.0, a real floor: aeo calls the `byte[]` slice forms of the
+Not a CLAUDE.md. Short, opinionated, current as of ae 0.778.0 (2026-10-05).
+`AETHER_PIN` is 0.778.0: aeo calls the `byte[]` slice forms of the
 byte-payload std APIs (`bytes(s)`, `bytes.view(buf)[0..n]`), which arrived in
-0.758, and 0.766.0 is the family-wide floor (see AETHER_PIN's own note). `AEB_PIN` is 0.297.0 — the aeb release
+0.758, and 0.778.0 is the family-wide floor (see AETHER_PIN's own note). `AEB_PIN` is 0.297.0 — the aeb release
 the runtime seam (`run_capture("aeb", ...)`) is developed against; soft, since aeb
 is a CLI seam not a linked dependency (see AEB_PIN).
 

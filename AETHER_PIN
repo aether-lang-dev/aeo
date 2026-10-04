@@ -130,4 +130,13 @@
 # agent_auth, egress_relay, transport_http, death, ...) and all 14
 # examples/checks model specs. The rest need FreeBSD (capsicum/bhyve), a Linux
 # VM or a container engine, and fail identically on 0.741 with the pre-port code.
-0.766.0
+#
+# Raised to 0.778.0 (2026-10-05): the family-wide floor again, moved with the
+# whole family; no new primitive in aeo needs it. On the installed 0.778.0
+# release (macOS arm64): make build, bin/aeo-agent.ae and bin/aeo.ae clean;
+# test/run-spec.sh gives the same results as 0.766.0 in the same
+# environment (the same three specs fail: dockerfile, driver_loadbalancer_live,
+# integration_app); examples-suite.sh check fails all 17 identically on both,
+# because aeo resolves a check() spec path against the example's own directory
+# (examples/examples/checks/...), not because of the toolchain.
+0.778.0
