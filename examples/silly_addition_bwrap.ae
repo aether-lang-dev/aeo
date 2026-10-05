@@ -59,10 +59,10 @@ aeo_orchestration() {
 
         // ---- declared verification (external specs; aeo runs them per phase) ----
         // check: data-model assertions, no deploy, runs anywhere/instant.
-        check("examples/checks/bwrap_model.spec.ae")
+        check("checks/bwrap_model.spec.ae")
         // suite: post-deploy containment; teardown after. Live pid-namespace proof
         // is the itest driver's job (a separate spec process can't aeo-exec into a
         // pidfile-tracked sandbox) — the spec re-asserts the data model.
-        suite("examples/checks/bwrap_suite.spec.ae")
+        suite("checks/bwrap_suite.spec.ae")
     }
 }

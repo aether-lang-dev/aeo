@@ -61,9 +61,9 @@ aeo_orchestration() {
             container("app-2") { listens(8080); balancer_weight(1) }
         }
 
-        check("examples/checks/containers_model.spec.ae")
-        smoke("examples/checks/containers_smoke.spec.ae")
-        suite("examples/checks/containers_suite.spec.ae")
+        check("checks/containers_model.spec.ae")
+        smoke("checks/containers_smoke.spec.ae")
+        suite("checks/containers_suite.spec.ae")
     }
 }
 ```

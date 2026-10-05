@@ -59,10 +59,10 @@ aeo_orchestration() {
 
         // ---- declared verification (external specs; aeo runs them per phase) ----
         // check: data-model assertions, no deploy, runs anywhere/instant.
-        check("examples/checks/firecracker_model.spec.ae")
+        check("checks/firecracker_model.spec.ae")
         // suite: boot both microVMs (the lifecycle proof), then teardown. No
         // in-guest probe — a microVM has no host-side exec yet (see the header).
-        suite("examples/checks/firecracker_suite.spec.ae")
+        suite("checks/firecracker_suite.spec.ae")
     }
 }
 

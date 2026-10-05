@@ -64,9 +64,9 @@ aeo_orchestration() {
 
         // ---- declared verification (external specs; aeo runs them per phase) ----
         // check: data-model assertions, no deploy, runs anywhere/instant.
-        check("examples/checks/kvm_model.spec.ae")
+        check("checks/kvm_model.spec.ae")
         // suite: post-deploy checks, then teardown (the CI shape).
-        suite("examples/checks/kvm_suite.spec.ae")
+        suite("checks/kvm_suite.spec.ae")
     }
 }
 

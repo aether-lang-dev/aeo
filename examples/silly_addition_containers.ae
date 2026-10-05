@@ -64,10 +64,10 @@ aeo_orchestration() {
 
         // ---- declared verification (external specs; aeo runs them per phase) ----
         // check: data-model assertions, no deploy, runs anywhere/instant.
-        check("examples/checks/containers_model.spec.ae")
+        check("checks/containers_model.spec.ae")
         // smoke: slim post-deploy probe; leaves the tree standing.
-        smoke("examples/checks/containers_smoke.spec.ae")
+        smoke("checks/containers_smoke.spec.ae")
         // suite: fuller post-deploy checks (incl. cache behaviour), then teardown.
-        suite("examples/checks/containers_suite.spec.ae")
+        suite("checks/containers_suite.spec.ae")
     }
 }

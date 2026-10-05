@@ -187,9 +187,9 @@ that name external aeocha specs (under [`checks/`](checks/)):
 system("silly_addition_containers") {
     container("db")  { image("…redis…"); health("redis-cli ping") }
     container("app") { image("localhost/aeo-examples/silly-add:latest"); depends("db") }
-    check("examples/checks/containers_model.spec.ae")   // data-model, NO deploy
-    smoke("examples/checks/containers_smoke.spec.ae")   // deploy + probe, leave up
-    suite("examples/checks/containers_suite.spec.ae")   // deploy + probe, tear down
+    check("checks/containers_model.spec.ae")   // data-model, NO deploy
+    smoke("checks/containers_smoke.spec.ae")   // deploy + probe, leave up
+    suite("checks/containers_suite.spec.ae")   // deploy + probe, tear down
 }
 ```
 

@@ -77,6 +77,6 @@ aeo_orchestration() {
 
         // ---- declared verification (external spec; aeo runs it per phase) ----
         // check: confinement data-model assertions, no deploy, runs anywhere/instant.
-        check("examples/checks/confined_model.spec.ae")
+        check("checks/confined_model.spec.ae")
     }
 }

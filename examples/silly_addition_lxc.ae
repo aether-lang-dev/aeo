@@ -64,10 +64,10 @@ aeo_orchestration() {
 
         // ---- declared verification (external specs; aeo runs them per phase) ----
         // check: data-model assertions, no deploy, runs anywhere/instant.
-        check("examples/checks/lxc_model.spec.ae")
+        check("checks/lxc_model.spec.ae")
         // suite: post-deploy containment probe (live containment proven by the
         // itest driver), then teardown.
-        suite("examples/checks/lxc_suite.spec.ae")
+        suite("checks/lxc_suite.spec.ae")
     }
 }
 

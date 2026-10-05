@@ -64,9 +64,9 @@ aeo_orchestration() {
 
         // ---- declared verification (external specs; aeo runs them per phase) ----
         // check: data-model assertions, no deploy, runs anywhere/instant.
-        check("examples/checks/nspawn_model.spec.ae")
+        check("checks/nspawn_model.spec.ae")
         // suite: post-deploy live containment probe, then teardown.
-        suite("examples/checks/nspawn_suite.spec.ae")
+        suite("checks/nspawn_suite.spec.ae")
     }
 }
 

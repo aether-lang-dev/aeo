@@ -85,8 +85,8 @@ aeo_orchestration() {
         }
 
         // ---- declared verification (external specs; aeo runs them per phase) ----
-        check("examples/checks/proxmox_model.spec.ae")
-        suite("examples/checks/proxmox_suite.spec.ae")
+        check("checks/proxmox_model.spec.ae")
+        suite("checks/proxmox_suite.spec.ae")
     }
 }
 

@@ -75,9 +75,9 @@ aeo_orchestration() {
 
         // ---- declared verification (external specs; aeo runs them per phase) ----
         // check: data-model assertions, no deploy, runs anywhere/instant.
-        check("examples/checks/windows_model.spec.ae")
+        check("checks/windows_model.spec.ae")
         // suite: post-deploy containment probe, then teardown (the CI shape).
-        suite("examples/checks/windows_suite.spec.ae")
+        suite("checks/windows_suite.spec.ae")
     }
 }
 

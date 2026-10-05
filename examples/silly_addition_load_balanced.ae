@@ -91,6 +91,6 @@ aeo_orchestration() {
         // rules. A live smoke()/suite() (deploy + assert the 3:1 split + health-
         // eject through the running LB) is a follow-up; the step-3 proof in
         // docs/built_in_load_balancing.md §9 already demonstrates that path.
-        check("examples/checks/load_balanced_model.spec.ae")
+        check("checks/load_balanced_model.spec.ae")
     }
 }

@@ -117,10 +117,10 @@ aeo_orchestration() {
 
         // ---- declared verification (external specs; aeo runs them per phase) ----
         // check: data-model assertions + the proxmox gate, no deploy, runs anywhere.
-        check("examples/checks/proxmox_model.spec.ae")
+        check("checks/proxmox_model.spec.ae")
         // suite: post-deploy checks, then teardown (the CI shape) — needs the
         // driver_proxmox arm (frontier), so it is a no-op until that lands.
-        suite("examples/checks/proxmox_suite.spec.ae")
+        suite("checks/proxmox_suite.spec.ae")
     }
 }
 

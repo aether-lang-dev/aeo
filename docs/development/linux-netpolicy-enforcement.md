@@ -170,8 +170,8 @@ system("netpolicy-enforcement-test") {
         health("true")
         deny_egress()  // no network at all
     }
-    check("examples/checks/netpolicy_enforcement_model.spec.ae")
-    suite("examples/checks/netpolicy_enforcement_suite.spec.ae")
+    check("checks/netpolicy_enforcement_model.spec.ae")
+    suite("checks/netpolicy_enforcement_suite.spec.ae")
 }
 ```
 

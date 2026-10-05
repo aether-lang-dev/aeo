@@ -80,10 +80,10 @@ aeo_orchestration() {
 
         // ---- declared verification (external specs; aeo runs them per phase) ----
         // check: data-model assertions, no deploy, runs anywhere/instant.
-        check("examples/checks/kvm_podman_model.spec.ae")
+        check("checks/kvm_podman_model.spec.ae")
         // suite: post-deploy data-model re-asserts, then teardown.
         // (live in-guest HTTP probe is in driver_vm itest, not a spec)
-        suite("examples/checks/kvm_podman_suite.spec.ae")
+        suite("checks/kvm_podman_suite.spec.ae")
     }
 }
 
