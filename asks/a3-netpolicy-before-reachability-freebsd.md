@@ -1,10 +1,86 @@
 # A3 — load pf netpolicy BEFORE a FreeBSD node is reachable (needs the FreeBSD box)
 
-**Status:** OPEN, ready to pick up. **Needs a FreeBSD box** (the GhostBSD box,
-paul@192.168.0.204, or any FreeBSD host with pf + a bhyve/jail substrate) for the
-live probe — this is why it's handed to a sibling with that hardware rather than
-done on the crostini dev box. Part of the Strands-inspired honesty track (A1, A2,
-A4 are done on `main`; see `TODO.md` → "Strands-inspired honesty track" and
+**Status:** RESOLVED (2026-10-10) in **`ce6b68e`** — live-probed on the GhostBSD
+box (FreeBSD 15.0-RELEASE-p10). Original hand-off text below the resolution.
+
+## Resolution
+
+**Design as built** (line numbers at `ce6b68e`):
+- `lib/aeo/runner.ae:783` — `driver_up` calls `_preload_netpolicy(nm, k)` right
+  after `_strict_gate` and before ANY driver work (jail `-c` / `vm start`).
+- `lib/aeo/runner.ae:1494` `_preload_netpolicy` — ipfw preflight (kept, same
+  warn / `AEO_IPFW_OFF=1` behaviour) → `pf.apply_pinned` → on success record
+  `applied = pf anchor aeo/<n> (loaded before start)` + audit `netpolicy-loaded`;
+  on failure in a `strict()` system: audit `strict-refuse`, best-effort
+  `driver_down` + anchor flush (covers an idempotent re-up of a running node),
+  return `STRICT REFUSED — declared netpolicy could not be enforced (…)`; outside
+  strict: the loud `WARNING pf policy NOT enforced` + `applied = no (…)`, boot.
+- `lib/aeo/runner.ae:1460` `_enforce_netpolicy` (still called at promotion) is
+  now Linux reporting only — nothing loads post-hoc on FreeBSD.
+- **No create-isolated-then-attach step was needed (decision):** both FreeBSD
+  kinds aeo drives know their address before creation — a jail boots at its
+  declared `ip()` (now pinned into the anchor, `_pf_pins`, runner.ae:1543), a bhyve
+  guest at its ipam address (written as a static netplan before first boot). A
+  jail with no `ip()` is created with ip4/ip6 *disabled* (FreeBSD's default,
+  checked on the box) — already isolated.
+- `lib/pf/module.ae:99` `apply_pinned` (`ready()` :139) — `ready()` first (pf loaded, `Status:
+  Enabled`, main ruleset references `anchor "aeo/*"`; pure verdict
+  `_ready_verdict`), resolve with pins winning over ipam, load, then READ BACK
+  (`loaded_count`) — an empty anchor is a failure. An anchor pf will not evaluate
+  is the same load-but-not-bite class as the ipfw confound, so it counts as "not
+  enforced" (and is fatal under strict).
+- A1 status: `_secp_netpolicy_status` (runner.ae:2305) reads `applied` LIVE from
+  pf on FreeBSD (`pf anchor aeo/<n> (N rules loaded, pf enabled)` or `no (…)`);
+  the strict gate keeps the pre-boot `_secp_netpolicy`.
+- Two pre-existing bugs the live probe exposed, fixed here: (1) a jail's `$name`
+  resolved through **ipam**, not its `ip()` — the anchor named an address the
+  jail did not have, so it never filtered the jail; (2) A2's strict gate refused
+  **every jail** as an "unpinned image" (now container kinds only, matching
+  `_secp_attest`), so no strict() FreeBSD system could boot at all.
+
+**Live evidence** — `test/a3-bringup-probe.sh` (re-runnable; instructions in its
+header; `A3_PF_TEMP=1` brings up and restores a temporary pf on a box without
+one). A deny-default jail (`deny_egress`, no ingress whitelist, `ip 10.77.3.10`)
+whose workload opens a listener and loops connecting out, started by `jail -c`'s
+`exec.start`; a host loop connects in every ~50 ms from before `aeo up`; an
+independent 20 ms poller records when the anchor first holds rules; the workload
+takes 2 s to report healthy (a service warming up). ipam is steered so even the
+OLD code's anchor names the jail's address — the difference is ordering alone.
+- **OLD (`2a0140d`)**: workload START `…117.869`, anchor first holds rules
+  `…119.965` (after promotion UP) → **36 ingress + 39 egress connections
+  succeeded** in the ~2.1 s window; 0 after the anchor. (With a 0 s health delay:
+  1 + 1 in ~48 ms.)
+- **NEW (`ce6b68e`)**: anchor holds rules `…831.889` **before** workload START
+  `…831.933`; **0 of 90 ingress + 95 egress attempts** succeeded from creation
+  through ready and after; `aeo status` → `applied=pf anchor aeo/aeo_a3_probe (2
+  rules loaded, pf enabled)`.
+- **Forced pf failure** (pf disabled for the bring-up): strict → `STRICT REFUSED —
+  declared netpolicy could not be enforced (aeo: pf is loaded but DISABLED …)`,
+  the jail never runs; strict re-`up` over an already-running jail → it is torn
+  down. Negative control, same failure without strict(): the jail boots, `WARNING
+  pf policy NOT enforced`, status `!netpolicy … applied=no (anchor … empty —
+  policy not loaded)`. The OLD code in the same situation printed "pf
+  deny-default policy loaded" and status claimed `applied=pf anchor …` while pf
+  was disabled — and its strict() refused the jail only as an "unpinned image".
+
+**Tests** — Mac (ae 0.791.0): `run-spec.sh` 322 ✓ vs 313 at `2a0140d` (+9 in
+spec_pf_enforce), the only failing spec `spec_driver_loadbalancer_live` fails
+identically before/after (no aeo-lb image); strict-mode.sh, security-posture.sh,
+compose-lint.sh green. GhostBSD (ae 0.791.0 source build under ~/aether-lab/a3):
+`run-spec.sh` 340 ✓ vs 331, the same two pre-existing failures before/after
+(`spec_capsicum_bhyvevm_selfreport`, `spec_containment_linux_vm`); strict-mode.sh
+cases 1-2 fail identically before/after on FreeBSD (container kinds are refused by
+the host preflight there — a Linux-shaped harness); security-posture.sh green.
+
+**Left open** (in `TODO.md`, Strands track): off-box egress behind a host `nat`
+rule is NOT filtered by the anchor (pf translates before filtering — proven live);
+a bhyve live probe (the ordering covers it, but no guest image on the box; DHCP
+double-address unverified); driver_bsd mounts no devfs in jails.
+
+## Original hand-off
+
+Part of the Strands-inspired honesty track (A1, A2, A4 are done on `main`; see
+`TODO.md` → "Strands-inspired honesty track" and
 `docs/reference/status-schema.md`).
 
 ## The problem (verified at aeo `214430e`)
