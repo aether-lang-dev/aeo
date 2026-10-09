@@ -135,7 +135,9 @@ enforced, with NO status signal (the WARN the docs cite lives in a dead, unwired
       note to Property 1 (matches A1's supported:no/applied:no).
 - [ ] **A3 — netpolicy before reachability** (FreeBSD: load pf anchor before the
       guest/jail runs its workload; strict → fatal + torn down). Live probe on the
-      FreeBSD box: no window of unfiltered reach.
+      FreeBSD box: no window of unfiltered reach. HANDED OFF to a sibling with a
+      FreeBSD box — self-contained spec in
+      `asks/a3-netpolicy-before-reachability-freebsd.md`.
 - [ ] **A5 interim — import-closure lint** on the composition (`aetherc
       --emit-deps`): refuse a compose that imports anything beyond the `compose`
       DSL + capability-free std, or declares any `extern`. A5-FINAL (build compose
