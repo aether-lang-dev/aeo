@@ -203,7 +203,16 @@ expects pf + dnsmasq done manually, which setup-nat.sh does.
 
 `aeo up` LOADS each VM's deny-default netpolicy (from `constrain{ egress /
 ingress_from / deny_egress }`) into a per-VM pf anchor `aeo/<vm>` (lib/pf —
-`pfctl -a aeo/<vm> -f /etc/pf.anchors/aeo-<vm>`). The write→load→read-back chain
+`pfctl -a aeo/<vm> -f /etc/pf.anchors/aeo-<vm>`) **before the node is created**
+(A3): the jail's `exec.start` / the guest's first packet already meet the rules,
+so there is no window where the node is reachable but unfiltered (live-probed by
+`test/a3-bringup-probe.sh`; the old post-promotion load left a ~2 s window of
+open ingress + egress on a deny-default jail). A jail's anchor names its declared
+`ip()` (the address it boots at); a bhyve guest's names its ipam address. Before
+loading, aeo checks pf will actually **evaluate** the anchor — pf enabled and
+`anchor "aeo/*"` in the main ruleset — and reads the anchor back after the load;
+any failure is "policy NOT enforced": a loud warning + `status applied: no`, or
+**fatal in a `strict()` system** (the node is not started / is torn down). The write→load→read-back chain
 is VERIFIED against real pfctl. The deny-default + whitelist acceptance suite PASSES
 on FreeBSD 14.3 (once ipfw is off the bridge, per the box above). Three things are
 REQUIRED for the loaded rules to actually govern traffic:
@@ -226,8 +235,21 @@ first (`sudo pfctl -nf /etc/pf.conf.new`), apply when no deploy is mid-flight,
 and the host's own LAN reachability (192.168.0.57 on re0) is unaffected since the
 changes are scoped to the vm-aeonat switch.
 
-Without these, `aeo up` writes + loads the anchor (and logs success), but pf
-never enforces it — the deny-default policy is silently inert. With them, a
+aeo now DETECTS (1) — and pf being disabled/absent — and reports it as not
+enforced. It cannot detect (0) beyond the ipfw warning, nor (2): a blanket `pass
+quick` ahead of the anchor still leaves the policy silently inert, so keep the
+main ruleset to the shape above.
+
+> **Known gap (found by A3, 2026-10-10): off-box egress through a host `nat`
+> rule is NOT blocked by the anchor.** pf translates before it filters, so on the
+> NAT interface an outbound packet already carries the host's address and the
+> anchor's `block out … from <node>` never matches. Proven live on GhostBSD
+> (FreeBSD 15): a `deny_egress` jail behind `nat on em0 from 10.77.3.0/24 -> (em0)`
+> reached a LAN host with the anchor loaded. A first try at exempting it — `no nat
+> proto tcp from <node>` in a `nat-anchor "aeo/*"` evaluated before the host's
+> `nat` — did not take (the rule was evaluated but never matched; not yet
+> understood). On-box/inter-node flows and ingress ARE filtered. Tracked in
+> TODO.md (Strands track, after A3). With them, a
 compromised node can only reach the peers/ports its `constrain{}` block
 whitelisted; everything else (incl. egress for a `deny_egress` node) is blocked.
 `aeo down` flushes the anchor (`pfctl -a aeo/<vm> -F rules`) so a torn-down VM

@@ -159,6 +159,9 @@ _await_level(booted: ptr, min_secs: int) -> int {
                     if ready == 1 {
                         set_state(bn, STATE_UP())
                         println("aeo: [${bn}] up")
+                        // Linux reporting only: on FreeBSD the pf anchor was
+                        // ALREADY loaded before the node existed (A3,
+                        // _preload_netpolicy in driver_up) — never post-hoc.
                         _enforce_netpolicy(bn)
                         _enforce_limits(bn)
                         _surface_lb_weight_ignored(bn)
@@ -731,9 +734,14 @@ _strict_gate(nm: string, k: string) -> string {
     }
     // Unpinned image: a pulled image() with no attest(). (unattestable = built
     // locally, no upstream digest to pin — a different class; not gated here.)
-    if _attest_state(nm) == "unpinned" {
-        _ = audit.record(nm, k, "strict-refuse", "unpinned image (no attest pin)")
-        return "aeo: [${nm}] STRICT REFUSED — image is unpinned (no attest(\"sha256:…\")). A strict() system requires a pinned digest; pin it or remove strict()."
+    // CONTAINER kinds only — the same scope as _secp_attest and attest.verify: a
+    // jail/bhyve/... node has no pulled OCI image to pin, and refusing it as
+    // "unpinned" made every strict() FreeBSD system unbootable (found by A3).
+    if _is_container(k) == 1 {
+        if _attest_state(nm) == "unpinned" {
+            _ = audit.record(nm, k, "strict-refuse", "unpinned image (no attest pin)")
+            return "aeo: [${nm}] STRICT REFUSED — image is unpinned (no attest(\"sha256:…\")). A strict() system requires a pinned digest; pin it or remove strict()."
+        }
     }
     // Declared security properties that this backend cannot enforce or did not
     // apply. Each _secp_* is "declared|supported|applied|verified"; "" = undeclared.
@@ -765,6 +773,16 @@ driver_up(nm: string, k: string) -> string {
     sgate = _strict_gate(nm, k)
     if sgate != "" {
         return sgate
+    }
+    // A3 — NETPOLICY BEFORE REACHABILITY (FreeBSD): load the node's pf deny-default
+    // anchor HERE, before any driver creates the jail / starts the guest, so there
+    // is never a moment the node is both reachable and unfiltered. (It used to load
+    // after promotion to UP — a live window, proven by test/a3-bringup-probe.sh.)
+    // A failure is FATAL in a strict() system (the node is torn down / never
+    // started); otherwise a loud WARNING + status applied=no, as before.
+    perr = _preload_netpolicy(nm, k)
+    if perr != "" {
+        return perr
     }
     if k == "load_balancer" {
         // The L7 balancer front-door (docs §9 step 2): render the pool from this
@@ -1434,31 +1452,56 @@ _deps_ready(nm: string) -> int {
     return 0
 }
 
-// Load a resource's deny-default pf policy into its own anchor, now that it's up
-// and addressable. pf is FreeBSD-only, so skip elsewhere (the netpolicy is still
-// generated + asserted by spec_pf_rulegen/spec_pf_enforce; only the live load is
-// BSD). A no-op if the resource declared no netpolicy. Non-fatal by design:
-// a pfctl failure logs loudly but doesn't tear the (already-up) node down — the
-// operator sees an explicit "policy NOT enforced" line rather than a silent gap.
+// _enforce_netpolicy(nm) — the post-promotion netpolicy REPORT. On FreeBSD it
+// does nothing: since A3 the pf anchor is loaded BEFORE the node is created
+// (_preload_netpolicy, from driver_up), never after it is up. (The old post-hoc
+// load here was the unfiltered-reachability window A3 closed.) On Linux a
+// CONTAINER's netpolicy was enforced at creation by its network mode; report that.
 _enforce_netpolicy(nm: string) {
     if compose.get_netpolicy(nm) == "" {
         return
     }
-    if host.family() != "bsd" {
-        // On Linux, a CONTAINER's netpolicy IS enforced — confine_linux already
-        // placed it on the right network (none/internal/shared) at up time. Report
-        // that, don't warn. Non-container kinds have no Linux netpolicy path yet.
-        k = compose.get_kind(nm)
-        if _is_container(k) == 1 {
-            println("aeo: [${nm}] netpolicy enforced via container network (${confine_linux.net_kind(compose.get_netpolicy(nm))})")
-        } else {
-            println("aeo: [${nm}] netpolicy declared but only pf(FreeBSD)/container enforce it — NOT enforced for kind=${k}")
-        }
+    if host.family() == "bsd" {
         return
     }
-    // IPFW PREFLIGHT (the pf-redemption fix): ipfw shares pfil with pf and silently
-    // eats bridged guest packets, so the anchor would load-but-not-bite while ipfw is
-    // on. Warn loudly by default; AEO_IPFW_OFF=1 opts into disabling it.
+    k = compose.get_kind(nm)
+    if _is_container(k) == 1 {
+        println("aeo: [${nm}] netpolicy enforced via container network (${confine_linux.net_kind(compose.get_netpolicy(nm))})")
+    } else {
+        println("aeo: [${nm}] netpolicy declared but only pf(FreeBSD)/container enforce it — NOT enforced for kind=${k}")
+    }
+}
+
+// _preload_netpolicy(nm, k) — A3: load the node's pf deny-default anchor BEFORE
+// the node exists. Called from driver_up after the strict gate and before ANY
+// driver work, so the jail's exec.start / the guest's first packet already meet
+// the rules. Returns "" to proceed with boot, else an error that fails the node.
+//
+// Why no "create isolated, then attach" step: every FreeBSD kind aeo drives has
+// its address fixed BEFORE creation — a jail boots at its declared ip() (pinned
+// into the anchor via _pf_pins), a bhyve guest at its ipam address (bhyve_up
+// writes it as a static netplan before first boot) — so loading first is enough.
+// A jail with NO ip() is created with ip4/ip6 disabled (FreeBSD's default), i.e.
+// already isolated. A kind whose address only appears after creation would need
+// the isolated-then-attach shape; none exists today.
+//
+// Outcome:
+//   ok          -> "" ; applied = "pf anchor aeo/<nm> (loaded before start)".
+//   failure + strict()  -> FATAL: audit strict-refuse, best-effort driver_down +
+//                  anchor flush (covers an idempotent re-up of an already-running
+//                  node), return the refusal — the node is not left up unfiltered.
+//   failure, not strict -> loud WARNING (as before) + applied = "no (…)"; boot.
+_preload_netpolicy(nm: string, k: string) -> string {
+    if compose.get_netpolicy(nm) == "" {
+        return ""
+    }
+    if host.family() != "bsd" {
+        return ""
+    }
+    // IPFW PREFLIGHT (the pf-redemption fix), now in the EARLY ordering: ipfw
+    // shares pfil with pf and silently eats bridged guest packets, so the anchor
+    // can load-but-not-bite while ipfw is on. Warn loudly; AEO_IPFW_OFF=1 opts
+    // into disabling it.
     ipfw = pf.ipfw_conflict()
     if ipfw != "" {
         if _envc("AEO_IPFW_OFF") == "1" {
@@ -1473,12 +1516,65 @@ _enforce_netpolicy(nm: string) {
         }
     }
     rules = compose.pf_rules_for(nm)
-    err = pf.apply(compose.get_system(nm), nm, rules)
-    if err != "" {
-        println("aeo: [${nm}] WARNING pf policy NOT enforced: ${err}")
-    } else {
-        println("aeo: [${nm}] pf deny-default policy loaded (anchor ${pf.anchor_name(nm)})")
+    err = pf.apply_pinned(compose.get_system(nm), nm, rules, _pf_pins(nm))
+    if err == "" {
+        config.put("aeo.run.npapplied.${nm}", "pf anchor ${pf.anchor_name(nm)} (loaded before start)")
+        _ = audit.record(nm, k, "netpolicy-loaded", pf.anchor_name(nm))
+        println("aeo: [${nm}] pf deny-default policy loaded BEFORE start (anchor ${pf.anchor_name(nm)})")
+        return ""
     }
+    config.put("aeo.run.npapplied.${nm}", "no (pf load failed: ${_oneline(err)})")
+    if compose.get_strict(compose.get_system(nm)) == 1 {
+        _ = audit.record(nm, k, "strict-refuse", "netpolicy: pf anchor not enforced: ${_oneline(err)}")
+        _dd = driver_down(nm, k)
+        _fl = pf.flush(nm)
+        return "aeo: [${nm}] STRICT REFUSED — declared netpolicy could not be enforced (${err}). A strict() system does not run a node unfiltered: it is torn down / not started."
+    }
+    _ = audit.record(nm, k, "netpolicy-not-enforced", _oneline(err))
+    println("aeo: [${nm}] WARNING pf policy NOT enforced: ${err}")
+    return ""
+}
+
+// _pf_pins(nm) — "name=addr" lines for every declared JAIL with an ip(): the
+// address the jail actually boots at (driver_bsd's ip4.addr), which must win over
+// ipam when the anchor's $tokens resolve. Strips an "iface|" prefix and keeps the
+// first of a comma list (jail(8) ip4.addr forms). (nm is unused today — the pins
+// cover peers too, since a rule names its peers' addresses.)
+_pf_pins(nm: string) -> string {
+    pins = ""
+    n = compose.count()
+    i = 0
+    while i < n {
+        o = compose.name_at(i)
+        if compose.get_kind(o) == "jail" {
+            a = _jail_addr(compose.get_ip(o))
+            if string_length(a) > 0 {
+                if string_length(pins) == 0 {
+                    pins = "${o}=${a}"
+                } else {
+                    pins = "${pins}\n${o}=${a}"
+                }
+            }
+        }
+        i = i + 1
+    }
+    return pins
+}
+_jail_addr(ip: string) -> string {
+    a = ip
+    bar = string_index_of(a, "|")
+    if bar >= 0 {
+        a = string_substring(a, bar + 1, string_length(a))
+    }
+    comma = string_index_of(a, ",")
+    if comma >= 0 {
+        a = string_substring(a, 0, comma)
+    }
+    slash = string_index_of(a, "/")
+    if slash >= 0 {
+        a = string_substring(a, 0, slash)
+    }
+    return a
 }
 
 // Apply a resource's rctl resource caps (the limit{} block), now that it's up.
@@ -2061,7 +2157,7 @@ _status_detail(nm: string, k: string) {
     // verified. Printed under a header only when at least one property applies,
     // so an unconfined node adds nothing. A "supported: no" or "applied: no" line
     // is the honest surface for a silent gap (egress_fqdn on Linux).
-    _sec_line("netpolicy  ", _secp_netpolicy(nm, k))
+    _sec_line("netpolicy  ", _secp_netpolicy_status(nm, k))
     _sec_line("egress_fqdn", _secp_egress_fqdn(nm))
     _sec_line("attest     ", _secp_attest(nm, k))
     _sec_line("limits     ", _secp_limits(nm))
@@ -2121,7 +2217,7 @@ _sec_field(row: string, idx: int) -> string {
 // a human sees). Empty when the node declared none.
 _sec_json(nm: string, k: string) -> string {
     out = ""
-    out = _sec_json_add(out, "netpolicy", _secp_netpolicy(nm, k))
+    out = _sec_json_add(out, "netpolicy", _secp_netpolicy_status(nm, k))
     out = _sec_json_add(out, "egress_fqdn", _secp_egress_fqdn(nm))
     out = _sec_json_add(out, "attestation", _secp_attest(nm, k))
     out = _sec_json_add(out, "limits", _secp_limits(nm))
@@ -2185,12 +2281,49 @@ _secp_netpolicy(nm: string, k: string) -> string {
     if np == "" { return "" }
     decl = _oneline(np)
     if _sec_bsd() == 1 {
+        // A3: this run's real outcome when the anchor load was attempted (the
+        // pre-start load in _preload_netpolicy records it), else the plan.
+        ran = config.get("aeo.run.npapplied.${nm}")
+        if ran != "" {
+            return "${decl}|yes|${ran}|not probed"
+        }
         return "${decl}|yes|pf anchor ${pf.anchor_name(nm)}|not probed"
     }
     if _is_container(k) == 1 {
         return "${decl}|yes|container net (${confine_linux.net_kind(np)})|not probed"
     }
     return "${decl}|no|no (kind=${k} on linux: only pf/container enforce)|not probed"
+}
+
+// _secp_netpolicy_status — the netpolicy row for `aeo status` (a SEPARATE process
+// from the `up` that loaded the anchor). On FreeBSD `applied` is read LIVE from
+// pf: the anchor's rule count, and whether pf will evaluate it at all (enabled +
+// `anchor "aeo/*"` referenced). An empty/absent anchor or an inert pf is
+// `applied: no (…)`, so a CI gate on applied~"no" catches a node running
+// unfiltered. (The strict gate keeps using _secp_netpolicy: before boot nothing
+// is loaded yet, and that is not a refusal reason.)
+_secp_netpolicy_status(nm: string, k: string) -> string {
+    row = _secp_netpolicy(nm, k)
+    if row == "" { return "" }
+    if _sec_bsd() == 0 { return row }
+    decl = _sec_field(row, 0)
+    cnt = pf.loaded_count(nm)
+    appl = ""
+    if cnt < 0 {
+        appl = "no (cannot read pf anchor ${pf.anchor_name(nm)})"
+    } else {
+        if cnt == 0 {
+            appl = "no (anchor ${pf.anchor_name(nm)} empty — policy not loaded)"
+        } else {
+            rdy = pf.ready()
+            if rdy != "" {
+                appl = "no (anchor ${pf.anchor_name(nm)} holds ${string_from_int(cnt)} rules but pf will not evaluate it: ${_oneline(rdy)})"
+            } else {
+                appl = "pf anchor ${pf.anchor_name(nm)} (${string_from_int(cnt)} rules loaded, pf enabled)"
+            }
+        }
+    }
+    return "${decl}|yes|${appl}|not probed"
 }
 
 // egress_fqdn — name-aware egress. NO backend enforces it today: FreeBSD emits no

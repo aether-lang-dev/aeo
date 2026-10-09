@@ -95,16 +95,23 @@ it:
 | `verified` | did a probe confirm it? a probe tag, or `not probed` |
 
 `verified` is `not probed` for most properties today: `status` reads declared
-state and liveness; it does **not** re-probe live rules. A live probe is the job
-of `aeo check` and the A3 netpolicy-before-reachability work. The one exception is
-attestation, whose `verified` is `at boot` (the digest is verified fail-closed at
-bring-up).
+state and liveness; it does **not** re-probe reachability. (The reachability
+proof for FreeBSD netpolicy is the live bring-up probe `test/a3-bringup-probe.sh`.)
+The one exception is attestation, whose `verified` is `at boot` (the digest is
+verified fail-closed at bring-up).
+
+**FreeBSD `netpolicy.applied` is read live (A3).** On a FreeBSD host `status`
+asks pf, not the plan: `applied` is `pf anchor aeo/<node> (N rules loaded, pf
+enabled)` only when the node's anchor holds rules **and** pf will evaluate it (pf
+enabled, `anchor "aeo/*"` referenced from the main ruleset). An empty anchor, a
+disabled/absent pf, or an unreferenced anchor is `applied: no (…)` — the node
+would be running unfiltered, and the CI gate below catches it.
 
 ### Properties
 
 | key | `supported` depends on | notable honest `no` |
 |---|---|---|
-| `netpolicy` | FreeBSD (pf) yes; Linux **container** yes (container net mode); Linux non-container **no** (only pf/container enforce) | a non-container kind on Linux |
+| `netpolicy` | FreeBSD (pf) yes; Linux **container** yes (container net mode); Linux non-container **no** (only pf/container enforce) | a non-container kind on Linux; on FreeBSD, `applied: no (…)` when the pf anchor is empty or pf will not evaluate it (read live) |
 | `egress_fqdn` | **no on every backend today** — name-aware egress is not enforced anywhere until the CONNECT gateway lands (see `research/egress-fqdn-considered.md`) | always; on Linux the node is placed on an `--internal` net *standin*, **not** name-aware filtered |
 | `attestation` | yes (the boot-time digest gate) | `applied: no (unpinned)` for a pulled-but-unpinned image |
 | `limits` | yes (FreeBSD rctl / Linux cgroups) | — |
@@ -168,6 +175,15 @@ In a `strict()` system a node does **not** start if:
   (the same posture fields above — e.g. `egress_fqdn` on Linux), or
 - its image is **unpinned** (a pulled `image()` with no `attest()`; `attestation`
   is `unpinned`).
+
+- **(FreeBSD, A3)** its declared netpolicy's pf anchor fails to load — pf absent,
+  disabled, `anchor "aeo/*"` not referenced, `pfctl` rejecting the rules, or the
+  anchor reading back empty. The anchor is loaded **before** the jail/guest is
+  created, so the node is simply never started; if it was already running (an
+  idempotent re-`up`) it is torn down. Without `strict()` the same failure is a
+  loud `WARNING pf policy NOT enforced` and `applied: no` — the node still boots.
+- An image-pin requirement applies to **container** kinds only: a jail or VM has
+  no pulled OCI image, so it is never refused as "unpinned".
 
 The refusal is loud and names the property (`aeo: [db] STRICT REFUSED — …`), is
 recorded in the audit trail (`strict-refuse`), and fails the node before any boot

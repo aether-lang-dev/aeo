@@ -133,11 +133,40 @@ enforced, with NO status signal (the WARN the docs cite lives in a dead, unwired
       enforced-boundaries claim; audit note now names the full-rewrite-with-
       checkpoint-control case + off-host anchoring; added an egress_fqdn NOT-ENFORCED
       note to Property 1 (matches A1's supported:no/applied:no).
-- [ ] **A3 — netpolicy before reachability** (FreeBSD: load pf anchor before the
-      guest/jail runs its workload; strict → fatal + torn down). Live probe on the
-      FreeBSD box: no window of unfiltered reach. HANDED OFF to a sibling with a
-      FreeBSD box — self-contained spec in
-      `asks/a3-netpolicy-before-reachability-freebsd.md`.
+- [x] **A3 — netpolicy before reachability** (FreeBSD). The pf anchor now loads
+      in `driver_up` right after the strict gate, BEFORE any driver creates the
+      jail / starts the guest (`_preload_netpolicy`); the old post-promotion load
+      is gone (`_enforce_netpolicy` is Linux reporting only). `pf.apply_pinned`
+      first checks pf will EVALUATE the anchor (enabled + `anchor "aeo/*"`
+      referenced), then loads and reads it back. Failure: strict() -> fatal (node
+      not started / torn down, audit strict-refuse); else WARNING + `applied: no`.
+      ipfw preflight kept in the new ordering. `aeo status` on FreeBSD reads
+      `applied` live from pf. Also fixed on the way: a jail's anchor resolved its
+      `$name` through ipam, not the jail's `ip()` (the rules named an address the
+      jail did not have) — now pinned; and A2's strict gate refused EVERY jail as
+      an "unpinned image" (now container kinds only). LIVE proof on GhostBSD
+      (FreeBSD 15): `test/a3-bringup-probe.sh` — old code: 36 ingress + 39 egress
+      connections succeeded in a ~2.1 s window on a deny-default jail; new: 0 of
+      ~180 attempts, anchor observed loaded before the workload's first instruction;
+      forced pf failure under strict() leaves the node down (fresh AND already-
+      running), non-strict boots + warns + `applied=no`. Unit: spec_pf_enforce
+      (pin + readiness + read-back). Record: `asks/a3-netpolicy-before-reachability-freebsd.md`.
+- [ ] **A3 follow-up — off-box egress behind a host `nat` is not filtered.** pf
+      translates before filtering, so a `deny_egress` jail/guest NAT'd out the
+      host's uplink is NOT blocked by `block out … from <node>` (proven live on
+      GhostBSD 2026-10-10; a `no nat` in `nat-anchor "aeo/*"` did not take). Needs
+      a rule shape that matches pre-translation (tag in the nat rule, `nat-to` in
+      a filter rule on FreeBSD 15, or filtering on the jail-side/bridge interface)
+      plus a live probe. Until then status `applied` overstates deny_egress on a
+      NAT'd host. See docs/operations/bsd-host-setup.md "Known gap".
+- [ ] **A3 follow-up — bhyve bring-up probe.** The ordering change covers bhyve
+      (anchor before `vm start`; address = ipam static), but the live probe ran on
+      a jail only (no guest image on the box). Also unverified: whether the cloud
+      image's own DHCP netplan leases a SECOND address the anchor does not name.
+- [ ] driver_bsd does not mount devfs in a jail, so a backgrounded `exec.start`
+      (`cmd &`) dies on `/bin/sh: cannot open /dev/null` (sh redirects an async
+      list's stdin to /dev/null). a3-bringup-probe mounts devfs as a fixture;
+      consider `mount.devfs` (ruleset 4) in `jail_create_argv`.
 - [x] **A5 interim — import-closure lint** on the composition. NB the plan's
       `aetherc --emit-deps` does NOT exist in this toolchain; used `ae inspect`
       instead (richer — gives imports + capabilities + extern count statically, no

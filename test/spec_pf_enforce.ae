@@ -12,7 +12,7 @@
 
 import std.spec
 import compose (constrain, grant_fd, ingress_from, egress, ingress, deny_egress, pf_rules_for)
-import pf (resolve, anchor_name, anchor_path)
+import pf (resolve, resolve_pinned, anchor_name, anchor_path, _pin_lookup, _ready_verdict, _count_rules)
 import ipam (resolve_ip, reset_bindings)
 import std.string (string_contains)
 
@@ -63,6 +63,53 @@ main() {
                 spec.expect_str(anchor_name("python_vm")).to_equal_str("aeo/python_vm")
                 spec.expect_str(anchor_path("db_vm")).to_equal_str("/etc/pf.anchors/aeo-db_vm")
             }
+        }
+    }
+
+    // A3 — the jail-address pin + the "will pf evaluate it?" preflight.
+    constrain("jail_j") { deny_egress() }
+    spec.describe(fw, "A3: a pinned (jail ip()) address wins over ipam") {
+        spec.it("resolve_pinned uses the jail's declared ip, not an ipam address") callback {
+            r = resolve_pinned(SYS(), pf_rules_for("jail_j"), "jail_j=10.77.3.10")
+            spec.expect_int(_has(r, "block in proto tcp to 10.77.3.10")).to_be_truthy("the anchor must name the address the jail BOOTS at (driver_bsd ip4.addr = ip())")
+            spec.expect_int(_has(r, "block out proto tcp from 10.77.3.10")).to_be_truthy()
+            spec.expect_int(_absent(r, "$")).to_be_truthy()
+        }
+        spec.it("without a pin the SAME rules resolve through ipam (the old, wrong address for a jail)") callback {
+            r = resolve(SYS(), pf_rules_for("jail_j"))
+            spec.expect_int(_absent(r, "10.77.3.10")).to_be_truthy("negative control: proves the pin, not something else, moved the address")
+        }
+        spec.it("pins are exact-name: a pin for db never answers db_vm") callback {
+            spec.expect_str(_pin_lookup("db=10.0.0.1\ndb_vm=10.0.0.2", "db_vm")).to_equal_str("10.0.0.2")
+            spec.expect_str(_pin_lookup("db=10.0.0.1\ndb_vm=10.0.0.2", "db")).to_equal_str("10.0.0.1")
+            spec.expect_str(_pin_lookup("db=10.0.0.1", "app")).to_equal_str("")
+            spec.expect_str(_pin_lookup("", "db")).to_equal_str("")
+        }
+        spec.it("peers resolve through pins too (ingress_from a pinned jail)") callback {
+            r = resolve_pinned(SYS(), pf_rules_for("db_vm"), "python_vm=10.77.3.20")
+            spec.expect_int(_has(r, "pass in proto tcp from 10.77.3.20 to ${db_ip} port 6379")).to_be_truthy()
+        }
+    }
+    spec.describe(fw, "A3: pf readiness — an anchor that pf will not evaluate is NOT enforcement") {
+        spec.it("pfctl cannot open /dev/pf (pf.ko not loaded) -> not ready") callback {
+            v = _ready_verdict("pfctl: /dev/pf: No such file or directory", 1, "")
+            spec.expect_int(_has(v, "pf is not available")).to_be_truthy()
+        }
+        spec.it("pf loaded but disabled -> not ready") callback {
+            v = _ready_verdict("Status: Disabled for 0 days 00:00:05   Debug: Urgent", 0, "anchor \"aeo/*\" all")
+            spec.expect_int(_has(v, "DISABLED")).to_be_truthy()
+        }
+        spec.it("enabled but the main ruleset never references aeo/* -> not ready") callback {
+            v = _ready_verdict("Status: Enabled for 0 days 00:00:05   Debug: Urgent", 0, "pass all flags S/SA keep state")
+            spec.expect_int(_has(v, "does not reference anchor")).to_be_truthy()
+        }
+        spec.it("enabled + anchor \"aeo/*\" referenced -> ready") callback {
+            spec.expect_str(_ready_verdict("Status: Enabled for 0 days 00:00:05   Debug: Urgent", 0, "pass all flags S/SA keep state\nanchor \"aeo/*\" all")).to_equal_str("")
+        }
+        spec.it("_count_rules counts non-blank listing lines (the post-load read-back)") callback {
+            spec.expect_int(_count_rules("")).to_equal(0)
+            spec.expect_int(_count_rules("block drop in inet proto tcp from any to 10.77.3.10\nblock drop out inet proto tcp from 10.77.3.10 to any\n")).to_equal(2)
+            spec.expect_int(_count_rules("\n  \n")).to_equal(0)
         }
     }
 

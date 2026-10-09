@@ -18,11 +18,11 @@
 
 import std.os (run_capture)
 import std.list
-import std.string (string_length, string_char_at, string_substring, string_from_char)
+import std.string (string_length, string_char_at, string_substring, string_from_char, string_index_of, string_contains, string_starts_with)
 import std.fs (write_atomic)
 import ipam
 
-exports ( resolve, apply, flush, anchor_name, anchor_path, ipfw_conflict, ipfw_disable, _ipfw_warning )
+exports ( resolve, resolve_pinned, apply, apply_pinned, flush, anchor_name, anchor_path, ready, loaded_count, ipfw_conflict, ipfw_disable, _ipfw_warning, _ready_verdict, _count_rules, _pin_lookup )
 
 // resolve(system, rules) — replace every $<name> token in `rules` with the
 // ipam IP for (system, name). A token is `$` followed by [A-Za-z0-9_]+ (the
@@ -30,6 +30,18 @@ exports ( resolve, apply, flush, anchor_name, anchor_path, ipfw_conflict, ipfw_d
 // binding — the SAME address the driver booted them at — so the firewall and
 // the boot agree. Pure string work + ipam reads: unit-testable off FreeBSD.
 resolve(system: string, rules: string) -> string {
+    return resolve_pinned(system, rules, "")
+}
+
+// resolve_pinned(system, rules, pins) — resolve(), but a PINNED address wins over
+// ipam for the names it lists. `pins` is newline-separated "name=addr" lines (""
+// = none). Why (A3): a JAIL is booted at its declared ip() (driver_bsd passes
+// compose.get_ip as ip4.addr) — NOT at an ipam address — so resolving its $token
+// through ipam alone wrote the anchor for an address the jail does not have, and
+// the deny-default rules never touched the jail's traffic. The runner passes each
+// jail's ip() here so the firewall and the boot agree, the same invariant ipam
+// gives bhyve guests.
+resolve_pinned(system: string, rules: string, pins: string) -> string {
     out = ""
     n = string_length(rules)
     i = 0
@@ -51,7 +63,10 @@ resolve(system: string, rules: string) -> string {
                 }
             }
             name = string_substring(rules, i + 1, end)
-            ip = ipam.resolve_ip(system, name)
+            ip = _pin_lookup(pins, name)
+            if string_length(ip) == 0 {
+                ip = ipam.resolve_ip(system, name)
+            }
             if string_length(ip) == 0 {
                 out = "${out}$${name}"        // unresolved -> leave the token
             } else {
@@ -68,9 +83,30 @@ resolve(system: string, rules: string) -> string {
 
 // apply(system, vm, rules) — resolve tokens, write the anchor file, load it via
 // pfctl into anchor aeo/<vm>. Returns "" on success, an error string otherwise.
-// FreeBSD + root (pfctl). The runner calls this AFTER the VM has its IP.
+// FreeBSD + root (pfctl).
 apply(system: string, vm: string, rules: string) -> string {
-    resolved = resolve(system, rules)
+    return apply_pinned(system, vm, rules, "")
+}
+
+// apply_pinned(system, vm, rules, pins) — the A3 load: preflight that pf will
+// actually EVALUATE the anchor, resolve (pins win over ipam), write, load, then
+// READ BACK the anchor. "" only when all of that held — so "" means the deny-
+// default rules are live in an enabled pf that consults aeo's anchors, not merely
+// that pfctl exited 0. Every other outcome is an error string the runner treats
+// as "policy NOT enforced" (fatal under strict()). The runner calls this BEFORE
+// the node is created (load-before-reachable), so the node's address must be
+// known up front: a jail's ip() (pinned) or a bhyve guest's ipam address.
+apply_pinned(system: string, vm: string, rules: string, pins: string) -> string {
+    rerr = ready()
+    if rerr != "" {
+        return rerr
+    }
+    resolved = resolve_pinned(system, rules, pins)
+    if string_contains(resolved, "$") == 1 {
+        // an unresolved $token would make pfctl reject the file (or, worse, load
+        // a macro-less rule set that matches nothing) — refuse up front.
+        return "aeo: pf rules for ${vm} still hold an unresolved $token after resolution: ${resolved}"
+    }
     path = anchor_path(vm)
     // The anchor dir is root-owned; ensure it exists (idempotent, fresh hosts).
     _md = _sudo_mkdir(anchor_dir())
@@ -82,9 +118,111 @@ apply(system: string, vm: string, rules: string) -> string {
     }
     // `sudo -n /sbin/pfctl -a aeo/<vm> -f <file>` — FULL path so the path-specific
     // NOPASSWD pfctl rule matches (a bare `pfctl` would not). -n: never prompt.
-    out, status, err = _sudo_pfctl("-a ${anchor_name(vm)} -f ${path}")
+    out, status, err = _sudo_pfctl("-a ${anchor_name(vm)} -f ${path} 2>&1")
     if status != 0 {
         return "aeo: pfctl load of anchor ${anchor_name(vm)} failed (exit ${_i(status)}): ${out}"
+    }
+    // READ BACK: the anchor must now hold rules (a load that "succeeded" into
+    // nothing is not enforcement).
+    if loaded_count(vm) <= 0 {
+        return "aeo: pf anchor ${anchor_name(vm)} read back EMPTY after load — policy not in effect"
+    }
+    return ""
+}
+
+// ready() — "" iff pf will EVALUATE aeo's per-node anchors: pf is enabled AND the
+// main ruleset references `anchor "aeo/*"` (or "aeo"). Otherwise a precise error:
+// pf absent (pfctl cannot open /dev/pf — pf.ko not loaded), pf disabled, or the
+// anchor not referenced. Each of those means an anchor would load-but-not-bite —
+// the same silent-inert class as the ipfw confound — so A3 counts them as "not
+// enforced" rather than letting a node start believing it is filtered.
+ready() -> string {
+    info, ist, _ie = _sudo_pfctl("-s info 2>&1")
+    main_rules = ""
+    if ist == 0 {
+        mr, _ms, _me = _sudo_pfctl("-s rules 2>/dev/null")
+        main_rules = mr
+    }
+    return _ready_verdict(info, ist, main_rules)
+}
+
+// _ready_verdict(info_out, info_status, main_rules) — PURE decision for ready(),
+// unit-tested off-BSD (spec_pf_enforce). info_out is `pfctl -s info` output (+its
+// exit status); main_rules is `pfctl -s rules` (main ruleset only).
+_ready_verdict(info_out: string, info_status: int, main_rules: string) -> string {
+    if info_status != 0 {
+        return "aeo: pf is not available (pfctl -s info failed: ${_trim_ws(info_out)}) — is pf.ko loaded? (kldload pf; sysrc pf_enable=YES)"
+    }
+    if string_contains(info_out, "Status: Enabled") == 0 {
+        return "aeo: pf is loaded but DISABLED (pfctl -s info: not 'Status: Enabled') — an anchor would load but never filter (pfctl -e / service pf start)"
+    }
+    if _references_aeo_anchor(main_rules) == 0 {
+        return "aeo: the main pf ruleset does not reference anchor \"aeo/*\" — an aeo anchor would load but never be evaluated (add `anchor \"aeo/*\"` to /etc/pf.conf; see docs/operations/bsd-host-setup.md)"
+    }
+    return ""
+}
+
+// 1 if a `pfctl -s rules` listing has an `anchor "aeo/*"` / `anchor "aeo"` line.
+_references_aeo_anchor(rules: string) -> int {
+    if string_contains(rules, "anchor \"aeo/*\"") == 1 { return 1 }
+    if string_contains(rules, "anchor \"aeo\"") == 1 { return 1 }
+    return 0
+}
+
+// loaded_count(vm) — how many filter rules anchor aeo/<vm> holds right now (-1 if
+// pf could not be read). The read-back half of apply_pinned, and the live
+// `applied` source for `aeo status` on FreeBSD.
+loaded_count(vm: string) -> int {
+    out, status, _e = _sudo_pfctl("-a ${anchor_name(vm)} -s rules 2>/dev/null")
+    if status != 0 {
+        return -1
+    }
+    return _count_rules(out)
+}
+
+// _count_rules(listing) — PURE: non-empty lines of a `pfctl -s rules` listing.
+_count_rules(listing: string) -> int {
+    n = string_length(listing)
+    count = 0
+    seen = 0
+    i = 0
+    while i < n {
+        c = string_char_at(listing, i)
+        if c == 10 {
+            if seen == 1 { count = count + 1 }
+            seen = 0
+        } else {
+            if c != 32 { if c != 9 { if c != 13 { seen = 1 } } }
+        }
+        i = i + 1
+    }
+    if seen == 1 { count = count + 1 }
+    return count
+}
+
+// _pin_lookup(pins, name) — the address pinned for `name` in "name=addr" lines,
+// or "" if not pinned. Exact-name match (a pin for "db" never answers "db_vm").
+_pin_lookup(pins: string, name: string) -> string {
+    if string_length(pins) == 0 {
+        return ""
+    }
+    rest = pins
+    more = 1
+    while more == 1 {
+        nl = string_index_of(rest, "\n")
+        line = rest
+        if nl >= 0 {
+            line = string_substring(rest, 0, nl)
+            rest = string_substring(rest, nl + 1, string_length(rest))
+        } else {
+            more = 0
+        }
+        eq = string_index_of(line, "=")
+        if eq > 0 {
+            if string_substring(line, 0, eq) == name {
+                return string_substring(line, eq + 1, string_length(line))
+            }
+        }
     }
     return ""
 }
