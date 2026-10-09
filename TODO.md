@@ -97,9 +97,12 @@ malware and are impregnable to attack.* Two axes — stop a node REACHING things
 | Image attestation | ✅ | ✅ **verify-before-boot, fail-closed; wrong digest refused live** | attest("sha256:..."); 3 greppable states (attested/unpinned/unattestable) |
 | Audit trail | ✅ | ✅ **tamper-evident hash chain; tamper + attest-refuse caught live** | lib/audit; `aeo audit` verifies the chain (§4) |
 
-### Strands-inspired honesty track (plan: strand/strands_inspired_plan_for_aether_and_aeo.md §6)
-Lesson from Strands Box: *every guarantee has an enforcement point and evidence;
-failures refuse rather than silently fall back.* aeo's gap was silent — e.g.
+### Strands-inspired honesty track
+This section is the record for the aeo track (self-contained — the original
+cross-repo planning doc, strand/strands_inspired_plan_for_aether_and_aeo.md, is now
+just the Aether-side record). The idea came from Strands Box: *every guarantee has
+an enforcement point and evidence; failures refuse rather than silently fall back.*
+aeo's gap was silent — e.g.
 egress_fqdn on Linux was mapped to an --internal-net standin and never name-aware
 enforced, with NO status signal (the WARN the docs cite lives in a dead, unwired
 `lib/netpolicy_linux`). The track makes the gaps visible, then refusable.
