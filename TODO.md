@@ -118,10 +118,14 @@ enforced, with NO status signal (the WARN the docs cite lives in a dead, unwired
       unsupported/failed-to-apply, or whose image is unpinned, does NOT start.
       Default unchanged. Done when egress_fqdn-on-Linux and an unpinned image each
       refuse in strict, boot without it (negative control).
-- [ ] **A4 — honest threat-model + attestation docs** (docs/core/threat-model.md):
-      the root-but-no-master-key contradiction; "unsigned images (mandatory)" →
-      digest≠signature, pinning optional unless strict; drop "impregnable"; audit
-      detects tamper not full rewrite.
+- [x] **A4 — honest threat-model + attestation docs** (docs/core/threat-model.md):
+      resolved the adversary contradiction (now two models — compromised node /
+      unprivileged local; host-root explicitly OUT of scope, not protected-against);
+      "unsigned images (mandatory)" → digest proves content-identity not publisher,
+      pinning optional unless strict(); dropped "impregnable" for the bounded
+      enforced-boundaries claim; audit note now names the full-rewrite-with-
+      checkpoint-control case + off-host anchoring; added an egress_fqdn NOT-ENFORCED
+      note to Property 1 (matches A1's supported:no/applied:no).
 - [ ] **A3 — netpolicy before reachability** (FreeBSD: load pf anchor before the
       guest/jail runs its workload; strict → fatal + torn down). Live probe on the
       FreeBSD box: no window of unfiltered reach.

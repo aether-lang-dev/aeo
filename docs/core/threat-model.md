@@ -4,7 +4,16 @@
 
 aeo is an infrastructure orchestrator designed to stand up, keep coherent, and tear down trees of compute nodes with **per-node confinement**, **image attestation**, and **tamper-evident audit trails**. This document specifies what aeo protects against and what is explicitly out-of-scope.
 
-The core security assertion: **orchestrated trees of compute nodes that contain malware and are impregnable to attack.**
+The core security assertion, stated to the limit this document actually supports:
+**orchestrated trees of compute nodes, each confined by enforced, evidenced
+boundaries — resource caps, capability drops, network policy and attested images —
+within a single trust domain.** Not "impregnable": aeo's containment rests on
+kernel, hypervisor and runtime primitives, and a vulnerability in any of those
+bypasses it (see *Out-of-Scope Threats*). The claim aeo stands behind is narrower
+and testable — every boundary it offers has an enforcement point and evidence, and
+where it cannot enforce a declared property it says so (`aeo status` reports
+`supported: no` / `applied: no`; see `reference/status-schema.md`) rather than
+implying a protection it doesn't deliver.
 
 ---
 
@@ -12,18 +21,36 @@ The core security assertion: **orchestrated trees of compute nodes that contain 
 
 ### Adversary Assumptions
 
-aeo assumes an adversary who:
-- Controls the operating system or has root/admin access
-- Can read/write the filesystem
-- Can execute arbitrary code on the host
-- Can modify environment variables and modify running processes
-- Operates WITHIN a single administrative domain (one host)
+aeo defends against **two** adversaries, and it is important not to conflate them
+(an earlier version of this document did — it claimed an adversary with host root
+who nonetheless could not read a mode-0600 key file, which is a contradiction: root
+reads anything). The coherent models are:
 
-aeo assumes an adversary does NOT:
-- Have access to the physical machine
-- Have the master key (the secrets key file)
-- Control the hypervisor (for VM nodes)
-- Control the Aether compiler or ae toolchain
+**Adversary A — a compromised node.** A workload aeo stood up is hostile or has
+been taken over. It:
+- runs arbitrary code *inside its confinement* (container/jail/VM);
+- tries to escape confinement, starve the host, or reach the network/peers it was
+  not granted.
+
+This is aeo's primary adversary, and the one its confinement, network policy and
+attestation are built against.
+
+**Adversary B — an unprivileged local user** on the same host, without aeo's own
+UID. They can see process lists and world-readable files but cannot read aeo's
+0600 key file or write its working directory.
+
+aeo assumes neither adversary:
+- has host **root/admin** — root defeats every user-level boundary here (it reads
+  the 0600 key file, the audit trail and process memory; this is stated plainly at
+  each boundary below, and is why host-root is out of scope, not a protected-against
+  case);
+- has physical access to the machine;
+- controls the **hypervisor** (for VM nodes), the **kernel**, the container
+  **runtime**, or the **Aether compiler / ae toolchain**.
+
+A node that breaks *out* to host root has, by definition, defeated the containment
+boundary — that is a confinement failure (Property 1), not a separately defended
+layer.
 
 ### Protected Properties
 
@@ -34,30 +61,52 @@ aeo assumes an adversary does NOT:
 **Protected against:**
 - Fork bombs (memory exhaustion via `--pids-limit`)
 - Capability escalation (via `--cap-drop ALL`)
-- Unauthorized network access (via `--network none` or `--network internal`)
+- Coarse network isolation: no network (`--network none`) or intra-only
+  (`--network internal` — reach named peers, not the host/internet)
 - Resource starvation (via `--memory`, `--cpus`)
 - Jail escape (FreeBSD rctl boundaries proven)
-- pf egress filtering (whitelisted flows only, others denied)
+- pf egress filtering on FreeBSD (whitelisted flows only, others denied)
 
 **Not protected against:**
 - Kernel vulnerabilities (exploits in the kernel itself)
 - Hypervisor vulnerabilities (if running in VMs)
 - Vulnerabilities in the container runtime (podman/docker bugs)
 - Zero-days in confinement mechanisms
+- **Name-aware egress (`egress_fqdn`) — NOT YET ENFORCED.** A declared
+  `egress_fqdn` is honest-but-coarse today: on FreeBSD it is not lowered to a pf
+  pass, and on Linux the node is placed on an `--internal` network *stand-in* (no
+  internet) rather than being filtered by destination name. `aeo status` reports
+  this as `supported: no, applied: no` (see `reference/status-schema.md`); the
+  parent-owned CONNECT gateway that will enforce it is designed but not wired
+  (`research/egress-fqdn-considered.md`). Do not rely on `egress_fqdn` as a
+  destination allowlist yet.
 
 #### 2. Image Attestation (Supply Chain)
 
-**Property:** A node's image digest must match the composition's declared digest before the node starts.
+**Property:** when a node declares a digest (`attest("sha256:…")`), its image's
+actual digest must match before the node starts, or aeo refuses it (fail-closed).
 
-**Protected against:**
-- Silent image replacement (wrong digest is detected at boot)
-- Unsigned images (digest verification is mandatory)
-- Downgrade attacks (old digest rejected if not in composition)
+**What a digest pin does and does not prove.** A digest proves **content
+identity** — the bytes you pinned are the bytes that run. It is *not* a signature:
+it says nothing about **who published** the image. Publisher authenticity
+(cosign/Notary) and build provenance (SLSA) are separate, complementary checks
+that happen upstream of aeo (see *Recommendations*).
+
+**Pinning is optional by default.** An unpinned node boots and is reported
+`attestation: unpinned` — a finding a CI gate or audit can act on, not a block.
+Strict mode (`strict()` in the composition) turns an unpinned image into a refusal
+(see `reference/status-schema.md` and the strict-mode work).
+
+**Protected against (for a pinned node):**
+- Silent image replacement (a digest mismatch is detected and refused at boot)
+- Downgrade/substitution to a *different* image (any digest not matching the pin is
+  rejected)
 
 **Not protected against:**
-- Compromised base images (if the declared digest is of a backdoored image)
-- Registry compromise (if the image came from a compromised registry)
-- Build system compromise (if the image was built from malicious source)
+- An unpinned node (no `attest()`) — nothing to check; reported `unpinned`
+- A backdoored image whose digest you pinned (content-identity ≠ trustworthiness)
+- Registry or build-system compromise that produced the image you pinned
+- A forged *publisher*: a digest is not a signature (use cosign/SLSA upstream)
 
 #### 3. Audit Trail Integrity (Forensics)
 
@@ -72,6 +121,15 @@ aeo assumes an adversary does NOT:
 - Selective deletion (the hash chain detects tampering but doesn't recover deleted entries)
 - Pre-tampering logs (if log is modified before aeo audit runs)
 - Offline attacks (if an attacker can stop aeo and modify state directly)
+- **A full rewrite by whoever controls both the log and its checkpoint.** The hash
+  chain makes *partial* tampering evident: an entry changed in isolation breaks the
+  chain. But the integrity check compares the chain against a checkpoint stored
+  beside the log; an attacker who can rewrite the whole log *and* recompute/replace
+  that checkpoint produces a self-consistent forgery that `aeo audit` accepts. The
+  chain detects tampering, not an attacker with write access to both halves. To
+  close this, anchor checkpoints **off-host** — append-only remote storage, a
+  syslog/audit daemon, or another node — so the attacker cannot control the
+  reference copy (see *Boundary 3* and *Recommendations*).
 
 #### 4. Secrets Confidentiality (Encryption)
 
