@@ -2010,6 +2010,84 @@ _status_detail(nm: string, k: string) {
             println("      attest: ${st}")
         }
     }
+    // SECURITY POSTURE (A1) — per declared property: declared/supported/applied/
+    // verified. Printed under a header only when at least one property applies,
+    // so an unconfined node adds nothing. A "supported: no" or "applied: no" line
+    // is the honest surface for a silent gap (egress_fqdn on Linux).
+    _sec_line("netpolicy  ", _secp_netpolicy(nm, k))
+    _sec_line("egress_fqdn", _secp_egress_fqdn(nm))
+    _sec_line("attest     ", _secp_attest(nm, k))
+    _sec_line("limits     ", _secp_limits(nm))
+    _sec_line("cap-drop   ", _secp_capdrop(nm))
+}
+
+// Render one posture property as an indented human line, skipping undeclared
+// ("") ones. Flags supported:no / applied:no with a leading "!" so a gap is
+// visually obvious in a wall of status.
+_sec_line(label: string, row: string) {
+    if row == "" { return }
+    decl = _sec_field(row, 0)
+    supp = _sec_field(row, 1)
+    appl = _sec_field(row, 2)
+    verf = _sec_field(row, 3)
+    mark = " "
+    if supp == "no" { mark = "!" }
+    if string_starts_with(appl, "no") == 1 { mark = "!" }
+    println("     ${mark}${label} declared=${decl} supported=${supp} applied=${appl} verified=${verf}")
+}
+
+// _sec_field(row, i): pull field i (0..3) from a "a|b|c|d" posture row.
+_sec_field(row: string, idx: int) -> string {
+    start = 0
+    field = 0
+    n = string_length(row)
+    i = 0
+    seg_start = 0
+    while i <= n {
+        at_end = 0
+        if i == n { at_end = 1 }
+        is_bar = 0
+        if at_end == 0 {
+            if string_char_at(row, i) == 124 { is_bar = 1 }   // '|'
+        }
+        if is_bar == 1 {
+            if field == idx {
+                return string_substring(row, seg_start, i)
+            }
+            field = field + 1
+            seg_start = i + 1
+        } else {
+            if at_end == 1 {
+                if field == idx {
+                    return string_substring(row, seg_start, n)
+                }
+            }
+        }
+        i = i + 1
+    }
+    return ""
+}
+
+// _sec_json(nm, k): the comma-joined "<prop>":{declared,supported,applied,verified}
+// members for the node's declared security properties (same model + strings as the
+// human _sec_line, so human and JSON never diverge — a CI gate reads the same truth
+// a human sees). Empty when the node declared none.
+_sec_json(nm: string, k: string) -> string {
+    out = ""
+    out = _sec_json_add(out, "netpolicy", _secp_netpolicy(nm, k))
+    out = _sec_json_add(out, "egress_fqdn", _secp_egress_fqdn(nm))
+    out = _sec_json_add(out, "attestation", _secp_attest(nm, k))
+    out = _sec_json_add(out, "limits", _secp_limits(nm))
+    out = _sec_json_add(out, "cap_drop", _secp_capdrop(nm))
+    return out
+}
+_sec_json_add(acc: string, key: string, row: string) -> string {
+    if row == "" { return acc }
+    member = "\"${key}\":{\"declared\":\"${_jq(_sec_field(row, 0))}\",\"supported\":\"${_jq(_sec_field(row, 1))}\",\"applied\":\"${_jq(_sec_field(row, 2))}\",\"verified\":\"${_jq(_sec_field(row, 3))}\"}"
+    if acc == "" {
+        return member
+    }
+    return "${acc},${member}"
 }
 
 // a node whose image is built locally (entrypoint/dockerfile) has no upstream
@@ -2027,6 +2105,98 @@ _attest_state(nm: string) -> string {
 _is_container(k: string) -> int {
     if k == "container" { return 1 }
     return 0
+}
+
+// --- security posture (A1): declared / supported / applied / verified ---------
+// For each security PROPERTY on a node, status reports four fields so a reader
+// (human or CI) can tell apart "the composition asked for X", "this backend can
+// enforce X", "X was actually installed", and "a probe confirmed X". This exists
+// because aeo had silent gaps: e.g. egress_fqdn on Linux is mapped to an
+// --internal network standin and NEVER name-aware enforced — yet nothing said so
+// (the WARN the docs mention lives in a dead, unwired module). Reporting
+// supported:no / applied:no makes that honest, and A2 (strict mode) refuses on it.
+//
+//   declared  : what the composition asked for (the accessor value, or "-").
+//   supported : does THIS node's backend (kind x host family) enforce it? yes/no.
+//   applied   : what was actually installed (a concrete token), or "no".
+//   verified  : "not probed" — status reads declared state + liveness; it does
+//               NOT re-probe live rules. A live probe is A3's job / `aeo check`.
+//
+// Each _secp_* returns "declared|supported|applied|verified". A property that the
+// node didn't declare returns "" (caller skips it) so an unconfined node stays
+// terse. host.family()=="bsd" is FreeBSD; else Linux.
+_sec_bsd() -> int {
+    if host.family() == "bsd" { return 1 }
+    return 0
+}
+
+// netpolicy — FreeBSD enforces via pf; a Linux CONTAINER via the container
+// network mode; a Linux NON-container cannot (the runner already prints "NOT
+// enforced for kind=..."). egress_fqdn is handled by its own property below.
+_secp_netpolicy(nm: string, k: string) -> string {
+    np = compose.get_netpolicy(nm)
+    if np == "" { return "" }
+    decl = _oneline(np)
+    if _sec_bsd() == 1 {
+        return "${decl}|yes|pf anchor ${pf.anchor_name(nm)}|not probed"
+    }
+    if _is_container(k) == 1 {
+        return "${decl}|yes|container net (${confine_linux.net_kind(np)})|not probed"
+    }
+    return "${decl}|no|no (kind=${k} on linux: only pf/container enforce)|not probed"
+}
+
+// egress_fqdn — name-aware egress. NO backend enforces it today: FreeBSD emits no
+// pf pass, Linux drops the node onto an --internal net (a conservative standin,
+// not name-aware). So supported:no, applied:no on every backend until the
+// CONNECT gateway (A6) lands. This is the claim-4 honesty fix.
+_secp_egress_fqdn(nm: string) -> string {
+    if compose.has_egress_fqdn(nm) == 0 { return "" }
+    decl = compose.egress_fqdn_csv(nm)
+    appl = "no (gateway not built)"
+    if _sec_bsd() == 0 {
+        appl = "no (on --internal net standin; NOT name-aware)"
+    }
+    return "${decl}|no|${appl}|not probed"
+}
+
+// attestation — the existing three-state posture, recast into the four fields.
+// supported is the gate itself (aeo refuses a pinned node whose digest mismatches
+// at boot), so a pinned node is supported+applied; unpinned/unattestable are
+// declared-absent, reported so an audit greps them.
+_secp_attest(nm: string, k: string) -> string {
+    if _is_container(k) == 0 { return "" }
+    st = _attest_state(nm)
+    pin = compose.get_attest(nm)
+    if pin != "" {
+        return "${pin}|yes|digest pinned (verified at boot)|at boot"
+    }
+    return "${st}|yes|no (unpinned)|not probed"
+}
+
+// resource limits — limit{} -> FreeBSD rctl / Linux cgroups; both backends apply.
+_secp_limits(nm: string) -> string {
+    r = compose.get_rctl(nm)
+    if r == "" { return "" }
+    appl = "cgroups (--memory/--pids-limit)"
+    if _sec_bsd() == 1 { appl = "rctl" }
+    return "${_oneline(r)}|yes|${appl}|not probed"
+}
+
+// cap drop / confinement — no single declared accessor; derived (constraints OR
+// netpolicy) per confine_linux.security_flags. FreeBSD peer = Capsicum fd grants.
+_secp_capdrop(nm: string) -> string {
+    grants = compose.get_constraints(nm)
+    np = compose.get_netpolicy(nm)
+    if grants == "" {
+        if np == "" { return "" }
+    }
+    decl = grants
+    if decl == "" { decl = "(from netpolicy)" }
+    if _sec_bsd() == 1 {
+        return "${_oneline(decl)}|yes|capsicum fd grants|not probed"
+    }
+    return "${_oneline(decl)}|yes|--cap-drop ALL --security-opt no-new-privileges|not probed"
 }
 
 // Collapse a newline-separated list to a comma-joined one-liner for status.
@@ -2094,7 +2264,11 @@ _status_json() {
         // attestation posture: "attested"|"unpinned"|"unattestable" + the pin.
         // A CI gate / audit can fail on attestation!="attested" for prod nodes.
         obj = "${obj}\"attestation\":\"${_jq(_attest_state(nm))}\","
-        obj = "${obj}\"attest_digest\":\"${_jq(compose.get_attest(nm))}\""
+        obj = "${obj}\"attest_digest\":\"${_jq(compose.get_attest(nm))}\","
+        // SECURITY POSTURE (A1) — nested per-property {declared,supported,applied,
+        // verified}. Only declared properties appear. A CI gate can fail on e.g.
+        // .security.egress_fqdn.applied=="no" (the honest claim-4 surface).
+        obj = "${obj}\"security\":{${_sec_json(nm, k)}}"
         obj = "${obj}}"
         if i == 0 {
             out = "${out}${obj}"

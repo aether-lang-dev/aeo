@@ -97,6 +97,39 @@ malware and are impregnable to attack.* Two axes — stop a node REACHING things
 | Image attestation | ✅ | ✅ **verify-before-boot, fail-closed; wrong digest refused live** | attest("sha256:..."); 3 greppable states (attested/unpinned/unattestable) |
 | Audit trail | ✅ | ✅ **tamper-evident hash chain; tamper + attest-refuse caught live** | lib/audit; `aeo audit` verifies the chain (§4) |
 
+### Strands-inspired honesty track (plan: strand/strands_inspired_plan_for_aether_and_aeo.md §6)
+Lesson from Strands Box: *every guarantee has an enforcement point and evidence;
+failures refuse rather than silently fall back.* aeo's gap was silent — e.g.
+egress_fqdn on Linux was mapped to an --internal-net standin and never name-aware
+enforced, with NO status signal (the WARN the docs cite lives in a dead, unwired
+`lib/netpolicy_linux`). The track makes the gaps visible, then refusable.
+- [x] **A1 — declared/supported/applied/verified in `aeo status`** (human + JSON).
+      Per security property (netpolicy, egress_fqdn, attestation, limits, cap-drop)
+      status now reports four fields; egress_fqdn on Linux honestly shows
+      `supported=no applied=no`, and a CI gate can fail on `.security.*.applied`
+      starting "no". Extends the existing attestation fields (no parallel
+      mechanism). Test: `test/security-posture.sh` (live build+status; negative
+      control: sabotaging the supported=no logic fails it).
+- [ ] **A2 — strict profile that refuses** (Paul's call: a `strict()` COMPOSITION
+      setting, config-is-code). In strict mode a node whose declared property is
+      unsupported/failed-to-apply, or whose image is unpinned, does NOT start.
+      Default unchanged. Done when egress_fqdn-on-Linux and an unpinned image each
+      refuse in strict, boot without it (negative control).
+- [ ] **A4 — honest threat-model + attestation docs** (docs/core/threat-model.md):
+      the root-but-no-master-key contradiction; "unsigned images (mandatory)" →
+      digest≠signature, pinning optional unless strict; drop "impregnable"; audit
+      detects tamper not full rewrite.
+- [ ] **A3 — netpolicy before reachability** (FreeBSD: load pf anchor before the
+      guest/jail runs its workload; strict → fatal + torn down). Live probe on the
+      FreeBSD box: no window of unfiltered reach.
+- [ ] **A5 interim — import-closure lint** on the composition (`aetherc
+      --emit-deps`): refuse a compose that imports anything beyond the `compose`
+      DSL + capability-free std, or declares any `extern`. A5-FINAL (build compose
+      as a capability-empty `--emit=lib` returning the plan) is BLOCKED on an
+      Aether change (extern gate) — filed/to-file in aether/asks/, not patched here.
+- A6 (parent-owned egress gateway) later; A7 (Cedar per-op authz) parked unless
+  aeo hosts agents (Paul: "maybe later").
+
 ### 0. jail nodes — LIVE-PROVEN (the unblocked containment path)
 Jails share the host network stack, so the bhyve bridge/NAT bug DOESN'T apply —
 this is where aeo's containment is both strongest and now demonstrated live.
