@@ -245,6 +245,16 @@ main() {
                 _diag("aeo: cannot read compose file '${compose_path}'")
                 exit(1)
             }
+            // A5 (interim) — import-closure lint. A composition is compiled INTO
+            // aeo's privileged runner, so an import of a capability (std.os, …) or
+            // an aeo module (secrets, a driver), or a hand-declared extern, runs
+            // with aeo's full authority. Statically inspect the composition (via
+            // `ae inspect` — no execution) and WARN loudly on anything beyond the
+            // pure compose DSL + capability-free std. Warn-only here; refusal in a
+            // strict() system is enforced in the runner (where get_strict is known).
+            // This is a lint, not a boundary (A5-final makes it a boundary, once
+            // Aether's extern gate lands — aether/asks/).
+            _lint_compose(compose_path)
         }
         // Copy the fixed runner to a top-level run.ae (entry outside lib/).
         if _cp(string_concat(home, "/lib/aeo/runner.ae"), string_concat(work, "/run.ae")) != 0 {
@@ -769,6 +779,66 @@ _cache_fresh(work: string, want: string) -> int {
 // exec stdout) comes from the spawned composition binary, never from here.
 _diag(msg: string) {
     _ = stderr_write(string_concat(msg, "\n"))
+}
+
+// A5 (interim) — import-closure lint on the operator's composition. A composition
+// is compiled INTO aeo's privileged runner (staged as module aeo_compose, built
+// with `ae build run.ae --lib lib`), so anything it imports or externs runs with
+// aeo's full authority. `ae inspect` reports a file's imports/capabilities/externs
+// STATICALLY (no execution); we scan that and WARN on anything beyond the pure
+// `compose` DSL + capability-free std (std.string/list/map/json/math/config).
+//
+// Warn-only here (the front-door can't know strict() without evaluating the
+// composition). In a strict() system the runner turns these same findings into a
+// refusal (see _strict_gate). This is a LINT, not a boundary — a determined author
+// can still reach authority; A5-final makes it a real boundary once Aether's
+// extern gate lands (filed in aether/asks/). Non-fatal if `ae inspect` is
+// unavailable (older toolchain) — a missing lint must never block a build.
+//
+// The scan runs in-shell (ae inspect | awk) — bin/aeo.ae shells freely, and awk
+// is far simpler than char-scanning multi-line output in Aether. The awk body is
+// single-quoted inside sh -c and escape-free (an interpolated Aether string
+// collapses backslashes; see the _inputs_hash note), so no backslashes appear.
+_lint_compose(compose_path: string) {
+    // emit one "kind: detail" line per violation; empty output == clean.
+    scan = "ae inspect '${compose_path}' 2>/dev/null | awk '/capabilities required .gated imports.:/ { sub(/.*gated imports.: */,\"\"); print \"capability: \" $0 } /extern C declarations:/ { n=$NF; if (n+0 > 0) print \"extern: \" n \" hand-declared C extern(s)\" } /^    [a-z]/ { if ($0 ~ /.local./ && $1 != \"compose\") print \"import: \" $1 \" (local module beyond the compose DSL)\" }'"
+    av = list_new()
+    list_add(av, "-c")
+    list_add(av, scan)
+    out, status, err = os.run_capture("/bin/sh", av, null)
+    list_free(av)
+    if err != "" {
+        return                      // couldn't inspect (no ae/old toolchain) — skip
+    }
+    findings = string_trim(out)
+    if string_length(findings) == 0 {
+        return                      // capability-free: nothing to warn about
+    }
+    _diag("aeo: WARNING composition '${compose_path}' reaches beyond the compose DSL —")
+    _diag("     a composition runs with aeo's FULL authority (it is built into the")
+    _diag("     privileged runner). Findings:")
+    _lint_emit_lines(findings)
+    _diag("     This is allowed (a lint, not a boundary), but a strict() system will")
+    _diag("     REFUSE such a node. Prefer keeping compositions to the compose DSL +")
+    _diag("     capability-free std (string/list/map/json/math/config).")
+}
+
+// print each newline-separated finding as an indented WARNING bullet.
+_lint_emit_lines(s: string) {
+    line = ""
+    n = string_length(s)
+    i = 0
+    while i < n {
+        c = string_char_at(s, i)
+        if c == 10 {
+            if string_length(line) > 0 { _diag("       - ${line}") }
+            line = ""
+        } else {
+            line = string_concat(line, string_substring(s, i, i + 1))
+        }
+        i = i + 1
+    }
+    if string_length(line) > 0 { _diag("       - ${line}") }
 }
 
 // 1 if `c` is a recognized subcommand. Flat list (readable) — replaced the old

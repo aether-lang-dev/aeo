@@ -138,11 +138,29 @@ enforced, with NO status signal (the WARN the docs cite lives in a dead, unwired
       FreeBSD box: no window of unfiltered reach. HANDED OFF to a sibling with a
       FreeBSD box — self-contained spec in
       `asks/a3-netpolicy-before-reachability-freebsd.md`.
-- [ ] **A5 interim — import-closure lint** on the composition (`aetherc
-      --emit-deps`): refuse a compose that imports anything beyond the `compose`
-      DSL + capability-free std, or declares any `extern`. A5-FINAL (build compose
-      as a capability-empty `--emit=lib` returning the plan) is BLOCKED on an
-      Aether change (extern gate) — filed/to-file in aether/asks/, not patched here.
+- [x] **A5 interim — import-closure lint** on the composition. NB the plan's
+      `aetherc --emit-deps` does NOT exist in this toolchain; used `ae inspect`
+      instead (richer — gives imports + capabilities + extern count statically, no
+      execution). The front-door (bin/aeo.ae `_lint_compose`) WARNs on any import/
+      capability/extern beyond the compose DSL + capability-free std (string/list/
+      map/json/math/config). Warn-only (the front-door can't know strict() without
+      evaluating the compose). Test: test/compose-lint.sh. NB 9 bundled examples
+      import std.os(getenv) for an image-tag override — they now warn (intended:
+      ambient authority in a composition made visible), still build.
+  - [ ] A5-interim FOLLOW-UP (after A3 lands, to avoid a runner.ae collision with
+        M6-ae): the runner turns the SAME lint findings into a REFUSAL in a strict()
+        system — thread the front-door's verdict to the runner as an --aeo-* flag,
+        check it in _strict_gate. Front-door already warns; this makes strict()
+        enforce.
+  - [ ] **A5 FINAL — BLOCKED on an AETHER FLOOR BUMP, not on Aether code.**
+        VERIFIED 2026-10-10 on ae 0.766.0 (aeo's current pin): a capability-empty
+        `--emit=lib` with `extern system` STILL builds clean, and `--with=extern`
+        is unknown ("Known: fs, net, os, first-party"). The extern gate is MERGED
+        upstream (aether#2708) but in a NEWER Aether than 0.766. So A5-final (build
+        compose as a capability-empty --emit=lib returning the plan; runner loads
+        the plan, never the composition) unblocks when aeo's AETHER_PIN moves to the
+        release carrying #2708. Note written for the aether side in
+        ../aether/asks/ (HOLD push — sibling repo).
 - A6 (parent-owned egress gateway) later; A7 (Cedar per-op authz) parked unless
   aeo hosts agents (Paul: "maybe later").
 
