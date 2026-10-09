@@ -41,6 +41,7 @@ exports (
     container, lxc, kvm, jail, bhyve, bwrap, nspawn, firecracker, kata,
     engine, get_engine,
     check, smoke, suite, get_phase_spec_count, get_phase_spec_at,
+    strict, get_strict,
     image, command, dockerfile, health, dataset, ip, depends, env, get_env, attest, get_attest,
     cpus, memory, nic, expose, wsl_distro, share, share_rw, get_shares,
     gpu, gpu_device, get_gpu_mode, get_gpu_device, gpu_flags, gpu_alloc_error,
@@ -320,6 +321,23 @@ get_engine(nm: string) -> string {
 check(_ctx: ptr, spec: string) { _add_phase_spec(_ctx, "check", spec) }
 smoke(_ctx: ptr, spec: string) { _add_phase_spec(_ctx, "smoke", spec) }
 suite(_ctx: ptr, spec: string) { _add_phase_spec(_ctx, "suite", spec) }
+
+// strict() — a SYSTEM-scoped policy: refuse rather than silently degrade. In a
+// strict system, a node does NOT start if a declared security property is
+// unsupported on its backend or failed to apply, or if its image is unpinned.
+// Config-is-code: the policy travels with the tree (reviewable in git), not an
+// operator flag. Default (no strict()) is unchanged — degraded nodes still boot
+// and `aeo status` marks them. The runner reads get_strict(sys) at bring-up.
+//
+//   system("prod") {
+//       strict()                     // refuse unsupported/failed/unpinned nodes
+//       container("db") { image("…") attest("sha256:…") }
+//   }
+strict(_ctx: ptr) { config.put("aeo.cmp.strict.${_ctx}", "1") }
+get_strict(sys: string) -> int {
+    if config.get("aeo.cmp.strict.${sys}") == "1" { return 1 }
+    return 0
+}
 
 // append `spec` to system `sys`'s `phase` spec list (config-backed, indexed).
 _add_phase_spec(sys: string, phase: string, spec: string) {

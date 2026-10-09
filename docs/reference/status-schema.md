@@ -148,9 +148,34 @@ aeo status compose.ae --json \
 aeo status compose.ae --json | jq -e 'all(.[]; .kind != "container" or .attestation == "attested")'
 ```
 
-Pair this with `strict()` in the composition (the A2 refuse-mode): a gate reports
-after the fact; `strict()` refuses to *start* a node whose property is unsupported,
-failed to apply, or whose image is unpinned.
+Pair this with `strict()` in the composition: a status gate reports *after* the
+fact; `strict()` refuses to *start* a node in the first place.
+
+## `strict()` — refuse instead of report
+
+A status gate is advisory — it runs after `aeo up` and tells you what degraded. For
+a system that must not run degraded at all, declare `strict()` at system scope:
+
+```
+system("prod") {
+    strict()                         // refuse unsupported / failed / unpinned nodes
+    container("db") { image("…") attest("sha256:…") }
+}
+```
+
+In a `strict()` system a node does **not** start if:
+- a declared security property is `supported: no` or `applied: no` on its backend
+  (the same posture fields above — e.g. `egress_fqdn` on Linux), or
+- its image is **unpinned** (a pulled `image()` with no `attest()`; `attestation`
+  is `unpinned`).
+
+The refusal is loud and names the property (`aeo: [db] STRICT REFUSED — …`), is
+recorded in the audit trail (`strict-refuse`), and fails the node before any boot
+work. It is config-is-code: the policy lives in the composition, reviewable in git,
+not an operator flag. Default (no `strict()`) is unchanged — degraded nodes still
+boot and status marks them. A locally-built image (`unattestable` — no upstream
+digest to pin) is a distinct class and is not gated by the unpinned check.
+
 
 ## Stability
 

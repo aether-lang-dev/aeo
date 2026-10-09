@@ -94,8 +94,10 @@ that happen upstream of aeo (see *Recommendations*).
 
 **Pinning is optional by default.** An unpinned node boots and is reported
 `attestation: unpinned` — a finding a CI gate or audit can act on, not a block.
-Strict mode (`strict()` in the composition) turns an unpinned image into a refusal
-(see `reference/status-schema.md` and the strict-mode work).
+Strict mode (`strict()` in the composition) turns an unpinned image into a
+refusal: a node in a `strict()` system does not start unless its image is pinned
+(and unless every declared security property is enforceable on its backend). See
+`reference/status-schema.md`.
 
 **Protected against (for a pinned node):**
 - Silent image replacement (a digest mismatch is detected and refused at boot)

@@ -718,7 +718,54 @@ _realize_build_steps(img: string) -> string {
 }
 
 // ---- driver dispatch by kind (exported; pure routing) ----
+// _strict_gate(nm, k) — A2: in a strict() system, REFUSE to start a node whose
+// declared security property is unsupported on its backend or failed to apply, or
+// whose image is unpinned. Returns "" to allow boot, else an error string naming
+// the property (driver_up returns it → the node does not start, the operator sees
+// why). Reuses A1's posture model as the predicate: a property that status reports
+// supported=no or applied=no is exactly what strict refuses. Non-strict systems
+// return "" always (default behaviour unchanged; status still marks the gap).
+_strict_gate(nm: string, k: string) -> string {
+    if compose.get_strict(compose.get_system(nm)) == 0 {
+        return ""
+    }
+    // Unpinned image: a pulled image() with no attest(). (unattestable = built
+    // locally, no upstream digest to pin — a different class; not gated here.)
+    if _attest_state(nm) == "unpinned" {
+        _ = audit.record(nm, k, "strict-refuse", "unpinned image (no attest pin)")
+        return "aeo: [${nm}] STRICT REFUSED — image is unpinned (no attest(\"sha256:…\")). A strict() system requires a pinned digest; pin it or remove strict()."
+    }
+    // Declared security properties that this backend cannot enforce or did not
+    // apply. Each _secp_* is "declared|supported|applied|verified"; "" = undeclared.
+    verr = _strict_check_prop(nm, k, "netpolicy", _secp_netpolicy(nm, k))
+    if verr != "" { return verr }
+    verr = _strict_check_prop(nm, k, "egress_fqdn", _secp_egress_fqdn(nm))
+    if verr != "" { return verr }
+    verr = _strict_check_prop(nm, k, "limits", _secp_limits(nm))
+    if verr != "" { return verr }
+    verr = _strict_check_prop(nm, k, "cap-drop", _secp_capdrop(nm))
+    if verr != "" { return verr }
+    return ""
+}
+// One property: refuse if supported=no or applied starts "no". (A declared
+// property only — "" rows are skipped by the empty-check.)
+_strict_check_prop(nm: string, k: string, label: string, row: string) -> string {
+    if row == "" { return "" }
+    supp = _sec_field(row, 1)
+    appl = _sec_field(row, 2)
+    bad = 0
+    if supp == "no" { bad = 1 }
+    if string_starts_with(appl, "no") == 1 { bad = 1 }
+    if bad == 0 { return "" }
+    _ = audit.record(nm, k, "strict-refuse", "${label}: supported=${supp} applied=${appl}")
+    return "aeo: [${nm}] STRICT REFUSED — declared ${label} is not enforced here (supported=${supp}, applied=${appl}). A strict() system refuses a property it cannot apply; remove the declaration, run on a backend that supports it, or drop strict()."
+}
+
 driver_up(nm: string, k: string) -> string {
+    sgate = _strict_gate(nm, k)
+    if sgate != "" {
+        return sgate
+    }
     if k == "load_balancer" {
         // The L7 balancer front-door (docs §9 step 2): render the pool from this
         // node's children and background aeo-lb. The backends themselves are

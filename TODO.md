@@ -113,11 +113,18 @@ enforced, with NO status signal (the WARN the docs cite lives in a dead, unwired
       starting "no". Extends the existing attestation fields (no parallel
       mechanism). Test: `test/security-posture.sh` (live build+status; negative
       control: sabotaging the supported=no logic fails it).
-- [ ] **A2 — strict profile that refuses** (Paul's call: a `strict()` COMPOSITION
-      setting, config-is-code). In strict mode a node whose declared property is
-      unsupported/failed-to-apply, or whose image is unpinned, does NOT start.
-      Default unchanged. Done when egress_fqdn-on-Linux and an unpinned image each
-      refuse in strict, boot without it (negative control).
+- [x] **A2 — strict profile that refuses** (`strict()` COMPOSITION setting,
+      config-is-code, per Paul). A node in a strict() system does NOT start if a
+      declared security property is supported=no/applied=no, or its image is
+      unpinned (no attest()). `_strict_gate` is the first line of `driver_up`
+      (refuses before any boot work; audit "strict-refuse"), reusing A1's _secp_*
+      posture as the predicate. Default (no strict()) unchanged. Tests:
+      test/strict-mode.sh (live: refuses egress_fqdn-on-Linux + unpinned, names
+      the property; positive control = supported node boots; NEGATIVE control =
+      non-strict boots past the gate) + test/spec_strict.ae (DSL data: get_strict,
+      per-system). unattestable (locally-built, no upstream digest) is a distinct
+      class, not gated by the unpinned check. OPEN (Paul, §7.5): should strict
+      become the default later? For now opt-in.
 - [x] **A4 — honest threat-model + attestation docs** (docs/core/threat-model.md):
       resolved the adversary contradiction (now two models — compromised node /
       unprivileged local; host-root explicitly OUT of scope, not protected-against);

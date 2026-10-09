@@ -1,0 +1,51 @@
+// spec_strict.ae — the strict() system-scoped policy as DATA (A2).
+//
+// The END-TO-END refuse behaviour (strict refuses egress_fqdn-on-Linux / an
+// unpinned image; non-strict boots) is proven live by test/strict-mode.sh — it
+// needs the runner, which can't be imported (it has main). This spec locks the
+// DSL surface: strict() records the flag on its system, get_strict reads it, and
+// a system without strict() reads 0. That's the contract the runner's
+// _strict_gate depends on.
+//
+//   sh test/run-spec.sh test/spec_strict.ae
+
+import std.spec
+import compose (system, container, image, strict, get_strict, reset_nodes)
+
+main() {
+    fw = spec.init()
+    spec.describe(fw, "strict() — refuse-mode policy as system-scoped data") {
+
+        spec.describe("a strict() system records the flag") {
+            spec.it("get_strict is 1 for a system that declared strict()") callback {
+                reset_nodes()
+                prod = system("prod") {
+                    strict()
+                    web = container("web") { image("docker.io/library/busybox:latest") }
+                }
+                spec.expect_int(get_strict("prod")).to_equal(1)
+            }
+        }
+
+        spec.describe("a system WITHOUT strict() is not strict") {
+            spec.it("get_strict is 0 by default (default behaviour unchanged)") callback {
+                reset_nodes()
+                dev = system("dev") {
+                    web = container("web") { image("docker.io/library/busybox:latest") }
+                }
+                spec.expect_int(get_strict("dev")).to_equal(0)
+            }
+        }
+
+        spec.describe("strict is per-system") {
+            spec.it("one system strict, another not, in the same composition") callback {
+                reset_nodes()
+                a = system("a") { strict()  x = container("x") { image("busybox") } }
+                b = system("b") {           y = container("y") { image("busybox") } }
+                spec.expect_int(get_strict("a")).to_equal(1)
+                spec.expect_int(get_strict("b")).to_equal(0)
+            }
+        }
+    }
+    return spec.run_summary(fw)
+}
