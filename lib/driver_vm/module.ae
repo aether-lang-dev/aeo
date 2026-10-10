@@ -1066,7 +1066,7 @@ _wait_vm_stopped(vm: string) -> int {
         if _bhyve_running(vm) == 0 {
             return 1
         }
-        _sleep(3)
+        _sleep_s(3)
     }
     return 0
 }
