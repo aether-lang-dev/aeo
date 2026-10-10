@@ -66,4 +66,13 @@
 # VERIFIED end to end on a virgin debian:13-slim: `sh get.sh` installs ae (binary),
 # aeb v0.300 (binary, sha256 OK, copy-only), and aeo v0.2.3 (bundle) — no make, no
 # source fallback, all three on PATH. That full-chain success IS the evidence.
-0.300.0
+#
+# 0.326.0 — a BASELINE bump moved with the family (aether 0.801.0 + aeb v0.326,
+# both released 2026-10-09), paired with AETHER_PIN 0.801.0. Not an evidence bump
+# on aeo's side: aeo's aeb coupling is a demand-driven CLI seam (no unconditional
+# aeb build/run edge — see the top of this file), and nothing in the tree started
+# needing a v0.326 aeb flag or output-layout. It records the aeb the family is now
+# on, so a box set up to exercise the seam installs a matching aeb. The real floor
+# reasoning above (copy-only bundle, x86_64 arch word) still holds and is what a
+# too-old-aeb diagnosis starts from.
+0.326.0

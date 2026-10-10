@@ -139,4 +139,18 @@
 # integration_app); examples-suite.sh check fails all 17 identically on both,
 # because aeo resolves a check() spec path against the example's own directory
 # (examples/examples/checks/...), not because of the toolchain.
-0.778.0
+#
+# Raised to 0.801.0 (2026-10-10): moved with the family (aether 0.801.0 + aeb
+# v0.326, both released 2026-10-09). Unlike the 0.766/0.778 tracking bumps this
+# one carries a REAL correctness reason: 0.801 TIGHTENED undefined-function
+# resolution and thereby caught a latent typo 0.766/0.778 silently tolerated —
+# driver_vm called `_sleep(3)` where the helper is `_sleep_s` (no `_sleep` defined
+# anywhere), which broke `ae build bin/aeo-agent.ae` and bin/aeo-supervisord.ae on
+# 0.801 (error[E0301]: Undefined function '_sleep'). Fixed in the same line of
+# work (commit 15cc38d); the tree now builds clean on 0.801. (The transport_http
+# std.http-server errors an earlier session saw were 0.799-only and are gone on
+# 0.801.) Verified on the installed 0.801.0 release (linux x86_64): all SIX bin/
+# entry points + the staged runner build clean, and `sh test/run-spec.sh` is 324
+# passing / exit 0 (the FreeBSD-only capsicum specs skip off-BSD as designed). See
+# AEB_PIN for the paired aeb v0.326.
+0.801.0
