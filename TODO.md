@@ -182,14 +182,17 @@ enforced, with NO status signal (the WARN the docs cite lives in a dead, unwired
         check it in _strict_gate. Front-door already warns; this makes strict()
         enforce.
   - [ ] **A5 FINAL — BLOCKED on an AETHER FLOOR BUMP, not on Aether code.**
-        VERIFIED 2026-10-10 on ae 0.766.0 (aeo's current pin): a capability-empty
-        `--emit=lib` with `extern system` STILL builds clean, and `--with=extern`
-        is unknown ("Known: fs, net, os, first-party"). The extern gate is MERGED
-        upstream (aether#2708) but in a NEWER Aether than 0.766. So A5-final (build
-        compose as a capability-empty --emit=lib returning the plan; runner loads
-        the plan, never the composition) unblocks when aeo's AETHER_PIN moves to the
-        release carrying #2708. Note written for the aether side in
-        ../aether/asks/ (HOLD push — sibling repo).
+        VERIFIED 2026-10-10 on BOTH ae 0.766.0 AND ae 0.801.0 (the new pin): a
+        capability-empty `--emit=lib` with `extern system` STILL builds clean, and
+        `--with=extern` is unknown ("Known: fs, net, os, first-party"). The extern
+        gate is MERGED upstream (aether#2708) but in a release NEWER than 0.801 (the
+        plan's probe said 0.796; empirically absent in 0.766 and 0.801). So A5-final
+        (build compose as a capability-empty --emit=lib returning the plan; runner
+        loads the plan, never the composition) unblocks only when aeo's AETHER_PIN
+        moves to the release that actually carries #2708 — NOT satisfied by today's
+        0.801 bump. Note for the aether side (asks which release + the flag name) in
+        ../aether/asks/aeo-a5final-needs-extern-gate-in-a-pinned-release.md (HOLD
+        push — sibling repo).
 - A6 (parent-owned egress gateway) later; A7 (Cedar per-op authz) parked unless
   aeo hosts agents (Paul: "maybe later").
 
