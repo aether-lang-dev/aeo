@@ -18,9 +18,15 @@
 // config-KV cell (std.config) keyed per-agent — the same bridge the runner uses
 // for actor state. One line per slot, seq-ordered, drained oldest-first.
 
-import std.http (server_create, server_set_host, server_get, server_post,
-                 http_server_start_raw, response_set_status, response_set_header,
-                 response_set_body, request_body, request_remote_addr)
+// The http_-prefixed externs, not their short forms (server_create, ...): a
+// selective import in a MODULE does not bind an extern's short name, so those
+// only ever resolved through bin/aeo-agent's own std.http import leaking in.
+// Aether >= 0.798 type-checks every module function, so the runner (which
+// has no such import) stopped compiling. See aether/asks/
+// selective-import-extern-short-name-in-module.md.
+import std.http (http_server_create, server_set_host, http_server_get, http_server_post,
+                 http_server_start_raw, http_response_set_status, response_set_header,
+                 http_response_set_body, request_body, request_remote_addr)
 import std.http.client (request, set_header, set_body, set_timeout, send_request,
                         response_status, response_body, response_free, request_free)
 import std.config
@@ -46,14 +52,14 @@ default_port() -> int { return 9450 }   // beside aeb-agent's 9440
 // server ptr (0 on failure). The handlers enqueue into the per-agent queue;
 // the agent core drains via recv_one(). token gates /ping + /dispatch.
 serve_create(port: int, host: string) -> ptr {
-    raw = server_create(port)
+    raw = http_server_create(port)
     if raw == 0 {
         return raw
     }
     server_set_host(raw, host)
-    server_get(raw, "/health", _h_health, 0)
-    server_get(raw, "/ping", _h_ping, 0)
-    server_post(raw, "/dispatch", _h_dispatch, 0)
+    http_server_get(raw, "/health", _h_health, 0)
+    http_server_get(raw, "/ping", _h_ping, 0)
+    http_server_post(raw, "/dispatch", _h_dispatch, 0)
     return raw
 }
 
@@ -61,8 +67,8 @@ serve_create(port: int, host: string) -> ptr {
 // (TSR) probe: if it answers after the launching ssh session closed, the agent
 // is resident. (Mirror of aeb-agent's handle_health.)
 _h_health(req: ptr, res: ptr, ud: ptr) -> int {
-    response_set_status(res, 200)
-    response_set_body(res, "ok")
+    http_response_set_status(res, 200)
+    http_response_set_body(res, "ok")
     return 0
 }
 
@@ -71,12 +77,12 @@ _h_health(req: ptr, res: ptr, ud: ptr) -> int {
 // lives in a config cell set by the agent at boot (_serve_token).
 _h_ping(req: ptr, res: ptr, ud: ptr) -> int {
     if _authed(req) == 0 {
-        response_set_status(res, 401)
-        response_set_body(res, "unauthorized")
+        http_response_set_status(res, 401)
+        http_response_set_body(res, "unauthorized")
         return 0
     }
-    response_set_status(res, 200)
-    response_set_body(res, "aeo-agent")
+    http_response_set_status(res, 200)
+    http_response_set_body(res, "aeo-agent")
     return 0
 }
 
@@ -87,13 +93,13 @@ _h_ping(req: ptr, res: ptr, ud: ptr) -> int {
 _h_dispatch(req: ptr, res: ptr, ud: ptr) -> int {
     body = request_body(req)
     if token_ok(body) == 0 {
-        response_set_status(res, 401)
-        response_set_body(res, "unauthorized")
+        http_response_set_status(res, 401)
+        http_response_set_body(res, "unauthorized")
         return 0
     }
     queue_push(body)
-    response_set_status(res, 200)
-    response_set_body(res, "queued")
+    http_response_set_status(res, 200)
+    http_response_set_body(res, "queued")
     return 0
 }
 

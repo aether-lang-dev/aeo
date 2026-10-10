@@ -34,7 +34,10 @@ main() {
                 b = encode_boot("t", "child")
                 spec.expect_str(verb_of(d)).to_equal_str("delegate")
                 spec.expect_str(verb_of(b)).to_equal_str("boot")
-                spec.expect_str(arg1_of(d)).to_equal_str(arg1_of(b))
+                // want bound first: a fresh-string argument to a chained call trips an
+                // aether >= 0.792 codegen bug (aether/asks/discarded-call-struct-temp-void.md).
+                want = arg1_of(b)
+                spec.expect_str(arg1_of(d)).to_equal_str(want)
             }
         }
     }

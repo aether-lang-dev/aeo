@@ -71,7 +71,10 @@ main() {
             spec.it("no shares -> identical to the plain builder") callback {
                 a = driver_bwrap.sandbox_argv_shared("", "sleep 1", "")
                 b = driver_bwrap.sandbox_argv("", "sleep 1")
-                spec.expect_str(_join(a)).to_equal_str(_join(b))
+                // want bound first: a fresh-string argument to a chained call trips an
+                // aether >= 0.792 codegen bug (aether/asks/discarded-call-struct-temp-void.md).
+                want = _join(b)
+                spec.expect_str(_join(a)).to_equal_str(want)
                 list_free(a)
                 list_free(b)
             }
