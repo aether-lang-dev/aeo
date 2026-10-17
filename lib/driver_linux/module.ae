@@ -19,7 +19,7 @@
 // All builders are pure string/argv assembly so they can be unit-tested
 // without a daemon; the exec is isolated in up/down/probe.
 
-import std.os (run_capture, run_full, os_which)
+import std.os (run_capture, run_full, os_which, getenv)
 import std.list
 import std.string (bytes, string_length, string_contains, string_char_at, string_substring, string_index_of, string_ends_with, string_get_int)
 import std.fs (write_atomic)

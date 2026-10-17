@@ -75,4 +75,11 @@
 # on, so a box set up to exercise the seam installs a matching aeb. The real floor
 # reasoning above (copy-only bundle, x86_64 arch word) still holds and is what a
 # too-old-aeb diagnosis starts from.
+#
+# 0.326.0 STAYS (2026-10-17) while AETHER_PIN moves to 0.823.0, because no newer
+# aeb release exists yet and v0.326 itself does not work on Aether 0.818+: its
+# SDK modules predate 0.818's `@keep ptr` rule (E0902). aeo at 0.823 was
+# verified with aeb main at 6d605f4 (AETHER_PIN 0.823.0). Move this to the first
+# aeb tag cut from that line; until then a box exercising the aeb seam on 0.823
+# needs aeb from main (AEB_REF=<sha> with aeb's install.sh), not the v0.326 bundle.
 0.326.0

@@ -153,4 +153,29 @@
 # entry points + the staged runner build clean, and `sh test/run-spec.sh` is 324
 # passing / exit 0 (the FreeBSD-only capsicum specs skip off-BSD as designed). See
 # AEB_PIN for the paired aeb v0.326.
-0.801.0
+#
+# Raised to 0.823.0 (2026-10-17): moved with the family at Paul's request, and a
+# real floor: 0.818-0.823's checks reject the tree as it stood, and the fixed
+# sources use `@keep`, which 0.817 and older cannot parse. What they found:
+#   - E0902 (0.818's ownership rework): the builder setters that hand their ctx
+#     back for a trailing block -- compose.entrypoint, balance_to, health_retry
+#     -- return a borrowed `ptr` parameter, so they now take `_ctx: @keep ptr`
+#     (their ctx is always the enclosing builder's, a ptr). compose.policy(node)
+#     is called with a node NAME (the string container() returns), and as a
+#     `@keep ptr` every call would have needed string.keep(); it is typed
+#     `_ctx: string` instead, so returning it hands back a reference.
+#   - E0200: compose._dur_ms divided a Duration and returned it as an int; it
+#     now reads the nanoseconds, `d.ns / 1000000`.
+#   - E0301 (0.822's module-private externs): driver_linux called getenv
+#     without importing it, resolved only through another module's import; it
+#     imports std.os's getenv like its sibling drivers.
+# Verified on 0.823.0 built from its tag. macOS arm64: all six bin/ entry
+# points build clean; test/run-spec.sh 320 passing, 4 skipped, and the three
+# podman specs (dockerfile, driver_loadbalancer_live, integration_app) fail
+# because this Mac's podman cannot start a new container (overlay I/O error),
+# as they failed on 0.778 without podman. ae-x64 (Ubuntu 22.04 x86_64, gcc 11,
+# 0.823.0 built with -Werror): six entry points clean, run-spec 314 passing,
+# 0 failing, 14 skipped (FreeBSD-only and live-host specs), and the same on
+# aether-linux (Ubuntu 22.04 arm64). aeb used: main at
+# 6d605f4 (see AEB_PIN). FreeBSD not re-run: the ghostbsd lane was unreachable.
+0.823.0

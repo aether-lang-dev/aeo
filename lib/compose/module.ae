@@ -419,7 +419,7 @@ base(_ctx: ptr, image: string)      { config.put("aeo.cmp.base.${_ctx}", image) 
 // to "node" internally for filename/interpreter.) A new language = a new verb
 // here + a row in entrypoint_lang_file/_run/_base (the single source of truth the
 // linux + vm drivers both resolve through).
-entrypoint(_ctx: ptr) -> ptr { return _ctx }
+entrypoint(_ctx: @keep ptr) -> ptr { return _ctx }
 
 // The language verbs — each stores the source AND the language on the node.
 python(_ctx: ptr, src: string) {
@@ -648,7 +648,7 @@ publish_map(_ctx: ptr, ext: int, inner: int) {
 //                              health_retry (§6). `_ctx` is the LB node name.
 // Returns _ctx (the LB name) so its trailing block's algorithm()/lb_health() key
 // onto the same LB — the policy(_ctx)->_ctx sub-block precedent.
-balance_to(_ctx: ptr, port: int) -> ptr {
+balance_to(_ctx: @keep ptr, port: int) -> ptr {
     config.put("aeo.cmp.balanceto.${_ctx}", string_from_int(port))
     return _ctx
 }
@@ -1078,7 +1078,7 @@ without(_ctx: ptr, d: Duration) {
 // block; every is the same every(). The loose form (within(30s) every(500ms)
 // without(10s)) still works unchanged — this is an additional surface, not a
 // replacement.
-health_retry(_ctx: ptr) -> ptr {
+health_retry(_ctx: @keep ptr) -> ptr {
     return _ctx
 }
 up_within(_ctx: ptr, d: Duration) {
@@ -1107,7 +1107,11 @@ down_within(_ctx: ptr, d: Duration) {
 //         restart_after_failures(3)       // give up-and-recreate threshold (advisory)
 //         reattest_every(24h)             // re-verify the image digest periodically
 //     }
-policy(_ctx: ptr) -> ptr { return _ctx }
+// policy(node) takes the node's NAME, the string container()/vm()/... return, so
+// it is typed string: returning it hands the caller a reference of its own. (As
+// `_ctx: ptr` it would have to be `@keep ptr` to be returned, and then a string
+// argument would need string.keep() at every call site.)
+policy(_ctx: string) -> string { return _ctx }
 
 // reprobe_every(d) — this node's watch/reconcile cadence (ms). Overrides the global
 // AEO_WATCH_INTERVAL for this node. Unset -> the loop's default.
@@ -1165,7 +1169,7 @@ get_policy_reattest_ms(nm: string) -> int {
 }
 
 // Duration (ns) -> milliseconds.
-_dur_ms(d: Duration) -> int { return d / 1000000 }
+_dur_ms(d: Duration) -> int { return d.ns / 1000000 }
 // the node's WITHOUT (teardown-gone) window in ms: own setter, else the floated
 // system default snapshotted at decl, else 0 (unset -> no extra wait).
 get_without_ms(nm: string) -> int {
