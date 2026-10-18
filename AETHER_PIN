@@ -178,4 +178,21 @@
 # 0 failing, 14 skipped (FreeBSD-only and live-host specs), and the same on
 # aether-linux (Ubuntu 22.04 arm64). aeb used: main at
 # 6d605f4 (see AEB_PIN). FreeBSD not re-run: the ghostbsd lane was unreachable.
-0.823.0
+#
+# Raised to 0.824.0 (2026-10-18), the family-wide floor, again at Paul's request:
+# a tracking-only bump, no new primitive and no source change; 0.823.0 still
+# compiles the tree. 0.824's `_aether_` helper namespace (#2804, a function
+# named `spawn_<Actor>` is now an error), E0900's closure-slice checks (#2846)
+# and the rest find nothing here: every entry point builds with the same
+# warnings, all W1001, as on 0.823. Verified on 0.824.0 built from its tag.
+# macOS arm64: six bin/ entry points clean; run-spec 320 passing, the same
+# three podman specs failing (this Mac's podman cannot start new containers).
+# ae-x64 (Ubuntu 22.04 x86_64, gcc 11, 0.824.0 built with -Werror) and
+# aether-linux (Ubuntu 22.04 arm64): six entry points clean, run-spec 314
+# passing, 0 failing, 14 skipped, as on 0.823. win11 (MSYS2 MINGW64, 0.824.0
+# built there): six entry points clean, run-spec 309 passing, 17 skipped, and
+# spec_audit's two sha256 cases failing because audit shells out to /bin/sh,
+# which a native Windows process cannot start ("program not found" from
+# run_capture, the same on 0.802), not the toolchain. aeb used: v0.327 (see
+# AEB_PIN). FreeBSD not re-run: the ghostbsd lane was unreachable.
+0.824.0

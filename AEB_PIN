@@ -82,4 +82,11 @@
 # verified with aeb main at 6d605f4 (AETHER_PIN 0.823.0). Move this to the first
 # aeb tag cut from that line; until then a box exercising the aeb seam on 0.823
 # needs aeb from main (AEB_REF=<sha> with aeb's install.sh), not the v0.326 bundle.
-0.326.0
+#
+# 0.327.0 (2026-10-18) — the aeb tag that note waited for. v0.327 is cut at aeb
+# main 6d605f4, the commit aeo at 0.823 was verified with, and it carries the
+# `@keep ptr` SDK fixes 0.818+ need; its release has every platform bundle
+# (macOS, Linux glibc + musl, FreeBSD, Windows; arm64 + x86_64). Paired with
+# AETHER_PIN 0.824.0 and verified with aeb at that commit. A baseline move
+# with the family, not a new aeb flag or output layout aeo relies on.
+0.327.0
