@@ -15,7 +15,7 @@ _join(av: ptr) -> string {
     n = list_size(av)
     i = 0
     while i < n {
-        a = list_get_raw(av, i)
+        a, _ = list.get_string(av, i)
         if i == 0 {
             out = a
         } else {

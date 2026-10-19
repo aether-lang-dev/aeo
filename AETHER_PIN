@@ -195,4 +195,14 @@
 # which a native Windows process cannot start ("program not found" from
 # run_capture, the same on 0.802), not the toolchain. aeb used: v0.327 (see
 # AEB_PIN). FreeBSD not re-run: the ghostbsd lane was unreachable.
-0.824.0
+#
+# Raised to 0.830.0 (2026-10-19): a real floor move. W1005 (0.830.0) flags a
+# bare `ptr` given to a `string` local, an error in the next release; the two
+# here are the argv join helpers in test/spec_bwrap.ae and test/spec_nspawn.ae
+# (`out = a`, `a` from list_get_raw), which now read the element with
+# list.get_string, new in 0.830.0. Verified against a 0.830.0 release install
+# on macOS arm64: the six bin/ entry points build with no W1005 (the other
+# warnings all W1001, as on 0.824); test/run-spec.sh 320 passing, 4 skipped,
+# and the same three podman specs failing (this Mac's podman cannot start new
+# containers). aeb not involved (run-spec.sh uses ae directly).
+0.830.0
