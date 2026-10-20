@@ -89,4 +89,10 @@
 # (macOS, Linux glibc + musl, FreeBSD, Windows; arm64 + x86_64). Paired with
 # AETHER_PIN 0.824.0 and verified with aeb at that commit. A baseline move
 # with the family, not a new aeb flag or output layout aeo relies on.
-0.327.0
+#
+# 0.328.0 (2026-10-20) — aether#3009 makes W1005 the error E0202, and v0.327's
+# bldr has W1005 sites, so it stops compiling on that release. v0.328 (aeb main
+# 3b51771) reads them with typed accessors; its floor is Aether 0.830.0, which
+# AETHER_PIN already is. A tracking move with the family, not a new aeb flag or
+# output layout aeo relies on. Verified with a v0.328 release install.
+0.328.0
