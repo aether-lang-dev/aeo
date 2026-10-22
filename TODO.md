@@ -543,6 +543,110 @@ Gaps:
       place to build+prove first. (efs2 /home/paul/scm/efs2 is the prior reach-in
       RUN/PUT-over-ssh model — correctly demoted to IGNITION-only, not the operating
       model, because ssh-at-distance has no socket through 8006.)
+- [ ] **Native OCI-backed Proxmox application CTs — planned 2026-10-22;
+      implementation + live proof outstanding.** Prompted by the ProxMenux
+      [homelab migration report](https://www.reddit.com/r/Proxmox/comments/1xa3q0y/i_moved_my_proxmox_services_to_oci_and_cut_their/).
+      OCI is the image format; PVE runs the application through its LXC stack,
+      without a Docker Engine inside each CT. Extend `proxmox_ct` /
+      `driver_proxmox` where practical; the existing OS-template CT path and
+      VM -> resident agent -> Podman path remain useful. Native OCI application
+      support is NOT established by our existing CT lifecycle proof. We are
+      temporarily away from the Proxmox homelab: offline work can proceed, but
+      every hardware-dependent acceptance item below stays open until return.
+      Upstream reference: [PVE container documentation](https://github.com/proxmox/pve-docs/blob/master/pct.adoc#open-container-initiative-oci-images)
+      (application containers documented as Technology Preview when reviewed).
+
+      **Prepare / implement without the homelab:**
+      - [ ] Establish the supported PVE version/capability floor and actual REST
+            API contract for registry pull/import, stored template identity,
+            application-mode creation/configuration and async task failures.
+            Record unsupported combinations; check capabilities before mutation.
+            Prefer the existing CA-pinned API seam; determine any bootstrap-only
+            host prerequisites rather than assuming the GUI workflow is an API.
+      - [ ] Design the smallest compose extension: reuse `image()`, `attest()`,
+            command/env and existing CT setters where their semantics fit;
+            validate OCI image vs OS `ostemplate()` selection and conflicts.
+            Keep compositions pure `.ae`, ambient state in `std.config`, and
+            static image builds delegated to aeb. No new config-format parser.
+      - [ ] Implement pull/import and fail-closed digest verification BEFORE
+            boot, including multi-architecture index vs selected-manifest
+            identity. Preserve provenance through PVE's conversion into a CT
+            rootfs; reject mismatch/missing verification and audit the decision.
+            Handle private registry credentials through the existing secrets
+            boundary without exposing them in logs/state/argv.
+      - [ ] Preserve/test OCI entrypoint + arguments, environment, working
+            directory and user/UID/GID semantics, including explicit overrides,
+            unprivileged ID mappings and clean stop signals/timeouts. Reject
+            unsupported metadata or configuration with an actionable error.
+      - [ ] Map supported `limit{}` / `constrain{}` declarations to PVE CT
+            enforcement: CPU/memory/process caps, capability/syscall restrictions
+            and network policy. Keep CTs unprivileged by default; report missing
+            enforcement explicitly rather than silently discarding declarations.
+      - [ ] Plan private multi-service networking: stable peer addressing/name
+            resolution, explicit allowed service flows, deny-default egress and
+            only the frontend's required LAN ingress. Identify required bridge /
+            SDN / firewall setup and cleanup ownership. A CT per service must
+            not imply a LAN-facing interface per service.
+      - [ ] Add application-health gating beyond PVE `status == running`;
+            choose a probe location/transport that can reach private services
+            without giving workloads an upward management channel. Reconcile
+            with the existing PVE health-multiplexer/post-provision work; do not
+            require an agent inside every minimal application image. Hold
+            dependents until ready; surface timeout/crash/probe failure.
+      - [ ] Define persistent-volume ownership, mount permissions and lifecycle:
+            preserve data on image replacement; keep ordinary teardown from
+            accidentally deleting retained data. Specify explicit destructive
+            cleanup, replacement failure recovery and image/config rollback,
+            distinguishing these from application/database schema rollback.
+      - [ ] Specify PVE/PBS backup + restore coverage for rootfs and data volumes,
+            exclusions (especially bind mounts), consistency/quiesce requirements
+            and credentials. Reuse lifecycle seams where possible; do not assume
+            current generic snapshot/backup verbs already cover PVE OCI CTs.
+      - [ ] Extend preflight and least-privilege token setup only for demonstrated
+            API needs (registry/template storage, CTs, networking, backups).
+            Coordinate with token hardening / drift checker below; retain TLS
+            verification and pool scoping, and prepare allowed/denied probes.
+      - [ ] Add offline model/API-fixture specs for configuration and lifecycle,
+            including unsupported version, digest mismatch, auth denial, failed
+            pull/create/start, interrupted operations and partial cleanup.
+            Exercise idempotent up/down, reverse teardown and verified absence.
+            Fixtures prove contracts/model behavior, never live enforcement.
+      - [ ] Prepare `silly_addition_proxmox_oci.ae` (Redis + existing app image)
+            with external `check` / `smoke` / `suite` specs and a runbook in
+            `docs/aeo-and-proxmox.md`. Hardware specs use honest `it_when` skips
+            while unavailable and carry `spec.run_summary`'s exit verdict.
+            Document native CT shared-kernel isolation and the VM-backed option
+            for hostile workloads; keep Technology Preview status explicit.
+
+      **On return to the homelab — required live acceptance:**
+      - [ ] Record host/date, PVE/kernel/package versions, storage and networking;
+            verify capability checks and least-privilege allowed/denied API calls.
+            Prove pinned-image import + metadata behavior and refusal of a bad
+            digest before boot, with matching audit evidence.
+      - [ ] Run the silly-addition check/smoke/suite lifecycle: delayed Redis
+            readiness holds the app; failed health blocks it; restart works;
+            reverse down verifies both CTs gone. Inject failed provisioning and
+            interrupted operations; prove retry/cleanup leaves no orphan CTs,
+            volumes or network resources owned by the failed deployment.
+      - [ ] Prove kernel-enforced resource limits and network allow/deny flows:
+            peers communicate only as declared, frontend ingress works, backend
+            LAN access and undeclared outbound traffic fail. Confirm workloads
+            cannot reach management credentials or the deputy control surface.
+      - [ ] Write persistent data, replace the pinned image, recover from a
+            failed replacement, and restore a PVE/PBS backup into a separate CT.
+            Verify application data and documented volume coverage; exercise
+            explicit cleanup without destroying unrelated/retained resources.
+      - [ ] Measure equivalent versions/data/load across native OCI CTs, direct
+            system LXCs, Docker-per-LXC, one shared Docker Engine, and our
+            existing VM + Podman route where practical. Use repeated idle/load
+            windows with warm-up; report PSS process/runtime scope separately
+            from whole-host memory, cache and VM guest/host accounting. Include
+            all backend services and record startup/CPU observations if measured.
+            The Reddit 40% is that author's migration result, not our target or
+            promise; shared-host Docker was a much closer lab comparator.
+      - [ ] Publish the exact commands, measurements, limitations and outcomes;
+            update README / Proxmox docs / this scorecard with only what was
+            actually proven. Keep any unexercised acceptance items unchecked.
 - [ ] **PVE host-resident aeo-agent = health MULTIPLEXER + depth-1 sub-runner.**
       Paul's idea (2026-07-11): put an aeo-agent ON the PVE host (unusual for PVE).
       Because the host sits ON the guest net (vmbr0 = the LAN here), it reaches every
