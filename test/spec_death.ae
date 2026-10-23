@@ -251,7 +251,7 @@ _join(av: ptr) -> string {
     n = list_size(av)
     i = 0
     while i < n {
-        it = list_get_raw(av, i)
+        it, _ = list.get_string(av, i)
         if i == 0 {
             s = "${it}"
         } else {

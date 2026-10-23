@@ -27,6 +27,7 @@
 // The runner reads the count + per-name fields back via the get_* helpers.
 
 import std.config
+import std.string
 import std.string (string_length, string_char_at, string_from_int, string_substring, string_index_of, string_contains, string_equals)
 
 exports (
@@ -91,7 +92,7 @@ exports (
 // docs/closures-and-builder-dsl.md), the return value is pushed onto the
 // builder-context stack for the trailing block, so each inner setter's
 // auto-injected `_ctx` IS that name — no need to repeat it per line. The
-// setters interpolate `${_ctx}` to key their config writes.
+// setters interpolate `${_nm(_ctx)}` to key their config writes.
 //
 // Bare-name calls inside the block (image/health/…) need the companion
 // selective import in the operator's compose module — the standard
@@ -280,7 +281,7 @@ kata(nm: string)      -> string { return resource(nm, "kata") }
 // default) = auto per host family (Linux → podman → docker; Windows → wslc).
 // `_ctx` is the enclosing name (system or node) the closure DSL pushes.
 engine(_ctx: ptr, v: string) {
-    config.put("aeo.cmp.engine.${_ctx}", v)     // this node/system's explicit pin
+    config.put("aeo.cmp.engine.${_nm(_ctx)}", v)     // this node/system's explicit pin
     config.put("aeo.cmp.curengine", v)          // ...and float onto later siblings
 }
 
@@ -333,10 +334,18 @@ suite(_ctx: ptr, spec: string) { _add_phase_spec(_ctx, "suite", spec) }
 //       strict()                     // refuse unsupported/failed/unpinned nodes
 //       container("db") { image("…") attest("sha256:…") }
 //   }
-strict(_ctx: ptr) { config.put("aeo.cmp.strict.${_ctx}", "1") }
+strict(_ctx: ptr) { config.put("aeo.cmp.strict.${_nm(_ctx)}", "1") }
 get_strict(sys: string) -> int {
     if config.get("aeo.cmp.strict.${sys}") == "1" { return 1 }
     return 0
+}
+
+// _nm(p) -- the node/system NAME the closure DSL pushes as `_ctx`. The setters
+// keep `_ctx: ptr` (the DSL injects it only into a ptr parameter), and 0.841's
+// E0200 refuses to interpolate a ptr, so read it back as the string it holds.
+_nm(p: ptr) -> string {
+    s, _ = string.from_ptr(p)
+    return s
 }
 
 // append `spec` to system `sys`'s `phase` spec list (config-backed, indexed).
@@ -362,9 +371,9 @@ get_phase_spec_at(sys: string, phase: string, i: int) -> string {
 }
 
 // Inner setters — `_ctx: ptr` is the resource name pushed by resource().
-// `${_ctx}` interpolates it back to the name string for the config key.
-image(_ctx: ptr, v: string)   { config.put("aeo.cmp.image.${_ctx}", v) }
-command(_ctx: ptr, v: string) { config.put("aeo.cmp.command.${_ctx}", v) }
+// `${_nm(_ctx)}` reads it back as the name string for the config key.
+image(_ctx: ptr, v: string)   { config.put("aeo.cmp.image.${_nm(_ctx)}", v) }
+command(_ctx: ptr, v: string) { config.put("aeo.cmp.command.${_nm(_ctx)}", v) }
 // attest(digest) — the SUPPLY-CHAIN pin: the expected content digest of this
 // node's image (e.g. "sha256:abc..."). aeo verifies the image's ACTUAL digest
 // against this BEFORE boot and refuses on mismatch (fail-closed) — a poisoned /
@@ -372,7 +381,7 @@ command(_ctx: ptr, v: string) { config.put("aeo.cmp.command.${_ctx}", v) }
 // image@<digest> so podman enforces the pin too. "" / unset = unattested (boots,
 // but aeo status flags it as un-verified). Substrate-portable: the same pin can
 // later gate a qcow2 / jail-dataset hash.
-attest(_ctx: ptr, digest: string) { config.put("aeo.cmp.attest.${_ctx}", digest) }
+attest(_ctx: ptr, digest: string) { config.put("aeo.cmp.attest.${_nm(_ctx)}", digest) }
 get_attest(nm: string) -> string  { return config.get("aeo.cmp.attest.${nm}") }
 
 // Inline Dockerfile (heredoc). When set, aeo BUILDS the image from this
@@ -390,9 +399,9 @@ get_attest(nm: string) -> string  { return config.get("aeo.cmp.attest.${nm}") }
 //   }
 // (Convenience for small self-contained images. For anything nontrivial,
 // build with aeb and reference the resulting image via image().)
-dockerfile(_ctx: ptr, text: string) { config.put("aeo.cmp.dockerfile.${_ctx}", text) }
+dockerfile(_ctx: ptr, text: string) { config.put("aeo.cmp.dockerfile.${_nm(_ctx)}", text) }
 
-base(_ctx: ptr, image: string)      { config.put("aeo.cmp.base.${_ctx}", image) }
+base(_ctx: ptr, image: string)      { config.put("aeo.cmp.base.${_nm(_ctx)}", image) }
 
 // `entrypoint(){ <lang>(<src>) }` — the readable, high-level alternative to a
 // hand-written dockerfile() for the "one script entrypoint" case. The BLOCK form
@@ -423,28 +432,28 @@ entrypoint(_ctx: @keep ptr) -> ptr { return _ctx }
 
 // The language verbs — each stores the source AND the language on the node.
 python(_ctx: ptr, src: string) {
-    config.put("aeo.cmp.entrypoint.${_ctx}", src)
-    config.put("aeo.cmp.entrypoint_lang.${_ctx}", "python")
+    config.put("aeo.cmp.entrypoint.${_nm(_ctx)}", src)
+    config.put("aeo.cmp.entrypoint_lang.${_nm(_ctx)}", "python")
 }
 ruby(_ctx: ptr, src: string) {
-    config.put("aeo.cmp.entrypoint.${_ctx}", src)
-    config.put("aeo.cmp.entrypoint_lang.${_ctx}", "ruby")
+    config.put("aeo.cmp.entrypoint.${_nm(_ctx)}", src)
+    config.put("aeo.cmp.entrypoint_lang.${_nm(_ctx)}", "ruby")
 }
 javascript(_ctx: ptr, src: string) {
-    config.put("aeo.cmp.entrypoint.${_ctx}", src)
-    config.put("aeo.cmp.entrypoint_lang.${_ctx}", "node")
+    config.put("aeo.cmp.entrypoint.${_nm(_ctx)}", src)
+    config.put("aeo.cmp.entrypoint_lang.${_nm(_ctx)}", "node")
 }
 js(_ctx: ptr, src: string) {
-    config.put("aeo.cmp.entrypoint.${_ctx}", src)
-    config.put("aeo.cmp.entrypoint_lang.${_ctx}", "node")
+    config.put("aeo.cmp.entrypoint.${_nm(_ctx)}", src)
+    config.put("aeo.cmp.entrypoint_lang.${_nm(_ctx)}", "node")
 }
 perl(_ctx: ptr, src: string) {
-    config.put("aeo.cmp.entrypoint.${_ctx}", src)
-    config.put("aeo.cmp.entrypoint_lang.${_ctx}", "perl")
+    config.put("aeo.cmp.entrypoint.${_nm(_ctx)}", src)
+    config.put("aeo.cmp.entrypoint_lang.${_nm(_ctx)}", "perl")
 }
 php(_ctx: ptr, src: string) {
-    config.put("aeo.cmp.entrypoint.${_ctx}", src)
-    config.put("aeo.cmp.entrypoint_lang.${_ctx}", "php")
+    config.put("aeo.cmp.entrypoint.${_nm(_ctx)}", src)
+    config.put("aeo.cmp.entrypoint_lang.${_nm(_ctx)}", "php")
 }
 
 // `exec_entrypoint("/app/bin/prog")` — the container's ENTRYPOINT executable,
@@ -455,7 +464,7 @@ php(_ctx: ptr, src: string) {
 // purpose — one builds an image, one flags the run.
 //   container("app") { image("todobackend-sut"); exec_entrypoint("/app/bin/x"); command("8000 http://…") }
 //   -> podman run --entrypoint /app/bin/x todobackend-sut 8000 http://…
-exec_entrypoint(_ctx: ptr, path: string) { config.put("aeo.cmp.exec_entrypoint.${_ctx}", path) }
+exec_entrypoint(_ctx: ptr, path: string) { config.put("aeo.cmp.exec_entrypoint.${_nm(_ctx)}", path) }
 
 // Out-of-line image build: `containerfile("path")` + optional
 // `build_context("dir")` build an EXISTING Containerfile against a source-tree
@@ -464,12 +473,12 @@ exec_entrypoint(_ctx: ptr, path: string) { config.put("aeo.cmp.exec_entrypoint.$
 // directory. `aeo up` runs this before boot via driver build_argv.
 //   container("sut") { containerfile("integration/todobackend/Containerfile.sut")
 //                      build_context("integration/todobackend/sut") }
-containerfile(_ctx: ptr, path: string)  { config.put("aeo.cmp.containerfile.${_ctx}", path) }
-build_context(_ctx: ptr, dir: string)   { config.put("aeo.cmp.build_context.${_ctx}", dir) }
+containerfile(_ctx: ptr, path: string)  { config.put("aeo.cmp.containerfile.${_nm(_ctx)}", path) }
+build_context(_ctx: ptr, dir: string)   { config.put("aeo.cmp.build_context.${_nm(_ctx)}", dir) }
 
-health(_ctx: ptr, v: string)  { config.put("aeo.cmp.health.${_ctx}", v) }
-dataset(_ctx: ptr, v: string) { config.put("aeo.cmp.dataset.${_ctx}", v) }
-ip(_ctx: ptr, v: string)      { config.put("aeo.cmp.ip.${_ctx}", v) }
+health(_ctx: ptr, v: string)  { config.put("aeo.cmp.health.${_nm(_ctx)}", v) }
+dataset(_ctx: ptr, v: string) { config.put("aeo.cmp.dataset.${_nm(_ctx)}", v) }
+ip(_ctx: ptr, v: string)      { config.put("aeo.cmp.ip.${_nm(_ctx)}", v) }
 // env(KEY, VAL) — an environment variable the container runs with. Accumulates
 // "K=V" pairs (comma-joined). On a shared aeo network, peers resolve by name, so
 // e.g. env("REDIS_HOST", "db") lets the app reach the db CONTAINER by name.
@@ -491,23 +500,23 @@ share_rw(_ctx: ptr, src: string, dst: string) {
     _share_add(_ctx, src, dst, "rw")
 }
 _share_add(_ctx: ptr, src: string, dst: string, mode: string) {
-    prev = config.get("aeo.cmp.shares.${_ctx}")
+    prev = config.get("aeo.cmp.shares.${_nm(_ctx)}")
     entry = "${src}|${dst}|${mode}"
     if string_length(prev) == 0 {
-        config.put("aeo.cmp.shares.${_ctx}", entry)
+        config.put("aeo.cmp.shares.${_nm(_ctx)}", entry)
     } else {
-        config.put("aeo.cmp.shares.${_ctx}", "${prev}\n${entry}")
+        config.put("aeo.cmp.shares.${_nm(_ctx)}", "${prev}\n${entry}")
     }
 }
 get_shares(nm: string) -> string { return config.get("aeo.cmp.shares.${nm}") }
 
 env(_ctx: ptr, k: string, v: string) {
-    prev = config.get("aeo.cmp.env.${_ctx}")
+    prev = config.get("aeo.cmp.env.${_nm(_ctx)}")
     entry = "${k}=${v}"
     if string_length(prev) == 0 {
-        config.put("aeo.cmp.env.${_ctx}", entry)
+        config.put("aeo.cmp.env.${_nm(_ctx)}", entry)
     } else {
-        config.put("aeo.cmp.env.${_ctx}", "${prev},${entry}")
+        config.put("aeo.cmp.env.${_nm(_ctx)}", "${prev},${entry}")
     }
 }
 get_env(nm: string) -> string { return config.get("aeo.cmp.env.${nm}") }
@@ -569,12 +578,12 @@ constrain(vm: string) -> string {
     return vm
 }
 grant_fd(_ctx: ptr, kind: string, target: string, rights: string) {
-    prev = config.get("aeo.cmp.constraints.${_ctx}")
+    prev = config.get("aeo.cmp.constraints.${_nm(_ctx)}")
     entry = "${kind}(${target})=${rights}"
     if string_length(prev) == 0 {
-        config.put("aeo.cmp.constraints.${_ctx}", entry)
+        config.put("aeo.cmp.constraints.${_nm(_ctx)}", entry)
     } else {
-        config.put("aeo.cmp.constraints.${_ctx}", "${prev}, ${entry}")
+        config.put("aeo.cmp.constraints.${_nm(_ctx)}", "${prev}, ${entry}")
     }
 }
 // Network policy inside a constrain(vm){} block — a WHITELIST, deny-by-default.
@@ -628,15 +637,15 @@ deny_ingress(_ctx: ptr) { _net_add(_ctx, "ingress:DENY-ALL") }
 //                     by lb_model_errors below. Never binds 0.0.0.0 by default —
 //                     that lowering is the driver's job; the model records intent.
 listens(_ctx: ptr, port: int) {
-    config.put("aeo.cmp.listens.${_ctx}", string_from_int(port))
+    config.put("aeo.cmp.listens.${_nm(_ctx)}", string_from_int(port))
 }
 publish(_ctx: ptr, ext: int) {
-    config.put("aeo.cmp.publish.ext.${_ctx}", string_from_int(ext))
-    config.put("aeo.cmp.publish.inner.${_ctx}", string_from_int(ext))
+    config.put("aeo.cmp.publish.ext.${_nm(_ctx)}", string_from_int(ext))
+    config.put("aeo.cmp.publish.inner.${_nm(_ctx)}", string_from_int(ext))
 }
 publish_map(_ctx: ptr, ext: int, inner: int) {
-    config.put("aeo.cmp.publish.ext.${_ctx}", string_from_int(ext))
-    config.put("aeo.cmp.publish.inner.${_ctx}", string_from_int(inner))
+    config.put("aeo.cmp.publish.ext.${_nm(_ctx)}", string_from_int(ext))
+    config.put("aeo.cmp.publish.inner.${_nm(_ctx)}", string_from_int(inner))
 }
 
 // balance_to(port) { … } — the explicit LB→backend forward FACT (§4): the SPEC
@@ -649,41 +658,41 @@ publish_map(_ctx: ptr, ext: int, inner: int) {
 // Returns _ctx (the LB name) so its trailing block's algorithm()/lb_health() key
 // onto the same LB — the policy(_ctx)->_ctx sub-block precedent.
 balance_to(_ctx: @keep ptr, port: int) -> ptr {
-    config.put("aeo.cmp.balanceto.${_ctx}", string_from_int(port))
+    config.put("aeo.cmp.balanceto.${_nm(_ctx)}", string_from_int(port))
     return _ctx
 }
 algorithm(_ctx: ptr, a: string) {
-    config.put("aeo.cmp.lbalgo.${_ctx}", a)
+    config.put("aeo.cmp.lbalgo.${_nm(_ctx)}", a)
 }
 // l4() — mark this balancer as LAYER 4 (raw TCP), for non-HTTP tiers (redis,
 // postgres, …). It splices opaque TCP streams (aeo-l4lb) instead of proxying HTTP
 // (aeo-lb). Health is TCP-connect (no lb_health path); cache/breaker are L7-only
 // and ignored. Written inside balance_to{} — `_ctx` is the LB name.
 l4(_ctx: ptr) {
-    config.put("aeo.cmp.lbl4.${_ctx}", "1")
+    config.put("aeo.cmp.lbl4.${_nm(_ctx)}", "1")
 }
 lb_health(_ctx: ptr, path: string, expect: int) {
-    config.put("aeo.cmp.lbhealthpath.${_ctx}", path)
-    config.put("aeo.cmp.lbhealthexpect.${_ctx}", string_from_int(expect))
+    config.put("aeo.cmp.lbhealthpath.${_nm(_ctx)}", path)
+    config.put("aeo.cmp.lbhealthexpect.${_nm(_ctx)}", string_from_int(expect))
 }
 // breaker(failures, open_ms, half_open) — per-upstream CIRCUIT BREAKER: after
 // `failures` consecutive errors the upstream is tripped OPEN for `open_ms`, then
 // `half_open` trial requests probe recovery. Maps to std.http.proxy
 // breaker_configure. Inside balance_to{} — `_ctx` is the LB name.
 breaker(_ctx: ptr, failures: int, open_ms: int, half_open: int) {
-    config.put("aeo.cmp.lbbreaker.${_ctx}", "${string_from_int(failures)},${string_from_int(open_ms)},${string_from_int(half_open)}")
+    config.put("aeo.cmp.lbbreaker.${_nm(_ctx)}", "${string_from_int(failures)},${string_from_int(open_ms)},${string_from_int(half_open)}")
 }
 // cache(entries, max_body, ttl_sec, key_strategy) — LRU RESPONSE CACHE across the
 // pool. key_strategy: "url" | "method_url" | "method_url_vary". Maps to
 // std.http.proxy cache_new + opts_bind_cache.
 cache(_ctx: ptr, entries: int, max_body: int, ttl_sec: int, key_strategy: string) {
-    config.put("aeo.cmp.lbcache.${_ctx}", "${string_from_int(entries)},${string_from_int(max_body)},${string_from_int(ttl_sec)},${key_strategy}")
+    config.put("aeo.cmp.lbcache.${_nm(_ctx)}", "${string_from_int(entries)},${string_from_int(max_body)},${string_from_int(ttl_sec)},${key_strategy}")
 }
 
 // balancer_weight(w) — per-backend pool weight (§4). Role-relative: only legal on
 // a node whose parent is a load_balancer (checked by lb_model_errors).
 balancer_weight(_ctx: ptr, w: int) {
-    config.put("aeo.cmp.weight.${_ctx}", string_from_int(w))
+    config.put("aeo.cmp.weight.${_nm(_ctx)}", string_from_int(w))
 }
 _net_add(vm: string, entry: string) {
     prev = config.get("aeo.cmp.netpolicy.${vm}")
@@ -747,32 +756,32 @@ get_rctl(vm: string) -> string { return config.get("aeo.cmp.rctl.${vm}") }
 //     host-reachable. (Follow-up: private podman net + selective -p publish.)
 //   bhyve/kvm — a host-side forward to the guest's <ip>:<port>
 // v0 records a single port; repeat-call for more is a follow-up.
-expose(_ctx: ptr, port: int)  { config.put("aeo.cmp.expose.${_ctx}", string_from_int(port)) }
+expose(_ctx: ptr, port: int)  { config.put("aeo.cmp.expose.${_nm(_ctx)}", string_from_int(port)) }
 
 // VM sizing (bhyve/kvm): vCPUs, RAM string (e.g. "2G"), and the host NIC
 // — a tap device name on a host bridge ("" = no NIC).
-cpus(_ctx: ptr, n: int)       { config.put("aeo.cmp.cpus.${_ctx}", string_from_int(n)) }
-memory(_ctx: ptr, v: string)  { config.put("aeo.cmp.memory.${_ctx}", v) }
-nic(_ctx: ptr, v: string)     { config.put("aeo.cmp.nic.${_ctx}", v) }
+cpus(_ctx: ptr, n: int)       { config.put("aeo.cmp.cpus.${_nm(_ctx)}", string_from_int(n)) }
+memory(_ctx: ptr, v: string)  { config.put("aeo.cmp.memory.${_nm(_ctx)}", v) }
+nic(_ctx: ptr, v: string)     { config.put("aeo.cmp.nic.${_nm(_ctx)}", v) }
 
 // proxmox_vm attributes — WHERE + HOW to reach the PVE API, and WHAT to clone.
 // host()/node()/auth_token() locate the remote host; storage()/bridge()/template()
 // name the clone target. auth_token() carries the SECRET only via getenv() at the
 // call site (never a literal) — the model records the resolved value, which is why
 // the example writes auth_token(getenv("PVE_TOKEN")). See proxmox_vm() above.
-host(_ctx: ptr, v: string)       { config.put("aeo.cmp.pvehost.${_ctx}", v) }
-node(_ctx: ptr, v: string)       { config.put("aeo.cmp.pvenode.${_ctx}", v) }
-auth_token(_ctx: ptr, v: string) { config.put("aeo.cmp.pvetoken.${_ctx}", v) }
-storage(_ctx: ptr, v: string)    { config.put("aeo.cmp.pvestorage.${_ctx}", v) }
-bridge(_ctx: ptr, v: string)     { config.put("aeo.cmp.pvebridge.${_ctx}", v) }
-template(_ctx: ptr, v: string)   { config.put("aeo.cmp.pvetemplate.${_ctx}", v) }
+host(_ctx: ptr, v: string)       { config.put("aeo.cmp.pvehost.${_nm(_ctx)}", v) }
+node(_ctx: ptr, v: string)       { config.put("aeo.cmp.pvenode.${_nm(_ctx)}", v) }
+auth_token(_ctx: ptr, v: string) { config.put("aeo.cmp.pvetoken.${_nm(_ctx)}", v) }
+storage(_ctx: ptr, v: string)    { config.put("aeo.cmp.pvestorage.${_nm(_ctx)}", v) }
+bridge(_ctx: ptr, v: string)     { config.put("aeo.cmp.pvebridge.${_nm(_ctx)}", v) }
+template(_ctx: ptr, v: string)   { config.put("aeo.cmp.pvetemplate.${_nm(_ctx)}", v) }
 
 // proxmox_ct attributes. ostemplate() is the OS TARBALL a CT is created from (a
 // vztmpl volid, e.g. "local:vztmpl/debian-12-standard_12.12-1_amd64.tar.zst").
 // rootfs() is the root disk spec ("<storage>:<GiB>", e.g. "local-lvm:2"; default
 // "<storage>:4" if unset). These are the CT analogs of proxmox_vm's template().
-ostemplate(_ctx: ptr, v: string) { config.put("aeo.cmp.pveostemplate.${_ctx}", v) }
-rootfs(_ctx: ptr, v: string)     { config.put("aeo.cmp.pverootfs.${_ctx}", v) }
+ostemplate(_ctx: ptr, v: string) { config.put("aeo.cmp.pveostemplate.${_nm(_ctx)}", v) }
+rootfs(_ctx: ptr, v: string)     { config.put("aeo.cmp.pverootfs.${_nm(_ctx)}", v) }
 
 // cloud_init(snippet) — POST-PROVISION completion. `snippet` is a PVE cicustom
 // user-data reference (e.g. "local:snippets/aeo-agent-init.yaml") the OPERATOR
@@ -782,16 +791,16 @@ rootfs(_ctx: ptr, v: string)     { config.put("aeo.cmp.pverootfs.${_ctx}", v) }
 // agent and completes the node IN-GUEST (the debated design: generic template +
 // in-guest completion via cloud-init, NOT a baked workload). Empty = no cloud-init
 // beyond the API params (ciuser/ip); the VM boots the bare template.
-cloud_init(_ctx: ptr, v: string) { config.put("aeo.cmp.pvecinit.${_ctx}", v) }
+cloud_init(_ctx: ptr, v: string) { config.put("aeo.cmp.pvecinit.${_nm(_ctx)}", v) }
 // agent(on) — when 1, the node is completed by aeo-agent seeded via cloud_init,
 // and probe() checks GUEST-AGENT liveness (qemu-guest-agent responding) rather
 // than just "the hypervisor reports running". Requires cloud_init() to have
 // installed+started the guest agent. 0/unset = hypervisor-status probe only.
-agent(_ctx: ptr, on: int)        { config.put("aeo.cmp.pveagent.${_ctx}", string_from_int(on)) }
+agent(_ctx: ptr, on: int)        { config.put("aeo.cmp.pveagent.${_nm(_ctx)}", string_from_int(on)) }
 
 // wsl_distro — for a `windows` node, which WSL2 distro hosts its podman
 // ("" = WSL's default distro). The driver_windows seam: the Linux under Windows.
-wsl_distro(_ctx: ptr, v: string) { config.put("aeo.cmp.wsldistro.${_ctx}", v) }
+wsl_distro(_ctx: ptr, v: string) { config.put("aeo.cmp.wsldistro.${_nm(_ctx)}", v) }
 
 // gpu(mode) — a device claim with CHECKED allocation semantics (§G). `mode` names
 // the CONTRACT, not the mechanism:
@@ -802,13 +811,13 @@ wsl_distro(_ctx: ptr, v: string) { config.put("aeo.cmp.wsldistro.${_ctx}", v) }
 //                 other claim on the same device — enforced at `aeo check`.
 // The mechanism (--device /dev/dri vs VFIO vs devfs) varies per substrate and
 // belongs to the drivers; gpu() only records the contract. See gpu_flags().
-gpu(_ctx: ptr, mode: string) { config.put("aeo.cmp.gpu.${_ctx}", mode) }
+gpu(_ctx: ptr, mode: string) { config.put("aeo.cmp.gpu.${_nm(_ctx)}", mode) }
 
 // gpu_device(pin) — optionally pin WHICH device the claim binds. For containers a
 // DRI render-node path ("/dev/dri/renderD128"); for VMs a PCI address
 // ("pci:0000:01:00.0"). Default "" = any/the-only device. The pin is what lets the
 // exclusive-conflict check distinguish "two claims, one device" from "two devices".
-gpu_device(_ctx: ptr, pin: string) { config.put("aeo.cmp.gpudev.${_ctx}", pin) }
+gpu_device(_ctx: ptr, pin: string) { config.put("aeo.cmp.gpudev.${_nm(_ctx)}", pin) }
 
 // get_gpu_mode(nm) — the declared contract ("shared"/"exclusive"), "" if none.
 get_gpu_mode(nm: string) -> string { return config.get("aeo.cmp.gpu.${nm}") }
@@ -962,7 +971,7 @@ _is_vm_kind(k: string) -> int {
 //                  URL is also accepted verbatim.
 //   network      — "dhcp" (default) or a static spec.
 //   ssh_key      — path to the pubkey cloud-init installs so aeo can ssh in.
-guest_image(_ctx: ptr, v: string) { config.put("aeo.cmp.guestimage.${_ctx}", v) }
+guest_image(_ctx: ptr, v: string) { config.put("aeo.cmp.guestimage.${_nm(_ctx)}", v) }
 
 // --- image recipe (per-box, "how to realize a logical guest_image name") ---
 // `image("ubuntu-22.04+podman") { from(...); install(...); netplan_static(...);
@@ -985,16 +994,16 @@ image_recipe(nm: string) -> string {
     }
     return nm
 }
-from(_ctx: ptr, url: string)            { config.put("aeo.cmp.img.from.${_ctx}", url) }
+from(_ctx: ptr, url: string)            { config.put("aeo.cmp.img.from.${_nm(_ctx)}", url) }
 install(_ctx: ptr, pkg: string)         { _img_append(_ctx, "install", pkg) }
 netplan_static(_ctx: ptr, addr: string, gw: string) {
-    config.put("aeo.cmp.img.netplan.${_ctx}", "addr=${addr};gw=${gw}")
+    config.put("aeo.cmp.img.netplan.${_nm(_ctx)}", "addr=${addr};gw=${gw}")
 }
 systemd_unit(_ctx: ptr, name: string, body: string) {
     _img_append(_ctx, "units", name)
-    config.put("aeo.cmp.img.unit.${_ctx}.${name}", body)
+    config.put("aeo.cmp.img.unit.${_nm(_ctx)}.${name}", body)
 }
-realize_as(_ctx: ptr, spec: string)     { config.put("aeo.cmp.img.realize.${_ctx}", spec) }
+realize_as(_ctx: ptr, spec: string)     { config.put("aeo.cmp.img.realize.${_nm(_ctx)}", spec) }
 
 _img_append(ctx: string, field: string, item: string) {
     prev = config.get("aeo.cmp.img.${field}.${ctx}")
@@ -1011,18 +1020,18 @@ _imgcount() -> int {
     }
     return _to_int(v)
 }
-network(_ctx: ptr, v: string)     { config.put("aeo.cmp.network.${_ctx}", v) }
-ssh_key(_ctx: ptr, v: string)     { config.put("aeo.cmp.sshkey.${_ctx}", v) }
+network(_ctx: ptr, v: string)     { config.put("aeo.cmp.network.${_nm(_ctx)}", v) }
+ssh_key(_ctx: ptr, v: string)     { config.put("aeo.cmp.sshkey.${_nm(_ctx)}", v) }
 
 // `depends("db")` inside app's block — app depends on db, so db is brought
 // up first and torn down last. One per call (Aether is fixed-arity); v0
 // records the LAST dependency (the common single-upstream tier chain), a
 // fuller multi-dep model is a follow-up.
-depends(_ctx: ptr, on: string) { config.put("aeo.cmp.depends.${_ctx}", on) }
+depends(_ctx: ptr, on: string) { config.put("aeo.cmp.depends.${_nm(_ctx)}", on) }
 
 // Per-resource health poll tuning (ms between probes; max probe attempts).
-health_interval(_ctx: ptr, ms: int) { config.put("aeo.cmp.interval.${_ctx}", string_from_int(ms)) }
-health_budget(_ctx: ptr, n: int)    { config.put("aeo.cmp.budget.${_ctx}", string_from_int(n)) }
+health_interval(_ctx: ptr, ms: int) { config.put("aeo.cmp.interval.${_nm(_ctx)}", string_from_int(ms)) }
+health_budget(_ctx: ptr, n: int)    { config.put("aeo.cmp.budget.${_nm(_ctx)}", string_from_int(n)) }
 
 // DURATION-typed health tuning — the FluentSelenium within()/secs() idiom, on
 // aeo's grain. Aether has first-class duration literals (10s, 250ms, 2m), so:
@@ -1044,12 +1053,12 @@ health_budget(_ctx: ptr, n: int)    { config.put("aeo.cmp.budget.${_ctx}", strin
 // entry (see system()), so it never leaks across systems.
 within(_ctx: ptr, d: Duration) {
     ms = string_from_int(_dur_ms(d))
-    config.put("aeo.cmp.within.${_ctx}", ms)
+    config.put("aeo.cmp.within.${_nm(_ctx)}", ms)
     config.put("aeo.cmp.curwithin", ms)        // float onto subsequent siblings
 }
 every(_ctx: ptr, d: Duration) {
     ms = string_from_int(_dur_ms(d))
-    config.put("aeo.cmp.interval.${_ctx}", ms)
+    config.put("aeo.cmp.interval.${_nm(_ctx)}", ms)
     config.put("aeo.cmp.curevery", ms)
 }
 // without(d) — the FluentSelenium TWIN of within(): retry-until-GONE. On TEARDOWN,
@@ -1059,7 +1068,7 @@ every(_ctx: ptr, d: Duration) {
 // node's own wins; frozen at declaration; reset per-system). Stored as ms.
 without(_ctx: ptr, d: Duration) {
     ms = string_from_int(_dur_ms(d))
-    config.put("aeo.cmp.without.${_ctx}", ms)
+    config.put("aeo.cmp.without.${_nm(_ctx)}", ms)
     config.put("aeo.cmp.curwithout", ms)
 }
 // health_retry(){} — the BLOCK form of the health-timing knobs, grouping the
@@ -1083,12 +1092,12 @@ health_retry(_ctx: @keep ptr) -> ptr {
 }
 up_within(_ctx: ptr, d: Duration) {
     ms = string_from_int(_dur_ms(d))
-    config.put("aeo.cmp.within.${_ctx}", ms)
+    config.put("aeo.cmp.within.${_nm(_ctx)}", ms)
     config.put("aeo.cmp.curwithin", ms)
 }
 down_within(_ctx: ptr, d: Duration) {
     ms = string_from_int(_dur_ms(d))
-    config.put("aeo.cmp.without.${_ctx}", ms)
+    config.put("aeo.cmp.without.${_nm(_ctx)}", ms)
     config.put("aeo.cmp.curwithout", ms)
 }
 
@@ -1116,26 +1125,26 @@ policy(_ctx: string) -> string { return _ctx }
 // reprobe_every(d) — this node's watch/reconcile cadence (ms). Overrides the global
 // AEO_WATCH_INTERVAL for this node. Unset -> the loop's default.
 reprobe_every(_ctx: ptr, d: Duration) {
-    config.put("aeo.cmp.pol.reprobe.${_ctx}", string_from_int(_dur_ms(d)))
+    config.put("aeo.cmp.pol.reprobe.${_nm(_ctx)}", string_from_int(_dur_ms(d)))
 }
 
 // on_drift(action) — "alert" (audit + report, the DEFAULT — a containment tool must
 // not silently mutate) or "converge" (act: restart/recreate to the declared envelope
 // even without the global --converge flag).
 on_drift(_ctx: ptr, action: string) {
-    config.put("aeo.cmp.pol.ondrift.${_ctx}", action)
+    config.put("aeo.cmp.pol.ondrift.${_nm(_ctx)}", action)
 }
 
 // restart_after_failures(n) — how many consecutive failed probes before the loop
 // escalates from restart to recreate (advisory; stored for the loop to consult).
 restart_after_failures(_ctx: ptr, n: int) {
-    config.put("aeo.cmp.pol.maxfail.${_ctx}", string_from_int(n))
+    config.put("aeo.cmp.pol.maxfail.${_nm(_ctx)}", string_from_int(n))
 }
 
 // reattest_every(d) — re-verify the node's image digest this often (ms). 0/unset ->
 // attest only at bring-up (today's behavior).
 reattest_every(_ctx: ptr, d: Duration) {
-    config.put("aeo.cmp.pol.reattest.${_ctx}", string_from_int(_dur_ms(d)))
+    config.put("aeo.cmp.pol.reattest.${_nm(_ctx)}", string_from_int(_dur_ms(d)))
 }
 
 // get_policy_reprobe_ms(nm) — the node's declared reprobe cadence in ms, 0 if unset

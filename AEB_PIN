@@ -95,4 +95,11 @@
 # 3b51771) reads them with typed accessors; its floor is Aether 0.830.0, which
 # AETHER_PIN already is. A tracking move with the family, not a new aeb flag or
 # output layout aeo relies on. Verified with a v0.328 release install.
-0.328.0
+#
+# 0.333.0 (2026-10-23) — paired with AETHER_PIN 0.841.0. v0.333 is cut at aeb
+# 790e7d2, whose own AETHER_PIN is 0.840.0: its SDK and bldr carry the @keep
+# declarations the 0.836-0.840 ownership rules require (a build node's session
+# handle is @keep), so v0.328 stops compiling on the current Aether. A baseline
+# move with the family, not a new aeb flag or output layout aeo relies on
+# (run-spec.sh uses ae directly). Verified with a v0.333 release install.
+0.333.0

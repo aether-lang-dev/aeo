@@ -205,4 +205,26 @@
 # warnings all W1001, as on 0.824); test/run-spec.sh 320 passing, 4 skipped,
 # and the same three podman specs failing (this Mac's podman cannot start new
 # containers). aeb not involved (run-spec.sh uses ae directly).
-0.830.0
+#
+# Raised to 0.841.0 (2026-10-23): a real floor move, coupled with aeb v0.333
+# (see AEB_PIN). The 0.836-0.840 ownership rules and 0.835's E0202 are what
+# 0.830.0 could not enforce, and 0.841.0 rejects the tree as it stood. What it
+# found:
+#   - E0200 (a `ptr` has no string rendering): compose's ~85 setters key their
+#     config writes with "${_ctx}", where `_ctx: ptr` is the name the closure DSL
+#     pushes. The DSL injects `_ctx` only into a ptr parameter (typing it
+#     `string` makes `image("x")` "expect 2 arguments"), so the parameter stays
+#     ptr and the interpolation reads it through one helper, `_nm(_ctx)`, which
+#     calls string.from_ptr. The same E0200 hit three `list_get_raw` reads
+#     interpolated into a string (lib/audit, and the _join helpers of
+#     spec_death, spec_share and spec_container_run_argv); they use
+#     list.get_string. The `@keep ptr` builder setters that return their ctx
+#     (entrypoint, balance_to, health_retry) were already correct and are unchanged.
+#   - E0303: `http_server_set_host` is no longer exported by std.http; the
+#     wrapper `server_set_host` is (aeo-egress-gateway, spec_egress_gateway).
+#   - E0301: examples/silly_addition_lxc.ae and _nspawn.ae call os.getenv
+#     without importing std.os; they import it.
+# Verified on 0.841.0 from its release install (macOS arm64) and on aether-linux
+# (Ubuntu 22.04 arm64): all six bin/ entry points build; the results are in the
+# commit message.
+0.841.0

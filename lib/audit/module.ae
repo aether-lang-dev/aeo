@@ -73,8 +73,7 @@ verify(p: string) -> string {
     n = list_size(lines)
     i = 0
     while i < n {
-        lp = list_get_raw(lines, i)
-        line = "${lp}"
+        line, _ = list.get_string(lines, i)
         if string_length(line) > 0 {
             payload = _strip_chain(line)
             want = _sha("${prev}${payload}")

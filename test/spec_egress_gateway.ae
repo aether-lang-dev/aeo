@@ -7,7 +7,7 @@ import egress_gateway (
     connect_request_from_http, response_body_for_status,
     tunnel_supported, tunnel_blocker
 )
-import std.http (http_server_create, http_server_set_host, http_server_add_route,
+import std.http (http_server_create, server_set_host, http_server_add_route,
                  http_server_start_background_raw, http_response_set_status,
                  http_response_set_header, http_response_set_body,
                  request_method, request_path)
@@ -28,7 +28,7 @@ main() {
     set_allowlist("api.github.com")
     raw = http_server_create(PORT)
     if raw != 0 {
-        http_server_set_host(raw, "127.0.0.1")
+        server_set_host(raw, "127.0.0.1")
         http_server_add_route(raw, "CONNECT", "*", h_connect, 0)
         _ = http_server_start_background_raw(raw)
         sleep(200)

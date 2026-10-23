@@ -39,6 +39,7 @@
 import compose (system, nspawn)
 import compose (image, command, health, depends)
 import compose (check, suite)
+import std.os
 import std.string (string_length)
 
 exports ( aeo_orchestration )

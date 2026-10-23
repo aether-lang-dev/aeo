@@ -5,7 +5,7 @@
 //   AEO_EGRESS_HOST    bind host, default 127.0.0.1
 //   AEO_EGRESS_PORT    bind port, default 9470
 //
-import std.http (http_server_create, http_server_set_host, http_server_add_route,
+import std.http (http_server_create, server_set_host, http_server_add_route,
                  http_server_start_raw, http_response_set_status,
                  http_response_set_header, http_response_set_body,
                  response_accept_tunnel, request_method, request_path)
@@ -95,7 +95,7 @@ main() {
         println("aeo-egress-gateway: server_create failed")
         return
     }
-    http_server_set_host(raw, host)
+    server_set_host(raw, host)
     http_server_add_route(raw, "CONNECT", "*", h_connect, 0)
 
     spawn(SchedHelper())

@@ -42,6 +42,7 @@
 import compose (system, lxc)
 import compose (image, health, depends)
 import compose (check, suite)
+import std.os
 import std.string (string_length)
 
 exports ( aeo_orchestration )
