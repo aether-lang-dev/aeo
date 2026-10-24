@@ -6,14 +6,18 @@
 // real podman (see the step-3 proof in docs/built_in_load_balancing.md §9); here
 // the focus is the DRIVER lifecycle.
 //
-// Results are gathered into config BEFORE the describe() blocks. Requires the
-// aeo-lb image (available() gates on it); self-skips as UNAVAILABLE otherwise.
-// run-spec.sh builds the binary but NOT the image, so this spec typically skips
-// under the plain suite and is exercised by the live `aeo up` proof instead.
+// Results are gathered into config BEFORE the describe() blocks. Needs a
+// container engine and an aeo-lb the container can run (available() gates on
+// it); self-skips, saying why, otherwise. up() builds the image from that
+// binary: on Linux the one beside bin/aeo, and on a host that is not Linux
+// (macOS, with podman's Linux machine) a Linux build of it under
+// AEO_LB_LINUX_DIR, which run-spec.sh cross-builds for the machine's
+// architecture (zig, ae --target=<arch>-linux-musl) and skips, naming the
+// reason, when it cannot.
 
 import std.spec
 import compose (system, container, load_balancer, listens, publish, balance_to, reset_nodes)
-import driver_loadbalancer (up, down, probe, available)
+import driver_loadbalancer (up, down, probe, available, unavailable_reason)
 import std.config
 import std.os (run_capture)
 import std.string
@@ -61,7 +65,10 @@ main() {
     // "3 passing" meant nothing was exercised. `it_when` reports ⊘ with the
     // reason instead, and the assertions below are now unconditional: the body
     // simply does not run when the gate is false.
-    why = "aeo-lb image absent (localhost/aeo/aeo-lb:latest) — build it to run live"
+    why = unavailable_reason()
+    if why == "" {
+        why = "no container engine, or no aeo-lb image or binary to build one from"
+    }
 
     spec.describe(fw, "driver_loadbalancer live lifecycle") {
         spec.it_when(avail, "up() starts a tracked LB process", why) callback {

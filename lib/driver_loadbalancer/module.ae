@@ -30,23 +30,52 @@ import std.string (bytes,
 import std.list
 
 exports (
-    up, down, probe, available, ensure_image, drain, undrain,
+    up, down, probe, available, unavailable_reason, ensure_image, drain, undrain,
     backend_specs, backend_specs_l4, lb_env, lb_image, lb_net, lb_binary, lb_health_timing
 )
 
-// The front-door binary for `lb`, under AEO_HOME/bin (built by the toolchain
-// alongside bin/aeo). aeo-l4lb for an l4() balancer, else aeo-lb. ensure_image()
-// COPYs it into the image build context.
+// 1 when this host runs Linux, so the aeo-lb built beside bin/aeo is a binary
+// the container can run. On macOS or FreeBSD it is not: the container is a
+// Linux one (podman's machine on a Mac), and a Mach-O or FreeBSD aeo-lb COPYed
+// into it would not start.
+_host_is_linux() -> int {
+    av = list_new()
+    list_add(av, "-s")
+    out, status, _e = run_capture("/usr/bin/uname", av, null)
+    list_free(av)
+    if status != 0 { return 1 }   // cannot tell: assume the usual case
+    if string_index_of(out, "Linux") >= 0 { return 1 }
+    return 0
+}
+
+// The front-door binary for `lb`, which ensure_image() COPYs into the image
+// build context: aeo-l4lb for an l4() balancer, else aeo-lb. It runs in a
+// Linux container, so on a Linux host it is the one under AEO_HOME/bin (built
+// by the toolchain alongside bin/aeo); on any other host it is the Linux build
+// under AEO_LB_LINUX_DIR (made for the container's architecture, for example
+// `ae build bin/aeo-lb.ae --lib lib --target=aarch64-linux-musl -o
+// $AEO_LB_LINUX_DIR/aeo-lb` for podman on an Apple-silicon Mac), or "" when
+// there is none: the host's own binary would be copied in and fail there.
 lb_binary(lb: string) -> string {
+    name = "aeo-lb"
+    if compose.is_lb_l4(lb) == 1 {
+        name = "aeo-l4lb"
+    }
+    ld = getenv("AEO_LB_LINUX_DIR")
+    if ld != null {
+        if string_length(ld) > 0 {
+            return "${ld}/${name}"
+        }
+    }
+    if _host_is_linux() == 0 {
+        return ""
+    }
     h = getenv("AEO_HOME")
     if string_length(h) == 0 {
         home = getenv("HOME")
         h = "${home}/aeo"
     }
-    if compose.is_lb_l4(lb) == 1 {
-        return "${h}/bin/aeo-l4lb"
-    }
-    return "${h}/bin/aeo-lb"
+    return "${h}/bin/${name}"
 }
 
 // The container image for `lb`. Overridable via AEO_LB_IMAGE. L4 and L7 use
@@ -68,15 +97,46 @@ lb_net(lb: string) -> string {
     return "aeo-${compose.get_system(lb)}"
 }
 
-// available iff a container engine is present. The aeo-lb IMAGE is built on
-// demand by ensure_image() (folded into up()), so its absence is not "not
-// available" — only a missing engine or a missing aeo-lb binary is.
+// available iff a container engine is present and there is something to run in
+// it. The aeo-lb IMAGE is built on demand by ensure_image() (folded into up()),
+// so its absence is not "not available"; a binary the container can run is
+// needed to build it, unless the caller pinned an image (AEO_LB_IMAGE) or one
+// is already there. On a host that is not Linux that binary is the Linux build
+// under AEO_LB_LINUX_DIR (see lb_binary), so without one this is 0 and
+// unavailable_reason() says why.
 available() -> int {
     eng = driver_linux.engine_resolve("")
     if string_length(eng) == 0 {
         return 0
     }
-    return 1
+    if _host_is_linux() == 1 {
+        return 1
+    }
+    pinned = getenv("AEO_LB_IMAGE")
+    if pinned != null {
+        if string_length(pinned) > 0 {
+            return 1
+        }
+    }
+    if _image_present("") == 1 {
+        return 1
+    }
+    if _binary_present(lb_binary("")) == 1 {
+        return 1
+    }
+    return 0
+}
+
+// Why available() is 0, for a message or a skipped test.
+unavailable_reason() -> string {
+    eng = driver_linux.engine_resolve("")
+    if string_length(eng) == 0 {
+        return "no container engine (podman or docker)"
+    }
+    if _host_is_linux() == 0 {
+        return "this host is not Linux, so its aeo-lb cannot run in the Linux container, and there is no Linux build of it: build one for the container's architecture (ae build bin/aeo-lb.ae --lib lib --target=aarch64-linux-musl or x86_64-linux-musl -o DIR/aeo-lb) and set AEO_LB_LINUX_DIR=DIR, or pin a prebuilt image with AEO_LB_IMAGE"
+    }
+    return ""
 }
 
 _image_present(lb: string) -> int {
@@ -114,8 +174,11 @@ ensure_image(lb: string) -> string {
         return "aeo: no container engine to build the balancer image (need podman/docker)"
     }
     bin = lb_binary(lb)
+    if string_length(bin) == 0 {
+        return "aeo: ${unavailable_reason()}"
+    }
     if _binary_present(bin) == 0 {
-        return "aeo: balancer binary not found at ${bin} — the toolchain builds it beside bin/aeo (ae build <src> -o ${bin} --lib lib)"
+        return "aeo: balancer binary not found at ${bin} — the toolchain builds it beside bin/aeo (ae build <src> -o ${bin} --lib lib); for a container on a host that is not Linux, a Linux build of it under AEO_LB_LINUX_DIR"
     }
     binname = "aeo-lb"
     if compose.is_lb_l4(lb) == 1 {
@@ -163,10 +226,16 @@ _dockerfile(binname: string) -> string {
 }
 
 _binary_present(path: string) -> int {
+    if string_length(path) == 0 {
+        return 0
+    }
+    // /bin/sh's test: /usr/bin/test is not on macOS.
     av = list_new()
-    list_add(av, "-x")
+    list_add(av, "-c")
+    list_add(av, "test -x \"$1\"")
+    list_add(av, "sh")
     list_add(av, path)
-    _o, status, _e = run_capture("/usr/bin/test", av, null)
+    _o, status, _e = run_capture("/bin/sh", av, null)
     list_free(av)
     if status == 0 { return 1 }
     return 0

@@ -86,12 +86,35 @@ run_one() {
                 --lib "$ROOT/lib" >/dev/null 2>&1 || true
             ;;
         *spec_driver_loadbalancer_live*)
-            # LIVE LB lifecycle test: the driver runs the aeo-lb CONTAINER, so it
-            # needs the aeo-lb image (localhost/aeo/aeo-lb:latest). The plain suite
-            # does NOT build that image, so this spec self-skips as UNAVAILABLE here;
-            # the end-to-end proof is the `aeo up` step-3 run (docs §9). Left as a
-            # no-op stage: to run it live, build the image first (see docs §9).
-            : ;;
+            # LIVE LB lifecycle test: the driver runs the aeo-lb CONTAINER, whose
+            # image up() builds from an aeo-lb binary. On Linux that is bin/aeo-lb.
+            # On any other host (macOS: podman's machine is Linux) the host's own
+            # binary cannot run in the container, so build a Linux one for the
+            # machine's architecture, static (musl), and point the driver at it
+            # (AEO_LB_LINUX_DIR). No engine, no zig or no cross build: the spec
+            # self-skips, and says so (driver_loadbalancer.unavailable_reason).
+            if [ "$OS" != "Linux" ]; then
+                arch=$(podman info --format '{{.Host.Arch}}' 2>/dev/null || true)
+                case "$arch" in
+                    arm64|aarch64) tgt=aarch64-linux-musl ;;
+                    amd64|x86_64) tgt=x86_64-linux-musl ;;
+                    *) tgt="" ;;
+                esac
+                if [ -n "$tgt" ]; then
+                    lbdir="${TMPDIR:-/tmp}/aeo-lb-linux-$tgt"
+                    mkdir -p "$lbdir"
+                    if ae build "$ROOT/bin/aeo-lb.ae" -o "$lbdir/aeo-lb" --lib "$ROOT/lib" \
+                           --target="$tgt" >"$lbdir/build.log" 2>&1; then
+                        export AEO_LB_LINUX_DIR="$lbdir"
+                        # up() builds the image only when it is absent: drop one an
+                        # earlier run baked from an older binary.
+                        podman rmi -f localhost/aeo/aeo-lb:latest >/dev/null 2>&1 || true
+                    else
+                        echo "  (no Linux build of aeo-lb for the container ($tgt): $lbdir/build.log)"
+                    fi
+                fi
+            fi
+            ;;
     esac
     # build-then-run, not `ae run`: `ae run` caches by content and can serve a
     # stale compiled dependency (e.g. an edited lib/compose) — build to a fresh
