@@ -39,7 +39,7 @@ main() {
     if _no_engine() == 1 {
         have_engine = 0
     }
-    why = "no container engine on PATH (podman/docker) — install one to run live"
+    why = "no usable container engine (podman/docker missing, or its `info` fails, e.g. a stopped podman machine) — start one to run live"
 
     spec.describe(fw, "running nodes (real containers via aeo's driver)") {
 
@@ -83,8 +83,19 @@ main() {
 
 // ---- helpers ----
 
+// No engine, or one that cannot answer: on macOS podman is on PATH but its VM
+// may be stopped, and every `podman run` then fails with exit 125. `info`
+// talks to the engine, so a nonzero exit means "not usable here".
 _no_engine() -> int {
-    if string.length(driver_linux.engine_resolve("")) == 0 {
+    eng = driver_linux.engine_resolve("")
+    if string.length(eng) == 0 {
+        return 1
+    }
+    iv = list_new()
+    list_add(iv, "info")
+    _o, st, _e = run_capture(eng, iv, null)
+    list_free(iv)
+    if st != 0 {
         return 1
     }
     return 0
