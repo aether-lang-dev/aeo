@@ -102,4 +102,12 @@
 # handle is @keep), so v0.328 stops compiling on the current Aether. A baseline
 # move with the family, not a new aeb flag or output layout aeo relies on
 # (run-spec.sh uses ae directly). Verified with a v0.333 release install.
-0.333.0
+#
+# 0.347.0 (2026-11-20) — paired with AETHER_PIN 0.931.0, and needed: v0.333's own
+# tools and bldr hand ptrs to string parameters, which Aether 0.914.0 and later
+# refuse (E0202), so `make install` of v0.333 fails on 0.931.0 (measured on
+# ae-x64, 0.931.0: _list_type, ae_path_join, bldr's _is_abs_path); other older
+# tags fail the same way. v0.347 is the latest tag; a private install of it on
+# 0.931.0 (Ubuntu 22.04 x86_64) builds and runs. aeo itself still uses no aeb
+# flag or layout (run-spec.sh uses ae directly).
+0.347.0
