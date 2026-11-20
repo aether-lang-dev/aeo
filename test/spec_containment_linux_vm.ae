@@ -32,8 +32,10 @@ main() {
         // harness address (172.16.0.50 by default). Where the
         // harness could not get a report out (no guest), say so and skip rather
         // than fail every assertion on an environment this box does not have.
+        // A guest that answers but whose probe gives no report (HARNESS_ERR) is
+        // NOT skipped: every case then fails, so a broken guest never reads as absent.
         ran = 1
-        if _r("HARNESS_") == 1 {
+        if _r("HARNESS_UNAVAILABLE") == 1 {
             ran = 0
         }
         why = "no live guest: the harness gave no report: ${config.get(\"c.reports\")}"

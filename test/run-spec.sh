@@ -75,7 +75,7 @@ run_one() {
         *spec_capsicum_jail_selfreport*|*spec_capsicum_bhyvevm_selfreport*)
             # stage the python harness the spec shells to /tmp.
             cp "$ROOT/test/capharness.py" "$ROOT/test/capprobe.py" /tmp/ 2>/dev/null || true
-            cp "$ROOT/test/capharness_freebsd.py" "$ROOT/test/capprobe_freebsd.c" /tmp/ 2>/dev/null || true
+            cp "$ROOT/test/capharness_freebsd.py" "$ROOT/test/capprobe_freebsd_stdout.c" /tmp/ 2>/dev/null || true
             ;;
         *spec_egress_splice_live*)
             # LIVE splice test: build the gateway binary + stage its python
