@@ -243,4 +243,14 @@
 # Verified on a 0.927.0 release install, Linux x86_64 (Crostini, kernel 6.6):
 # all seven bin/ entry points build; the results are in the commit message.
 # aeb not involved (AEB_PIN unchanged).
-0.927.0
+#
+# Raised to 0.931.0 (2026-11-20): a tracking-only bump, no new primitive needed and
+# no source change; 0.927.0 still builds the tree. Verified on 0.931.0 with the
+# pin still at 0.927.0: all seven bin/ entry points build, test/security-posture.sh,
+# test/strict-mode.sh and test/compose-lint.sh pass, and `sh test/run-spec.sh`
+# on ae-x64 (Ubuntu 22.04 x86_64) fails only spec_running_nodes and
+# spec_driver_loadbalancer_live, the two that fail there on 0.927.0 too (that
+# host's podman 3.4.4 network plugin rejects the config podman writes); on
+# ghostbsd (FreeBSD 15.1, both bhyve guests up) 380 passing, 0 failing, as on
+# 0.927.0. aeb not involved (AEB_PIN unchanged).
+0.931.0
