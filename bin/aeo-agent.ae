@@ -514,9 +514,20 @@ _boot_node(node: string, kind_override: string) -> string {
     // host-as-substrate model (pidfile + kill -0 liveness); its builders are pure
     // POSIX so it works on Linux too (proven on a RAM-tight Pi Zero 2 W where a
     // container's overhead doesn't fit). AEO_BOOT_CMD is the process to run;
-    // AEO_EXEC_PROFILE is an optional macOS sandbox-exec profile (empty on Linux =
-    // unconfined; Linux confinement is a different kind — bwrap/seccomp).
+    // AEO_EXEC_PROFILE is an optional macOS sandbox-exec profile. On Linux the
+    // peer is AEO_EXEC_GRANTS: a grant list (lib/confine_landlock's tokens,
+    // comma-separated) the KERNEL holds the process to — Landlock + seccomp, no
+    // root. Set, it routes to up_confined, which FAILS CLOSED (no launcher, no
+    // Landlock, a bad token -> nothing starts); unset, the process is unconfined
+    // as before. AEO_CONFINE_BIN names the launcher (default: aeo-confine on PATH).
     if string_equals(kind, "exec") == 1 {
+        grants = _env_or("AEO_EXEC_GRANTS", "")
+        if string_length(grants) > 0 {
+            return driver_mac_exec.up_confined(node,
+                _env_or("AEO_BOOT_CMD", "sleep 600"),
+                _env_or("AEO_CONFINE_BIN", "aeo-confine"),
+                grants)
+        }
         return driver_mac_exec.up(node,
             _env_or("AEO_BOOT_CMD", "sleep 600"),
             _env_or("AEO_EXEC_PROFILE", ""))

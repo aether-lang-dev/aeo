@@ -94,8 +94,73 @@ malware and are impregnable to attack.* Two axes — stop a node REACHING things
 | rctl resource caps | ✅ | ✅ live + orchestrator-guarded | real-node deny proof pending |
 | Capsicum device grants | n/a | n/a | bhyve self-confines — no seam |
 | **Linux container confinement** | ✅ | ✅ **cgroups+cap-drop+netpolicy, fork-bomb refused live** | lib/confine_linux; reuses limit{}+constrain{} grammar (§5) |
+| **Linux host-exec confinement (Landlock)** | ✅ | ⚠️ one box, local only | lib/confine_landlock + bin/aeo-confine; see "Landlock for host-exec nodes" below |
 | Image attestation | ✅ | ✅ **verify-before-boot, fail-closed; wrong digest refused live** | attest("sha256:..."); 3 greppable states (attested/unpinned/unattestable) |
 | Audit trail | ✅ | ✅ **tamper-evident hash chain; tamper + attest-refuse caught live** | lib/audit; `aeo audit` verifies the chain (§4) |
+
+### Landlock for host-exec nodes (started 2026-11-20, on the Chromebook)
+
+A host-exec node (`AEO_BOOT_KIND=exec`) was unconfined on Linux. It can now be
+held by the kernel to a grant list, through Aether's `sandbox.spawn_socket`.
+
+**HANDOFF — for the sibling picking this up on the Mac (fleet subordinated).**
+The Chromebook session could build and prove this on one Linux box and nothing
+else. Start here, in this order:
+
+1. **Re-verify the pin move on macOS first** — it touched shared code, not just
+   the new module. `AETHER_PIN` went 0.841.0 -> 0.927.0 and E0202 forced edits in
+   `lib/compose` (16 setters now pass `_nm(_ctx)`), `lib/driver_bwrap`
+   (`_bg_command`) and five specs. Linux x86_64 result to match: seven `bin/`
+   entry points build, `sh test/run-spec.sh` 352 passing / 0 failing / 4 skipped
+   (the PVE-token cases). macOS, FreeBSD and win11 are UNVERIFIED on 0.927.0.
+   If 0.930.0 is out, verify on that and move the pin once, not twice.
+2. **Expect the live Landlock spec to SKIP on the Mac**, with the launcher's own
+   reason (`spawn_socket` refuses on macOS). `spec_confine_landlock.ae` (pure)
+   must pass there. A pass of the live spec on macOS would be a bug in its gate.
+3. **Paul has not yet decided the shipping shape** (the one-binary question
+   below). Do not ship `aeo-confine` to fleet hosts until he has; ask.
+4. **Then the fleet**, each as its own dated, named-box result (no "live" claim
+   without one): Pi 5 and Bazzite first (kernels new enough for Landlock's TCP
+   rules — check, don't assume), then the Pi Zero 2 W, which is the box host-exec
+   exists for. The first agent dispatch with `AEO_EXEC_GRANTS` set is itself a
+   first: that route has only ever been compiled.
+5. **Known sharp edges found here**, so they are not rediscovered:
+   - A write grant on a file that does not exist yet grants nothing. Grant the
+     directory (`fs_write:/var/lib/app/*`), not the file.
+   - dash forks even for `sh -c 'one command'`, so `fork` is implied by the
+     driver; without it the workload dies with "Cannot fork".
+   - On ae 0.912.0 a contained child could not open `/dev/null`; the driver
+     grants it. Whether 0.927.0's baseline makes that redundant is unchecked.
+   - Grants name the REAL file: on a merged-/usr box use `/usr/bin/cat`, not
+     `/bin/cat` (the live spec resolves with `readlink -f`).
+   - `command -v true` answers with the shell builtin; the spec gates on `sleep`.
+6. **Not started, and wanted for the JGDMS/DirtyChai thread** (Paul's
+   correspondence, not in this repo): `~/scm/aether-guest-languages/java` — a JVM dies at startup
+   in the contained modes because the preload refuses executable memory. Whether
+   `-Xint` gets past that is a guess nobody has run.
+
+- [x] `lib/confine_landlock` — grant-token grammar (unknown token = error) and a
+  detaching launcher; `bin/aeo-confine` is its entry.
+- [x] `driver_mac_exec.up_confined` + the agent's `AEO_EXEC_GRANTS` /
+  `AEO_CONFINE_BIN`. Fail-closed, no unconfined fallback.
+- [x] `test/spec_confine_landlock.ae` (pure, 21 cases) and
+  `test/spec_confine_landlock_live.ae` (7 cases: ungranted read, write and exec
+  refused by the kernel). **Run on ONE box**: Crostini, kernel 6.6, x86_64,
+  ae 0.912.0 and 0.927.0. Landlock ABI there has no network rules.
+- [ ] **Dispatch it through a real agent** over the sealed channel (the route
+  compiles; it has never been run that way).
+- [ ] **Decide how `aeo-confine` + `libaether_sandbox.so` reach a fleet host.**
+  The agent is a static binary and the one-binary rule is documented; the preload
+  library is a glibc shared object. Options: ship both beside the agent; or fold
+  the launcher into the agent as a subcommand and ship only the library.
+- [ ] Prove on the fleet: Pi 5 (arm64, Debian 13), Pi Zero 2 W (the box host-exec
+  exists for), Bazzite. Check each kernel's Landlock ABI (network rules need 6.7).
+- [ ] musl hosts (Alpine): the preload library is untested there.
+- [ ] A compose-level surface. Today the grants are an agent env var; there is no
+  `constrain{}` rendering and no runner path for an exec kind.
+- [ ] Audit: a confined launch and a refused one are not yet written to lib/audit.
+- [ ] FreeBSD peer (Capsicum) and macOS stay as they are: `spawn_socket` refuses
+  on both, so `up_confined` is Linux-only by construction.
 
 ### Strands-inspired honesty track
 This section is the record for the aeo track (self-contained — the original

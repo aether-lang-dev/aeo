@@ -85,6 +85,14 @@ run_one() {
             ae build "$ROOT/bin/aeo-egress-gateway.ae" -o /tmp/aeo-egress-gateway-live \
                 --lib "$ROOT/lib" >/dev/null 2>&1 || true
             ;;
+        *spec_confine_landlock_live*)
+            # LIVE Landlock test: build the aeo-confine launcher where the spec
+            # shells to it. If the build fails, or the box cannot contain a child
+            # (not Linux, no Landlock, no libaether_sandbox.so), the spec
+            # self-skips with the launcher's own reason.
+            ae build "$ROOT/bin/aeo-confine.ae" -o /tmp/aeo-confine-live \
+                --lib "$ROOT/lib" >/dev/null 2>&1 || true
+            ;;
         *spec_driver_loadbalancer_live*)
             # LIVE LB lifecycle test: the driver runs the aeo-lb CONTAINER, whose
             # image up() builds from an aeo-lb binary. On Linux that is bin/aeo-lb.

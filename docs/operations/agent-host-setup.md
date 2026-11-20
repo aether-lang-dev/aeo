@@ -77,6 +77,39 @@ After the plant, the host has:
 The agent itself is tiny (~1–2 MB, negligible RAM) — it runs comfortably even on a
 415 MB Pi Zero 2 W.
 
+### Confining an `exec` node on Linux (`AEO_EXEC_GRANTS`)
+
+An `exec` node is a host process, so by default nothing stands between it and the
+host. Set `AEO_EXEC_GRANTS` on the agent and the kernel holds the process to that
+list (Landlock + seccomp, applied in the child before it execs; no root, no user
+namespace):
+
+```
+AEO_BOOT_KIND=exec
+AEO_BOOT_CMD='/usr/bin/redis-server /etc/redis/redis.conf'
+AEO_EXEC_GRANTS='exec:/usr/bin/redis-server,fs_read:/etc/redis/*,fs:/var/lib/redis/*,tcp_listen'
+AEO_CONFINE_BIN=/opt/aeo/aeo-confine        # default: aeo-confine on PATH
+```
+
+The token grammar is in `lib/confine_landlock/module.ae`. Three things to know:
+
+- **It fails closed.** No launcher, no Landlock in the kernel, no
+  `libaether_sandbox.so`, or a token the grammar does not know: nothing starts and
+  the boot reports why. There is no fallback to the unconfined launch.
+- **`shell`, `fork` and `/dev/null` are implied**, because the command is a string
+  run through `sh -c`. There is no fork ceiling on this substrate.
+- **It is not a network boundary.** TCP connects are kernel-held only from Linux
+  6.7, and Landlock has no UDP rule at all. A node that must not phone home needs
+  a container kind with `deny_egress()`.
+
+**Status (2026-11-20): proven locally, not through an agent.** `aeo-confine` and
+`driver_mac_exec.up_confined` are live-tested on one box (Crostini, kernel 6.6,
+x86_64: reads, writes and execs outside the grants refused). The agent's
+`AEO_EXEC_GRANTS` route compiles but has not been dispatched to over the sealed
+channel, and **it breaks the one-binary rule below**: the host needs `aeo-confine`
+and `libaether_sandbox.so` as well as the agent. How those two reach a fleet host
+is undecided.
+
 ### How the *rest* of aeo gets to the host: it doesn't
 
 Only the single `aeo-agent` executable is delivered. **Everything aeo will run on
@@ -223,7 +256,7 @@ enables once (`wsl --install`), not a package aeo can fetch. (The native
 
 | `kind` | substrate | what the agent silently sets up |
 |---|---|---|
-| `exec` | a bare tracked host **process** (no vm, no container) | nothing — just runs it (the RAM-tight / minimal-footprint path) |
+| `exec` | a bare tracked host **process** (no vm, no container) | nothing — just runs it (the RAM-tight / minimal-footprint path). Unconfined unless `AEO_EXEC_GRANTS` is set — see below |
 | `bwrap` | an unprivileged **bubblewrap** sandbox | nothing beyond bubblewrap (usually present) |
 | `lxc` | an **LXC** system container | installs `lxc` (+ `lxc-templates`, `debootstrap` on apt); `lxc-create` downloads the rootfs |
 | `nspawn` | a **systemd-nspawn** system container | installs `systemd-container` |

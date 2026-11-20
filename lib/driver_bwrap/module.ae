@@ -474,7 +474,7 @@ _bg_command(bin: string, argv: ptr, pf: string, log: string, info: string) -> st
     n = list_size(argv)
     i = 0
     while i < n {
-        a = list_get_raw(argv, i)
+        a, _ = list.get_string(argv, i)
         line = "${line} ${_shq(a)}"
         i = i + 1
     }

@@ -19,8 +19,16 @@ import driver_vm
 import driver_wslc
 import driver_lxc
 import driver_bwrap
-import std.list (list_get_raw, list_size, list_free)
+import std.list (list_size, list_free)
 import std.string
+import std.list
+
+// argv element `i` as the string it is (0.927's E0202: a `ptr` from
+// list_get_raw is not accepted where a string is expected).
+_at(av: ptr, i: int) -> string {
+    s, _ = list.get_string(av, i)
+    return s
+}
 
 main() {
     fw = spec.init()
@@ -30,10 +38,10 @@ main() {
             spec.it("inspects the named container with the fixed post-mortem format") callback {
                 av = death_argv("db")
                 spec.expect_int(list_size(av)).to_equal(4)
-                spec.expect_str(list_get_raw(av, 0)).to_equal_str("inspect")
-                spec.expect_str(list_get_raw(av, 1)).to_equal_str("db")
-                spec.expect_str(list_get_raw(av, 2)).to_equal_str("--format")
-                fmt = list_get_raw(av, 3)
+                spec.expect_str(_at(av, 0)).to_equal_str("inspect")
+                spec.expect_str(_at(av, 1)).to_equal_str("db")
+                spec.expect_str(_at(av, 2)).to_equal_str("--format")
+                fmt = _at(av, 3)
                 spec.expect_str(fmt).to_contain("status={{.State.Status}}")
                 spec.expect_str(fmt).to_contain("oom={{.State.OOMKilled}}")
                 spec.expect_str(fmt).to_contain("exit={{.State.ExitCode}}")

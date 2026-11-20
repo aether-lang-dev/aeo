@@ -1,0 +1,16 @@
+// bin/aeo-confine — the Linux peer of macOS's `sandbox-exec`: start one program
+// held by the kernel to a grant list, detached, and record its pid.
+//
+//     aeo-confine [--pidfile FILE] [--grants TOKEN,TOKEN…] -- PROG [ARG…]
+//
+// All of it is lib/confine_landlock (the grant grammar is documented there);
+// this file is only the entry. driver_mac_exec shells to it for a host-exec
+// node that declares grants. It needs libaether_sandbox.so findable
+// (AETHER_SANDBOX_PRELOAD, beside this binary, or under AETHER_HOME) — where it
+// is not, or the kernel has no Landlock, it starts NOTHING and says why.
+
+import confine_landlock
+
+main() {
+    return confine_landlock.launch_from_args(1)
+}

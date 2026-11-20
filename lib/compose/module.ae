@@ -319,9 +319,9 @@ get_engine(nm: string) -> string {
 //
 // These are SYSTEM-scoped — call them inside a system(){} block, so `_ctx` is the
 // system name. They key the per-phase spec list to that system.
-check(_ctx: ptr, spec: string) { _add_phase_spec(_ctx, "check", spec) }
-smoke(_ctx: ptr, spec: string) { _add_phase_spec(_ctx, "smoke", spec) }
-suite(_ctx: ptr, spec: string) { _add_phase_spec(_ctx, "suite", spec) }
+check(_ctx: ptr, spec: string) { _add_phase_spec(_nm(_ctx), "check", spec) }
+smoke(_ctx: ptr, spec: string) { _add_phase_spec(_nm(_ctx), "smoke", spec) }
+suite(_ctx: ptr, spec: string) { _add_phase_spec(_nm(_ctx), "suite", spec) }
 
 // strict() — a SYSTEM-scoped policy: refuse rather than silently degrade. In a
 // strict system, a node does NOT start if a declared security property is
@@ -605,13 +605,13 @@ grant_fd(_ctx: ptr, kind: string, target: string, rights: string) {
 //       "considered it, blocked it".
 //   deny_ingress()        — EXPLICIT "accepts NOTHING in" (a pure client).
 egress(_ctx: ptr, target: string, port: int) {
-    _net_add(_ctx, "egress->${target}:${string_from_int(port)}")
+    _net_add(_nm(_ctx), "egress->${target}:${string_from_int(port)}")
 }
 egress_fqdn(_ctx: ptr, host: string) {
-    _net_add(_ctx, "egress_fqdn:${host}")
+    _net_add(_nm(_ctx), "egress_fqdn:${host}")
 }
 ingress(_ctx: ptr, port: int) {
-    _net_add(_ctx, "ingress:${string_from_int(port)}")
+    _net_add(_nm(_ctx), "ingress:${string_from_int(port)}")
 }
 //   ingress_from(port, peer) — accept IN on `port` but ONLY from `peer` (a
 //       resource name aeo resolves to an IP). A 3rd/4th VM hitting this port is
@@ -622,10 +622,10 @@ ingress(_ctx: ptr, port: int) {
 //       <self_ip> port N`.) Use for a service that must answer exactly one
 //       client: e.g. redis answering only the app VM, not every guest.
 ingress_from(_ctx: ptr, port: int, peer: string) {
-    _net_add(_ctx, "ingress:${string_from_int(port)}<-${peer}")
+    _net_add(_nm(_ctx), "ingress:${string_from_int(port)}<-${peer}")
 }
-deny_egress(_ctx: ptr)  { _net_add(_ctx, "egress:DENY-ALL") }
-deny_ingress(_ctx: ptr) { _net_add(_ctx, "ingress:DENY-ALL") }
+deny_egress(_ctx: ptr)  { _net_add(_nm(_ctx), "egress:DENY-ALL") }
+deny_ingress(_ctx: ptr) { _net_add(_nm(_ctx), "ingress:DENY-ALL") }
 
 // ---- Load-balancer grammar (docs/built_in_load_balancing.md) --------------
 // Two directional port verbs (§2):
@@ -729,11 +729,11 @@ start(vm: string) {
 limit(vm: string) -> string {
     return vm
 }
-limit_mem(_ctx: ptr, v: string)      { _rctl_add(_ctx, "memoryuse=${v}") }
-limit_vmem(_ctx: ptr, v: string)     { _rctl_add(_ctx, "vmemoryuse=${v}") }
-limit_cpu(_ctx: ptr, pct: int)       { _rctl_add(_ctx, "pcpu=${string_from_int(pct)}") }
-limit_maxproc(_ctx: ptr, n: int)     { _rctl_add(_ctx, "maxproc=${string_from_int(n)}") }
-limit_openfiles(_ctx: ptr, n: int)   { _rctl_add(_ctx, "openfiles=${string_from_int(n)}") }
+limit_mem(_ctx: ptr, v: string)      { _rctl_add(_nm(_ctx), "memoryuse=${v}") }
+limit_vmem(_ctx: ptr, v: string)     { _rctl_add(_nm(_ctx), "vmemoryuse=${v}") }
+limit_cpu(_ctx: ptr, pct: int)       { _rctl_add(_nm(_ctx), "pcpu=${string_from_int(pct)}") }
+limit_maxproc(_ctx: ptr, n: int)     { _rctl_add(_nm(_ctx), "maxproc=${string_from_int(n)}") }
+limit_openfiles(_ctx: ptr, n: int)   { _rctl_add(_nm(_ctx), "openfiles=${string_from_int(n)}") }
 _rctl_add(vm: string, entry: string) {
     prev = config.get("aeo.cmp.rctl.${vm}")
     if string_length(prev) == 0 {
@@ -995,12 +995,12 @@ image_recipe(nm: string) -> string {
     return nm
 }
 from(_ctx: ptr, url: string)            { config.put("aeo.cmp.img.from.${_nm(_ctx)}", url) }
-install(_ctx: ptr, pkg: string)         { _img_append(_ctx, "install", pkg) }
+install(_ctx: ptr, pkg: string)         { _img_append(_nm(_ctx), "install", pkg) }
 netplan_static(_ctx: ptr, addr: string, gw: string) {
     config.put("aeo.cmp.img.netplan.${_nm(_ctx)}", "addr=${addr};gw=${gw}")
 }
 systemd_unit(_ctx: ptr, name: string, body: string) {
-    _img_append(_ctx, "units", name)
+    _img_append(_nm(_ctx), "units", name)
     config.put("aeo.cmp.img.unit.${_nm(_ctx)}.${name}", body)
 }
 realize_as(_ctx: ptr, spec: string)     { config.put("aeo.cmp.img.realize.${_nm(_ctx)}", spec) }

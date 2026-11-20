@@ -18,6 +18,14 @@
 import std.spec
 import driver_wslc (name, run_argv, list_json_argv, stop_argv, remove_argv, exec_argv)
 import std.string
+import std.list
+
+// argv element `i` as the string it is (0.927's E0202: a `ptr` from
+// list_get_raw is not accepted where a string is expected).
+_at(av: ptr, i: int) -> string {
+    s, _ = list.get_string(av, i)
+    return s
+}
 
 main() {
     fw = spec.init()
@@ -29,22 +37,22 @@ main() {
                 av = run_argv("db", "docker.io/library/alpine:latest", "sleep 600", 8080, "K=V")
                 // run, -d, --name, db, -p, 8080:8080, -e, K=V, IMG, /bin/sh, -c, sleep 600 = 12
                 spec.expect_int(list_size(av)).to_equal(12)
-                spec.expect_str(list_get_raw(av, 0)).to_equal_str("run")
-                spec.expect_str(list_get_raw(av, 1)).to_equal_str("-d")
-                spec.expect_str(list_get_raw(av, 2)).to_equal_str("--name")
-                spec.expect_str(list_get_raw(av, 3)).to_equal_str("db")
-                spec.expect_str(list_get_raw(av, 4)).to_equal_str("-p")
-                spec.expect_str(list_get_raw(av, 5)).to_equal_str("8080:8080")
-                spec.expect_str(list_get_raw(av, 6)).to_equal_str("-e")
-                spec.expect_str(list_get_raw(av, 7)).to_equal_str("K=V")
-                spec.expect_str(list_get_raw(av, 8)).to_equal_str("docker.io/library/alpine:latest")
-                spec.expect_str(list_get_raw(av, 11)).to_equal_str("sleep 600")
+                spec.expect_str(_at(av, 0)).to_equal_str("run")
+                spec.expect_str(_at(av, 1)).to_equal_str("-d")
+                spec.expect_str(_at(av, 2)).to_equal_str("--name")
+                spec.expect_str(_at(av, 3)).to_equal_str("db")
+                spec.expect_str(_at(av, 4)).to_equal_str("-p")
+                spec.expect_str(_at(av, 5)).to_equal_str("8080:8080")
+                spec.expect_str(_at(av, 6)).to_equal_str("-e")
+                spec.expect_str(_at(av, 7)).to_equal_str("K=V")
+                spec.expect_str(_at(av, 8)).to_equal_str("docker.io/library/alpine:latest")
+                spec.expect_str(_at(av, 11)).to_equal_str("sleep 600")
             }
             spec.it("omits -p and -e when unset; no command -> no /bin/sh") callback {
                 av = run_argv("bare", "alpine", "", 0, "")
                 // run, -d, --name, bare, alpine = 5 tokens
                 spec.expect_int(list_size(av)).to_equal(5)
-                spec.expect_str(list_get_raw(av, 4)).to_equal_str("alpine")
+                spec.expect_str(_at(av, 4)).to_equal_str("alpine")
             }
         }
 
@@ -52,11 +60,11 @@ main() {
             spec.it("list_json_argv = `list --filter name=N --format json`") callback {
                 av = list_json_argv("web")
                 spec.expect_int(list_size(av)).to_equal(5)
-                spec.expect_str(list_get_raw(av, 0)).to_equal_str("list")
-                spec.expect_str(list_get_raw(av, 1)).to_equal_str("--filter")
-                spec.expect_str(list_get_raw(av, 2)).to_equal_str("name=web")
-                spec.expect_str(list_get_raw(av, 3)).to_equal_str("--format")
-                spec.expect_str(list_get_raw(av, 4)).to_equal_str("json")
+                spec.expect_str(_at(av, 0)).to_equal_str("list")
+                spec.expect_str(_at(av, 1)).to_equal_str("--filter")
+                spec.expect_str(_at(av, 2)).to_equal_str("name=web")
+                spec.expect_str(_at(av, 3)).to_equal_str("--format")
+                spec.expect_str(_at(av, 4)).to_equal_str("json")
             }
         }
 
@@ -64,13 +72,13 @@ main() {
             spec.it("stop_argv = `container stop N`") callback {
                 av = stop_argv("db")
                 spec.expect_int(list_size(av)).to_equal(3)
-                spec.expect_str(list_get_raw(av, 0)).to_equal_str("container")
-                spec.expect_str(list_get_raw(av, 1)).to_equal_str("stop")
-                spec.expect_str(list_get_raw(av, 2)).to_equal_str("db")
+                spec.expect_str(_at(av, 0)).to_equal_str("container")
+                spec.expect_str(_at(av, 1)).to_equal_str("stop")
+                spec.expect_str(_at(av, 2)).to_equal_str("db")
             }
             spec.it("remove_argv = `container remove N` (NOT rm)") callback {
                 av = remove_argv("db")
-                spec.expect_str(list_get_raw(av, 1)).to_equal_str("remove")
+                spec.expect_str(_at(av, 1)).to_equal_str("remove")
             }
         }
 

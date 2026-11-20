@@ -1,0 +1,288 @@
+// lib/confine_landlock — Linux confinement for a HOST-EXEC node: the workload
+// is a bare host process (no container, no vm), held by the KERNEL to a grant
+// list. The Linux peer of macOS's `sandbox-exec -f <profile>` in driver_mac_exec.
+//
+// The enforcement is Aether's, not ours: std.sandbox's `spawn_socket` turns the
+// grant list into Landlock rules + a seccomp filter in the child, just before it
+// execs (no root, no user namespace), with libaether_sandbox.so preloaded over
+// it. aeo's part is the SEAM: a grant-token grammar an operator can put in one
+// env var, and a launcher that fits driver_mac_exec's pidfile model.
+//
+//   token            what it grants
+//   fs_read:PATH     read PATH ("/etc/app/*" a prefix, else exact)
+//   fs_write:PATH    write PATH
+//   fs:PATH          both
+//   exec:PATH        run the program at PATH
+//   shell            run /bin/sh (the driver adds this — it launches via sh -c)
+//   tcp:HOST:PORT    connect out (PORT 0 = any). Kernel-held from Landlock ABI 4
+//                    (Linux 6.7); below that only the libc layer sees it.
+//   tcp_listen       listen
+//   udp:HOST:PORT    libc layer ONLY — Landlock has no UDP rule. This is why
+//                    deny_egress() must NOT render to this module alone.
+//   env:NAME         read the env var NAME
+//   fork             fork
+//   runtime:python3  what a stock python3 reads before it runs a line
+//
+// A grant list is a comma-separated string of tokens. FAIL CLOSED, twice over:
+// a token this module does not know is an ERROR (never dropped — a silently
+// ignored grant is a workload that mysteriously can't start; a silently ignored
+// DENIAL would be worse, so the grammar has none), and spawn_socket itself
+// starts nothing where the kernel layer cannot be set up (no Landlock, macOS,
+// FreeBSD). There is deliberately no "run it anyway" switch here.
+//
+// The launcher (`launch`) DETACHES: it starts the confined child, writes the
+// CHILD's pid to the pidfile, and returns — so the pid driver_mac_exec's
+// probe/down signal is the workload itself, not a wrapper that would have to
+// forward TERM. The child's end of spawn_socket's channel is simply unused.
+
+import std.sandbox
+import std.list
+import std.fs
+import std.os (args_count, args_get)
+import std.string (string_length, string_index_of, string_substring,
+                   string_equals, string_split, string_array_size,
+                   string_array_get, string_array_free, string_trim)
+
+exports (
+    name, token_error, grants_error, launch, launch_from_args, usage
+)
+
+name() -> string {
+    return "landlock"
+}
+
+// "tcp:db.internal:5432" -> ("db.internal", 5432, ""). The port is the text
+// after the LAST colon, so an IPv6 host keeps its own colons.
+fn _host_port(rest: string) -> (string, int, string) {
+    n = string_length(rest)
+    cut = -1
+    i = 0
+    while i < n {
+        if string_equals(string_substring(rest, i, i + 1), ":") == 1 {
+            cut = i
+        }
+        i = i + 1
+    }
+    if cut <= 0 {
+        return "", 0, "wants HOST:PORT"
+    }
+    host = string_substring(rest, 0, cut)
+    ptxt = string_substring(rest, cut + 1, n)
+    if string_length(ptxt) == 0 {
+        return "", 0, "wants HOST:PORT"
+    }
+    port = 0
+    j = 0
+    pn = string_length(ptxt)
+    while j < pn {
+        d = string_index_of("0123456789", string_substring(ptxt, j, j + 1))
+        if d < 0 {
+            return "", 0, "port '${ptxt}' is not a number"
+        }
+        port = port * 10 + d
+        j = j + 1
+    }
+    if port > 65535 {
+        return "", 0, "port ${port} is out of range"
+    }
+    return host, port, ""
+}
+
+// Add one token's grant to `perms`. "" on success, else why the token was
+// refused. Pass perms = null to CHECK a token without building anything (the
+// grant_* calls add nothing to a null list) — that is what token_error does.
+fn _apply(perms: sandbox.Grants, raw: string) -> string {
+    tok = string_trim(raw)
+    if string_length(tok) == 0 {
+        return "empty grant"
+    }
+    if string_equals(tok, "shell") == 1 {
+        // An exec grant on /bin/sh, spelt out: sandbox.grant_shell only
+        // arrived in ae 0.924.0, and this module is Linux-only anyway.
+        sandbox.grant_exec(perms, "/bin/sh")
+        return ""
+    }
+    if string_equals(tok, "fork") == 1 {
+        sandbox.grant_fork(perms)
+        return ""
+    }
+    if string_equals(tok, "tcp_listen") == 1 {
+        sandbox.grant_tcp_listen(perms)
+        return ""
+    }
+    c = string_index_of(tok, ":")
+    if c <= 0 {
+        return "unknown grant '${tok}'"
+    }
+    kind = string_substring(tok, 0, c)
+    rest = string_substring(tok, c + 1, string_length(tok))
+    if string_length(rest) == 0 {
+        return "grant '${tok}' names nothing"
+    }
+    if string_equals(kind, "fs_read") == 1 {
+        sandbox.grant_fs_read(perms, rest)
+        return ""
+    }
+    if string_equals(kind, "fs_write") == 1 {
+        sandbox.grant_fs_write(perms, rest)
+        return ""
+    }
+    if string_equals(kind, "fs") == 1 {
+        sandbox.grant_fs(perms, rest)
+        return ""
+    }
+    if string_equals(kind, "exec") == 1 {
+        sandbox.grant_exec(perms, rest)
+        return ""
+    }
+    if string_equals(kind, "env") == 1 {
+        sandbox.grant_env(perms, rest)
+        return ""
+    }
+    if string_equals(kind, "runtime") == 1 {
+        // grant_runtime PANICS on a name it does not know, and runs the
+        // interpreter to ask for its paths — so refuse here, and only build
+        // (never merely check) with it.
+        if string_equals(rest, "python3") == 0 {
+            if string_equals(rest, "python") == 0 {
+                return "runtime '${rest}' is not known (python3, python)"
+            }
+        }
+        if (perms as ptr) != null {
+            sandbox.grant_runtime(perms, rest)
+        }
+        return ""
+    }
+    if string_equals(kind, "tcp") == 1 {
+        host, port, herr = _host_port(rest)
+        if herr != "" {
+            return "grant '${tok}' ${herr}"
+        }
+        sandbox.grant_tcp(perms, host, port)
+        return ""
+    }
+    if string_equals(kind, "udp") == 1 {
+        host, port, herr = _host_port(rest)
+        if herr != "" {
+            return "grant '${tok}' ${herr}"
+        }
+        sandbox.grant_udp(perms, host, port)
+        return ""
+    }
+    return "unknown grant '${tok}'"
+}
+
+// Pure: is this one token well-formed? "" = yes, else the reason.
+token_error(tok: string) -> string {
+    return _apply(null as sandbox.Grants, tok)
+}
+
+fn _apply_csv(perms: sandbox.Grants, csv: string) -> string {
+    if string_length(csv) == 0 {
+        return ""                       // no grants = deny everything; valid
+    }
+    parts = string_split(csv, ",")
+    n = string_array_size(parts)
+    i = 0
+    while i < n {
+        err = _apply(perms, string_array_get(parts, i))
+        if err != "" {
+            string_array_free(parts)
+            return err
+        }
+        i = i + 1
+    }
+    string_array_free(parts)
+    return ""
+}
+
+// Pure: is this whole grant list well-formed? "" = yes, else the first reason.
+// Callers check BEFORE they launch, so a typo is reported by the driver rather
+// than by a detached launcher nobody is reading the output of.
+grants_error(csv: string) -> string {
+    return _apply_csv(null as sandbox.Grants, csv)
+}
+
+// Start `prog argv…` confined to `grants_csv`, detached; write its pid to
+// `pidfile` (skipped when ""). "" on success, else why nothing was started.
+launch(pidfile: string, grants_csv: string, prog: string, argv: ptr) -> string {
+    perms = sandbox.new("aeo-exec") { }
+    gerr = _apply_csv(perms, grants_csv)
+    if gerr != "" {
+        sandbox.free(perms)
+        return "aeo-confine: ${gerr}"
+    }
+    _fd, pid, err = sandbox.spawn_socket(perms, prog, argv, null)
+    sandbox.free(perms)
+    if err != "" {
+        return "aeo-confine: ${err}"
+    }
+    if string_length(pidfile) > 0 {
+        werr = fs.write(pidfile, "${pid}\n")
+        if werr != "" {
+            return "aeo-confine: started pid ${pid} but could not write ${pidfile}: ${werr}"
+        }
+    }
+    return ""
+}
+
+usage() -> string {
+    return "usage: confine [--pidfile FILE] [--grants TOKEN,TOKEN…] -- PROG [ARG…]"
+}
+
+// The launcher's command line, from argv[first]:
+//     [--pidfile FILE] [--grants CSV] -- PROG [ARG…]
+// Returns the process exit status: 0 started, 1 refused, 2 bad usage.
+launch_from_args(first: int) -> int {
+    pidfile = ""
+    grants = ""
+    n = args_count()
+    i = first
+    found = 0
+    while i < n {
+        a = args_get(i)
+        if string_equals(a, "--") == 1 {
+            found = 1
+            i = i + 1
+            break
+        }
+        if i + 1 >= n {
+            println(usage())
+            return 2
+        }
+        if string_equals(a, "--pidfile") == 1 {
+            pidfile = args_get(i + 1)
+        } else {
+            if string_equals(a, "--grants") == 1 {
+                grants = args_get(i + 1)
+            } else {
+                println("aeo-confine: unknown option '${a}'")
+                println(usage())
+                return 2
+            }
+        }
+        i = i + 2
+    }
+    if found == 0 {
+        println(usage())
+        return 2
+    }
+    if i >= n {
+        println(usage())
+        return 2
+    }
+    prog = args_get(i)
+    argv = list.new()
+    i = i + 1
+    while i < n {
+        list.add(argv, args_get(i))
+        i = i + 1
+    }
+    err = launch(pidfile, grants, prog, argv)
+    list.free(argv)
+    if err != "" {
+        println(err)
+        return 1
+    }
+    return 0
+}

@@ -227,4 +227,20 @@
 # Verified on 0.841.0 from its release install (macOS arm64) and on aether-linux
 # (Ubuntu 22.04 arm64): all six bin/ entry points build; the results are in the
 # commit message.
-0.841.0
+#
+# Raised to 0.927.0 (2026-11-20): a real floor move, two reasons.
+#   - lib/confine_landlock calls std.sandbox's spawn_socket (0.873.0), the
+#     kernel-held (Landlock + seccomp) child. That alone would put the floor at
+#     0.873.0; the code was first run on 0.912.0 and avoids sandbox.grant_shell
+#     (0.924.0) by spelling the grant as exec:/bin/sh.
+#   - 0.927.0's E0202 refuses a `ptr` given to a `string` parameter, and rejects
+#     the tree as it stood on 0.841.0 (measured: 0.912.0 built it, 0.927.0 did
+#     not). What it found: 16 compose setters handing the DSL's `_ctx: ptr` to a
+#     string-typed helper (they pass `_nm(_ctx)` now, as the interpolating
+#     setters already did); driver_bwrap's _bg_command giving a list_get_raw
+#     element to _shq (list.get_string); and five specs asserting on
+#     list_get_raw elements (a local `_at(av, i)` over list.get_string).
+# Verified on a 0.927.0 release install, Linux x86_64 (Crostini, kernel 6.6):
+# all seven bin/ entry points build; the results are in the commit message.
+# aeb not involved (AEB_PIN unchanged).
+0.927.0

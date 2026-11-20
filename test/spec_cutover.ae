@@ -11,6 +11,14 @@
 import std.spec
 import driver_linux (net_disconnect_argv, net_connect_alias_argv)
 import std.string
+import std.list
+
+// argv element `i` as the string it is (0.927's E0202: a `ptr` from
+// list_get_raw is not accepted where a string is expected).
+_at(av: ptr, i: int) -> string {
+    s, _ = list.get_string(av, i)
+    return s
+}
 
 main() {
     fw = spec.init()
@@ -20,10 +28,10 @@ main() {
             spec.it("builds `network disconnect NET NAME`") callback {
                 av = net_disconnect_argv("aeo-web", "web")
                 spec.expect_int(list_size(av)).to_equal(4)
-                spec.expect_str(list_get_raw(av, 0)).to_equal_str("network")
-                spec.expect_str(list_get_raw(av, 1)).to_equal_str("disconnect")
-                spec.expect_str(list_get_raw(av, 2)).to_equal_str("aeo-web")
-                spec.expect_str(list_get_raw(av, 3)).to_equal_str("web")
+                spec.expect_str(_at(av, 0)).to_equal_str("network")
+                spec.expect_str(_at(av, 1)).to_equal_str("disconnect")
+                spec.expect_str(_at(av, 2)).to_equal_str("aeo-web")
+                spec.expect_str(_at(av, 3)).to_equal_str("web")
             }
         }
 
@@ -31,12 +39,12 @@ main() {
             spec.it("builds `network connect --alias ALIAS NET NAME`") callback {
                 av = net_connect_alias_argv("aeo-web", "web-green", "web")
                 spec.expect_int(list_size(av)).to_equal(6)
-                spec.expect_str(list_get_raw(av, 0)).to_equal_str("network")
-                spec.expect_str(list_get_raw(av, 1)).to_equal_str("connect")
-                spec.expect_str(list_get_raw(av, 2)).to_equal_str("--alias")
-                spec.expect_str(list_get_raw(av, 3)).to_equal_str("web")       // the SERVICE alias
-                spec.expect_str(list_get_raw(av, 4)).to_equal_str("aeo-web")   // the net
-                spec.expect_str(list_get_raw(av, 5)).to_equal_str("web-green") // green owns it now
+                spec.expect_str(_at(av, 0)).to_equal_str("network")
+                spec.expect_str(_at(av, 1)).to_equal_str("connect")
+                spec.expect_str(_at(av, 2)).to_equal_str("--alias")
+                spec.expect_str(_at(av, 3)).to_equal_str("web")       // the SERVICE alias
+                spec.expect_str(_at(av, 4)).to_equal_str("aeo-web")   // the net
+                spec.expect_str(_at(av, 5)).to_equal_str("web-green") // green owns it now
             }
         }
     }

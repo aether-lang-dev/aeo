@@ -20,6 +20,14 @@ import std.spec
 import driver_windows (name, wsl_argv)
 import driver_linux (ps_running_argv)
 import std.string
+import std.list
+
+// argv element `i` as the string it is (0.927's E0202: a `ptr` from
+// list_get_raw is not accepted where a string is expected).
+_at(av: ptr, i: int) -> string {
+    s, _ = list.get_string(av, i)
+    return s
+}
 
 main() {
     fw = spec.init()
@@ -34,12 +42,12 @@ main() {
                 av = wsl_argv("Ubuntu", inner)
                 // [-d, Ubuntu, --, podman, ps, -a] = 6 tokens
                 spec.expect_int(list_size(av)).to_equal(6)
-                spec.expect_str(list_get_raw(av, 0)).to_equal_str("-d")
-                spec.expect_str(list_get_raw(av, 1)).to_equal_str("Ubuntu")
-                spec.expect_str(list_get_raw(av, 2)).to_equal_str("--")
-                spec.expect_str(list_get_raw(av, 3)).to_equal_str("podman")
-                spec.expect_str(list_get_raw(av, 4)).to_equal_str("ps")
-                spec.expect_str(list_get_raw(av, 5)).to_equal_str("-a")
+                spec.expect_str(_at(av, 0)).to_equal_str("-d")
+                spec.expect_str(_at(av, 1)).to_equal_str("Ubuntu")
+                spec.expect_str(_at(av, 2)).to_equal_str("--")
+                spec.expect_str(_at(av, 3)).to_equal_str("podman")
+                spec.expect_str(_at(av, 4)).to_equal_str("ps")
+                spec.expect_str(_at(av, 5)).to_equal_str("-a")
             }
 
             spec.it("omits -d for the default distro (empty)") callback {
@@ -48,9 +56,9 @@ main() {
                 av = wsl_argv("", inner)
                 // [--, podman, ps] = 3 tokens, no -d
                 spec.expect_int(list_size(av)).to_equal(3)
-                spec.expect_str(list_get_raw(av, 0)).to_equal_str("--")
-                spec.expect_str(list_get_raw(av, 1)).to_equal_str("podman")
-                spec.expect_str(list_get_raw(av, 2)).to_equal_str("ps")
+                spec.expect_str(_at(av, 0)).to_equal_str("--")
+                spec.expect_str(_at(av, 1)).to_equal_str("podman")
+                spec.expect_str(_at(av, 2)).to_equal_str("ps")
             }
 
             spec.it("splices a real driver_linux ps builder verbatim") callback {
@@ -60,9 +68,9 @@ main() {
                 av = wsl_argv("Ubuntu", inner)
                 // 4 wsl-prefix tokens (-d Ubuntu -- podman) + 7 inner = 11
                 spec.expect_int(list_size(av)).to_equal(11)
-                spec.expect_str(list_get_raw(av, 3)).to_equal_str("podman")
-                spec.expect_str(list_get_raw(av, 4)).to_equal_str("ps")
-                spec.expect_str(list_get_raw(av, 6)).to_equal_str("name=^web$")
+                spec.expect_str(_at(av, 3)).to_equal_str("podman")
+                spec.expect_str(_at(av, 4)).to_equal_str("ps")
+                spec.expect_str(_at(av, 6)).to_equal_str("name=^web$")
             }
         }
 

@@ -26,8 +26,9 @@ import std.string (string_length, string_contains)
 
 exports (
     name, available,
-    up, down, probe, exec_capture,
-    pidfile_for, launch_script, probe_script, down_script
+    up, up_confined, down, probe, exec_capture,
+    pidfile_for, launch_script, launch_script_confined, confined_grants,
+    probe_script, down_script
 )
 
 name() -> string {
@@ -40,8 +41,8 @@ name() -> string {
 // but Linux uses it too for the "place a bare process on the host, no vm / no
 // container" mode (e.g. a RAM-tight Pi Zero 2 W). The ONLY macOS-specific bit is
 // the optional sandbox-exec (Seatbelt) confinement profile; on Linux the profile
-// is left empty (unconfined) — Linux confinement is bwrap/seccomp, a different
-// kind. (The agent gates on AEO_BOOT_KIND, so available() is mostly a runner-side
+// is left empty, and confinement is up_confined instead: a grant list the kernel
+// holds the process to (Landlock + seccomp, via aeo-confine). (The agent gates on AEO_BOOT_KIND, so available() is mostly a runner-side
 // preflight.)
 available() -> int {
     if platform() == "darwin" {
@@ -74,6 +75,38 @@ launch_script(node: string, cmd: string, profile: string) -> string {
         return "/usr/bin/sandbox-exec -f '${profile}' /bin/sh -c '${cmd}' </dev/null >/dev/null 2>&1 & echo $! > '${pf}'"
     }
     return "/bin/sh -c '${cmd}' </dev/null >/dev/null 2>&1 & echo $! > '${pf}'"
+}
+
+// The grant list a CONFINED Linux launch actually runs under: the operator's
+// tokens plus what the launch itself needs. The workload is run through
+// `/bin/sh -c`, and sh forks to run anything but a builtin (dash does not exec a
+// lone command in place — measured), so `shell` and `fork` are implied. That is
+// the honest cost of a command STRING: this substrate has no fork ceiling
+// (limit_maxproc is a cgroup, i.e. a container kind). `fs:/dev/null` is for the
+// stdio redirect launch_script_confined puts in front of the command: without
+// it the workload's sh dies on `exec </dev/null` before the command runs
+// (measured on ae 0.912.0, which grants a contained child nothing in /dev).
+confined_grants(grants: string) -> string {
+    if string_length(grants) == 0 {
+        return "shell,fork,fs:/dev/null"
+    }
+    return "shell,fork,fs:/dev/null,${grants}"
+}
+
+// Launch CONFINED on Linux: the peer of the sandbox-exec branch above, with
+// `launcher` (aeo-confine) in sandbox-exec's place and a grant list in the
+// profile's. Two differences from launch_script, both because the launcher
+// DETACHES the workload itself and writes the pidfile with the WORKLOAD's pid:
+//   - no `&` / `echo $!` — the launcher returns as soon as the child is started,
+//     and a refusal (bad grant, no Landlock) is its exit status + its stdout,
+//     which up_confined reports instead of losing to /dev/null;
+//   - the /dev/null redirect moves INSIDE the workload's sh (`exec … ;`), so the
+//     launcher's own stdout stays readable while the workload still holds none
+//     of run_capture's pipe (the hang launch_script's comment describes).
+launch_script_confined(node: string, cmd: string, launcher: string, grants: string) -> string {
+    pf = pidfile_for(node)
+    g = confined_grants(grants)
+    return "'${launcher}' --pidfile '${pf}' --grants '${g}' -- /bin/sh -c 'exec </dev/null >/dev/null 2>&1; ${cmd}'"
 }
 
 // Probe: pidfile exists AND its pid is alive (kill -0). Prints "up" or "down".
@@ -112,6 +145,41 @@ up(node: string, cmd: string, profile: string) -> string {
         return ""
     }
     return "aeo: mac_exec '${node}' did not start (exit ${status}): ${out}"
+}
+
+// up_confined(node, cmd, launcher, grants): launch the node's process held by
+// the kernel to `grants` (lib/confine_landlock's token grammar). FAIL CLOSED: a
+// launcher that is missing, a grant it does not know, or a kernel that cannot
+// contain the child all return an error with NOTHING started — there is no
+// fallback to the unconfined up(). Returns "" on success.
+up_confined(node: string, cmd: string, launcher: string, grants: string) -> string {
+    if probe(node, "") == 1 {
+        return ""                              // already running — idempotent
+    }
+    if string_length(cmd) == 0 {
+        return "aeo: mac_exec '${node}' has no cmd() to run"
+    }
+    if platform() != "linux" {
+        return "aeo: mac_exec '${node}': grant-list confinement is Linux-only (macOS confines with a sandbox-exec profile)"
+    }
+    if string_length(launcher) == 0 {
+        return "aeo: mac_exec '${node}' declares grants but no launcher (aeo-confine) was given"
+    }
+    av = list_new()
+    list_add(av, "-c")
+    list_add(av, launch_script_confined(node, cmd, launcher, grants))
+    out, status, err = run_capture("/bin/sh", av, null)
+    list_free(av)
+    if err != "" {
+        return "aeo: mac_exec confined spawn failed for '${node}': ${err}"
+    }
+    if status != 0 {
+        return "aeo: mac_exec '${node}' was not started confined (exit ${status}): ${out}"
+    }
+    if probe(node, "") == 1 {
+        return ""
+    }
+    return "aeo: mac_exec '${node}' started confined but is not running: ${out}"
 }
 
 // probe(node, health): 1 if the node's process is alive; if `health` is set,

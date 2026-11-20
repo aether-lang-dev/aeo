@@ -1,0 +1,110 @@
+// test/spec_confine_landlock.ae — the PURE half of Linux host-exec confinement:
+// lib/confine_landlock's grant-token grammar and driver_mac_exec's confined
+// launch script. Nothing here starts a process, so it runs anywhere ae does.
+// The kernel half (does Landlock actually refuse?) is
+// test/spec_confine_landlock_live.ae.
+
+import std.spec
+import confine_landlock (name, token_error, grants_error)
+import driver_mac_exec (confined_grants, launch_script_confined)
+
+main() {
+    fw = spec.init()
+
+    spec.describe(fw, "confine_landlock (kernel-held grants for a host-exec node)") {
+
+        spec.describe("identity") {
+            spec.it("name is landlock") callback {
+                spec.expect_str(name()).to_equal_str("landlock")
+            }
+        }
+
+        spec.describe("grant tokens that are accepted") {
+            spec.it("file, exec and env grants name a path or a variable") callback {
+                spec.expect_str(token_error("fs_read:/etc/app/*")).to_equal_str("")
+                spec.expect_str(token_error("fs_write:/var/lib/app/*")).to_equal_str("")
+                spec.expect_str(token_error("fs:/srv/data/*")).to_equal_str("")
+                spec.expect_str(token_error("exec:/usr/bin/redis-server")).to_equal_str("")
+                spec.expect_str(token_error("env:DATABASE_URL")).to_equal_str("")
+            }
+            spec.it("bare words: shell, fork, tcp_listen") callback {
+                spec.expect_str(token_error("shell")).to_equal_str("")
+                spec.expect_str(token_error("fork")).to_equal_str("")
+                spec.expect_str(token_error("tcp_listen")).to_equal_str("")
+            }
+            spec.it("network grants are HOST:PORT, port 0 meaning any") callback {
+                spec.expect_str(token_error("tcp:db.internal:5432")).to_equal_str("")
+                spec.expect_str(token_error("tcp:db.internal:0")).to_equal_str("")
+                spec.expect_str(token_error("udp:10.0.0.53:53")).to_equal_str("")
+            }
+            spec.it("an IPv6 host keeps its own colons (the port follows the last)") callback {
+                spec.expect_str(token_error("tcp:::1:8080")).to_equal_str("")
+            }
+            spec.it("surrounding space is ignored") callback {
+                spec.expect_str(token_error("  fs_read:/etc/app/*  ")).to_equal_str("")
+            }
+            spec.it("the python runtime is known by name") callback {
+                spec.expect_str(token_error("runtime:python3")).to_equal_str("")
+            }
+        }
+
+        spec.describe("grant tokens that are REFUSED (never silently dropped)") {
+            spec.it("an unknown category") callback {
+                spec.expect_str(token_error("bogus:x")).to_equal_str("unknown grant 'bogus:x'",
+                    "a token the grammar does not know is an error, so a typo cannot quietly change what is granted")
+            }
+            spec.it("std.sandbox's own spelling with a hyphen") callback {
+                spec.expect_str(token_error("fs-read:/etc/*")).to_equal_str("unknown grant 'fs-read:/etc/*'")
+            }
+            spec.it("an unknown bare word") callback {
+                spec.expect_str(token_error("everything")).to_equal_str("unknown grant 'everything'")
+            }
+            spec.it("a category that names nothing") callback {
+                spec.expect_str(token_error("exec:")).to_equal_str("grant 'exec:' names nothing")
+            }
+            spec.it("an empty token") callback {
+                spec.expect_str(token_error("")).to_equal_str("empty grant")
+            }
+            spec.it("a network grant with no port") callback {
+                spec.expect_str(token_error("tcp:db.internal")).to_equal_str("grant 'tcp:db.internal' wants HOST:PORT")
+            }
+            spec.it("a port that is not a number, or out of range") callback {
+                spec.expect_str(token_error("tcp:db:http")).to_equal_str("grant 'tcp:db:http' port 'http' is not a number")
+                spec.expect_str(token_error("tcp:db:70000")).to_equal_str("grant 'tcp:db:70000' port 70000 is out of range")
+            }
+            spec.it("a runtime it cannot ask for its paths") callback {
+                spec.expect_str(token_error("runtime:java")).to_equal_str("runtime 'java' is not known (python3, python)")
+            }
+        }
+
+        spec.describe("a grant list") {
+            spec.it("empty is valid: it grants nothing") callback {
+                spec.expect_str(grants_error("")).to_equal_str("")
+            }
+            spec.it("every token must be good") callback {
+                spec.expect_str(grants_error("fs_read:/etc/app/*,exec:/usr/bin/app,tcp:db:5432")).to_equal_str("")
+            }
+            spec.it("the first bad token is the error") callback {
+                spec.expect_str(grants_error("fs_read:/etc/app/*,nope,alsonope")).to_equal_str("unknown grant 'nope'")
+            }
+            spec.it("a trailing comma is an empty grant, not ignored") callback {
+                spec.expect_str(grants_error("fork,")).to_equal_str("empty grant")
+            }
+        }
+
+        spec.describe("driver_mac_exec's confined launch") {
+            spec.it("implies shell, fork and /dev/null: the workload runs through sh -c, detached") callback {
+                spec.expect_str(confined_grants("")).to_equal_str("shell,fork,fs:/dev/null")
+                spec.expect_str(confined_grants("exec:/usr/bin/app")).to_equal_str("shell,fork,fs:/dev/null,exec:/usr/bin/app")
+            }
+            spec.it("hands the launcher the pidfile and grants, and detaches the workload's stdio inside its own sh") callback {
+                got = launch_script_confined("db", "sleep 600", "/opt/aeo/aeo-confine", "exec:/usr/bin/sleep")
+                want = "'/opt/aeo/aeo-confine' --pidfile '/tmp/aeo-macexec-db.pid' --grants 'shell,fork,fs:/dev/null,exec:/usr/bin/sleep' -- /bin/sh -c 'exec </dev/null >/dev/null 2>&1; sleep 600'"
+                spec.expect_str(got).to_equal_str(want,
+                    "the launcher's own stdout must stay readable (its refusal is the error), so the /dev/null redirect is the workload's, not the launcher's")
+            }
+        }
+    }
+
+    return spec.run_summary(fw)
+}

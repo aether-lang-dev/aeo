@@ -1,0 +1,125 @@
+// test/spec_confine_landlock_live.ae — the KERNEL half of Linux host-exec
+// confinement: a real process, started by driver_mac_exec.up_confined through
+// the aeo-confine launcher, is actually refused what it was not granted.
+//
+// Needs Linux with Landlock, libaether_sandbox.so findable, and the launcher
+// built at /tmp/aeo-confine-live (test/run-spec.sh builds it). Anywhere that is
+// missing, every case reports SKIPPED with the launcher's own reason — it does
+// not pass. The pure grammar is test/spec_confine_landlock.ae.
+
+import std.spec
+import std.os (run_capture, platform)
+import std.list
+import std.string (string_length, string_contains, string_trim)
+import driver_mac_exec (up_confined, down, probe, pidfile_for)
+
+_sh(cmd: string) -> (string, int) {
+    av = list_new()
+    list_add(av, "-c")
+    list_add(av, cmd)
+    out, status, err = run_capture("/bin/sh", av, null)
+    list_free(av)
+    if err != "" {
+        return err, -1
+    }
+    return out, status
+}
+
+// The real file behind a command name: a grant names what is executed, and on a
+// merged-/usr box /bin/cat is a path through a symlink.
+_real(prog: string) -> string {
+    out, _ = _sh("readlink -f \"$(command -v ${prog})\"")
+    return string_trim(out)
+}
+
+main() {
+    fw = spec.init()
+
+    launcher = "/tmp/aeo-confine-live"
+    dir = "/tmp/aeo-confine-spec"
+    node = "aeo-confine-spec"
+
+    // The gate is the launcher itself containing a no-op: that exercises the
+    // whole chain (binary present, preload found, Landlock + seccomp installed)
+    // and its refusal text is the skip reason.
+    avail = 0
+    why = "Linux-only (Landlock)"
+    if platform() == "linux" {
+        // sleep, not true: `command -v true` answers with the shell builtin.
+        zz = _real("sleep")
+        out, rc = _sh("'${launcher}' --grants 'exec:${zz}' -- '${zz}' 0 2>&1")
+        if rc == 0 {
+            avail = 1
+        } else {
+            why = "aeo-confine cannot contain a child here: ${string_trim(out)}"
+        }
+    }
+
+    cat = _real("cat")
+    slp = _real("sleep")
+    _, _ = _sh("rm -rf '${dir}'; mkdir -p '${dir}/w' && echo allowed > '${dir}/allow.txt' && echo secret > '${dir}/deny.txt'")
+    _ = down(node)
+
+    spec.describe(fw, "confine_landlock LIVE (the kernel holds a host-exec node to its grants)") {
+
+        spec.it_when(avail, "a bad grant starts nothing", why) callback {
+            err = up_confined(node, "sleep 30", launcher, "exec:${slp},bogus:x")
+            spec.expect_int(string_contains(err, "unknown grant 'bogus:x'")).to_equal(1,
+                "the launcher's refusal is the driver's error, not lost to /dev/null")
+            spec.expect_int(probe(node, "")).to_equal(0,
+                "fail closed: a refused launch leaves no process")
+        }
+
+        spec.it_when(avail, "a granted node comes up, and its pidfile names the workload", why) callback {
+            grants = "exec:${cat},exec:${slp},fs_read:${dir}/allow.txt,fs_write:${dir}/w/*"
+            cmd = "cat ${dir}/allow.txt > ${dir}/w/o.txt; cat ${dir}/deny.txt >> ${dir}/w/o.txt 2>&1; cat /etc/passwd >> ${dir}/w/o.txt 2>&1; echo x > ${dir}/escape.txt 2>> ${dir}/w/o.txt; ls -d /proc/version >> ${dir}/w/o.txt 2>&1; sleep 30"
+            err = up_confined(node, cmd, launcher, grants)
+            spec.expect_str(err).to_equal_str("")
+            spec.expect_int(probe(node, "")).to_equal(1)
+            pf = pidfile_for(node)
+            comm, _ = _sh("sleep 1; cat /proc/$(cat '${pf}')/comm")
+            spec.expect_str(string_trim(comm)).to_equal_str("sh",
+                "the pid recorded is the workload's own shell, so down() signals the workload and not a wrapper")
+        }
+
+        spec.it_when(avail, "it read and wrote what it was granted", why) callback {
+            out, _ = _sh("cat '${dir}/w/o.txt'")
+            spec.expect_int(string_contains(out, "allowed")).to_equal(1)
+        }
+
+        spec.it_when(avail, "the kernel refused a file it was not granted", why) callback {
+            out, _ = _sh("cat '${dir}/w/o.txt'")
+            spec.expect_int(string_contains(out, "secret")).to_equal(0,
+                "deny.txt sits beside allow.txt; only allow.txt was granted")
+            spec.expect_int(string_contains(out, "root:")).to_equal(0,
+                "/etc/passwd is world-readable, so only the sandbox stands between the workload and it")
+            spec.expect_int(string_contains(out, "deny.txt: Permission denied")).to_equal(1)
+            spec.expect_int(string_contains(out, "/etc/passwd: Permission denied")).to_equal(1)
+        }
+
+        spec.it_when(avail, "the kernel refused a write outside its grant", why) callback {
+            _, rc = _sh("test -e '${dir}/escape.txt'")
+            spec.expect_int(rc).to_equal(1,
+                "the write grant is ${dir}/w/*, and escape.txt is one level above it")
+        }
+
+        spec.it_when(avail, "the kernel refused a program it was not granted", why) callback {
+            out, _ = _sh("cat '${dir}/w/o.txt'")
+            spec.expect_int(string_contains(out, "/proc/version")).to_equal(0,
+                "had ls run it would have printed the path, or its own complaint naming it")
+            spec.expect_int(string_contains(out, "ls: ")).to_equal(1,
+                "the shell reported that it could not run ls")
+        }
+
+        spec.it_when(avail, "down() stops it", why) callback {
+            spec.expect_str(down(node)).to_equal_str("")
+            _, _ = _sh("sleep 1")
+            spec.expect_int(probe(node, "")).to_equal(0)
+        }
+    }
+
+    _rc = spec.run_summary(fw)
+    _ = down(node)
+    _, _ = _sh("pkill -f 'sleep 30' -P 1 2>/dev/null; rm -rf '${dir}'")
+    return _rc
+}

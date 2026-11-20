@@ -177,6 +177,10 @@ lib/driver_lxc/    real LXC (lxc-create/start/attach) — system containers.
 lib/driver_vm/     KVM/qemu (Linux) + bhyve (FreeBSD).
 lib/driver_bsd/    FreeBSD jail (jail/jexec/jls over a ZFS dataset).
 lib/confine_linux/ limit{}/constrain{} -> cgroup/seccomp/network flags (the Linux peer).
+lib/confine_landlock/  a HOST-EXEC node held by the kernel to a grant list (Landlock +
+                   seccomp via std.sandbox.spawn_socket; no root). `bin/aeo-confine`
+                   is its launcher; driver_mac_exec.up_confined shells to it.
+                   Fail-closed. NOT a deny_egress renderer (Landlock has no UDP rule).
 lib/rctl/ lib/pf/  FreeBSD confinement: rctl caps + pf network policy.
 lib/attest/        image attestation (verify-before-boot, 3 greppable states).
 lib/audit/         tamper-evident hash-chained audit trail.
