@@ -11,7 +11,7 @@
 
 import std.spec
 import compose (system, bhyve_vm, container)
-import compose (image, cpus, memory, guest_image, network, ssh_key, health, expose, depends)
+import compose (image, cpus, memory, guest_image, network, ssh_key, health, expose, depends, env)
 import compose (suspend, constrain, grant_fd, egress, ingress, ingress_from, deny_egress, start)
 import compose (get_suspended, get_started, get_constraints, get_netpolicy, describe_tree)
 import std.os
@@ -52,8 +52,9 @@ _declare() {
             app = container("app") {
                 image("localhost/aeo-examples/silly-add:latest")
                 expose(8080)
-                health("curl -fsS http://localhost:8080/add/0/0")
+                health("wget -qO- http://localhost:8080/add/0/0")
                 depends("db")
+                env("REDIS_HOST", "db")
             }
         }
         suspend(python_vm)

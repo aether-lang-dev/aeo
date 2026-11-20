@@ -336,14 +336,13 @@ _batchable(nm: string) -> int {
         if eng == "wsl_podman" {
             return 0
         }
-        // A container NESTED in a REMOTE proxmox_vm runs inside the guest — a host
-        // `podman ps` can't see it. Its liveness is the guest agent's `status`
-        // (driver_probe -> agent_status_at), so it is NOT batchable.
+        // A container NESTED in a VM (a remote proxmox_vm, or a local bhyve/kvm
+        // guest) runs inside the guest — a host `podman ps` can't see it. Its
+        // liveness is the guest's own (agent `status`, or podman over ssh;
+        // driver_probe), so it is NOT batchable.
         chost = compose.get_host(nm)
         if string_length(chost) > 0 {
-            if compose.get_kind(chost) == "proxmox_vm" {
-                return 0
-            }
+            return 0
         }
         return 1
     }
@@ -893,7 +892,7 @@ driver_up(nm: string, k: string) -> string {
             if string_length(gbase) == 0 {
                 gbase = compose.entrypoint_lang_base(nm)
             }
-            return driver_vm.guest_container_up(host, hip, nm, compose.get_dockerfile(nm), compose.get_entrypoint(nm), gbase, compose.entrypoint_lang_file(nm), compose.entrypoint_lang_run(nm), compose.get_image(nm), compose.get_expose(nm))
+            return driver_vm.guest_container_up(host, hip, nm, compose.get_dockerfile(nm), compose.get_entrypoint(nm), gbase, compose.entrypoint_lang_file(nm), compose.entrypoint_lang_run(nm), compose.get_image(nm), compose.get_expose(nm), _guest_env_flags(nm))
         }
         img = _container_image(nm, "")
         if string_starts_err(img) == 1 {
@@ -1142,6 +1141,12 @@ driver_probe(nm: string, k: string, health: string) -> int {
             if _agent_path_on() == 1 {
                 return driver_vm.agent_status(phost, nm, _agent_token(phost), _agent_port(phost))
             }
+            // ssh path (the default): ask the guest's own podman, at the host
+            // VM's ipam address (the binding bhyve_up booted it with).
+            pk = compose.get_kind(phost)
+            if pk == "bhyve" {
+                return driver_vm.guest_container_probe(phost, ipam.resolve_ip(compose.get_system(phost), phost), nm, health)
+            }
         }
         return driver_linux.probe(nm, health, eng)   // "" auto, "docker" pins
     }
@@ -1149,7 +1154,18 @@ driver_probe(nm: string, k: string, health: string) -> int {
         return driver_bsd.probe(nm, health, "")
     }
     if k == "bhyve" {
-        return driver_vm.probe("bhyve", nm, health)
+        // With no health() and no resident agent, "up" must mean what the next
+        // level needs: the guest answers ssh at its ipam address (the seam every
+        // nested container and `aeo exec` uses). A bare "vm-bhyve says Running"
+        // promoted the VM within a second of `vm start`, while bhyve_up was
+        // still waiting for the guest to boot.
+        bh = health
+        if string_length(bh) == 0 {
+            if _agent_path_on() == 0 {
+                bh = "nc -z -w2 ${ipam.resolve_ip(compose.get_system(nm), nm)} 22 >/dev/null 2>&1"
+            }
+        }
+        return driver_vm.probe("bhyve", nm, bh)
     }
     if k == "kvm" {
         return driver_vm.probe("kvm", nm, health)
@@ -1441,6 +1457,21 @@ _deps_ready(nm: string) -> int {
             i = i + 1
         }
         // fall through to the explicit depends() check too
+    }
+    // A node nested INSIDE a bhyve VM runs in that VM's guest, reached over
+    // ssh, so it waits for the VM to be UP exactly as for a depends() edge.
+    // Without this the level-parallel engine dispatched a nested container in
+    // the SAME level as its VM and ssh'd into a guest that had not booted (seen
+    // on ghostbsd, 2026-11-20). Only bhyve hosts: a load_balancer's children
+    // also name it as host, and it waits for THEM (above); other VM kinds
+    // reach their guests through agents with their own polling.
+    host = compose.get_host(nm)
+    if host != "" {
+        if compose.get_kind(host) == "bhyve" {
+            if get_state(host) != STATE_UP() {
+                return 0
+            }
+        }
     }
     dep = compose.get_depends(nm)
     if dep == "" {
@@ -3554,6 +3585,51 @@ _preflight() -> string {
 }
 
 // 1 if `target` is one of the declared resource names, else 0.
+// _guest_env_flags(nm) — nm's env() pairs as podman `-e 'K=V'` flags for a
+// container nested in a bhyve guest. A value naming a declared node becomes the
+// address of the VM that node lives in (or of the node, if it is the VM):
+// containers in different guests share no network names, so
+// env("REDIS_HOST", "db") must become db_vm's ipam address, the cross-VM edge.
+// Any other value passes through. Values may not contain ',' (env() joins
+// pairs with it) or a single quote.
+_guest_env_flags(nm: string) -> string {
+    out = ""
+    rest = compose.get_env(nm)
+    while string_length(rest) > 0 {
+        pair = rest
+        c = string_index_of(rest, ",")
+        if c >= 0 {
+            pair = string_substring(rest, 0, c)
+            rest = string_substring(rest, c + 1, string_length(rest))
+        } else {
+            rest = ""
+        }
+        eq = string_index_of(pair, "=")
+        if eq > 0 {
+            k = string_substring(pair, 0, eq)
+            v = _guest_addr_of(string_substring(pair, eq + 1, string_length(pair)))
+            out = "${out} -e '${k}=${v}'"
+        }
+    }
+    return out
+}
+_guest_addr_of(v: string) -> string {
+    if _declared(v) == 0 {
+        return v
+    }
+    vm = v
+    if compose.get_kind(v) != "bhyve" {
+        vm = compose.get_host(v)
+    }
+    if string_length(vm) == 0 {
+        return v
+    }
+    if compose.get_kind(vm) != "bhyve" {
+        return v
+    }
+    return ipam.resolve_ip(compose.get_system(vm), vm)
+}
+
 _declared(target: string) -> int {
     n = compose.count()
     i = 0
