@@ -117,6 +117,35 @@ else. Start here, in this order:
 2. **Expect the live Landlock spec to SKIP on the Mac**, with the launcher's own
    reason (`spawn_socket` refuses on macOS). `spec_confine_landlock.ae` (pure)
    must pass there. A pass of the live spec on macOS would be a bug in its gate.
+   **Result, 2026-11-20 (steps 1 and 2 done on macOS and FreeBSD; ae 0.927.0, no
+   newer release existed; fresh clone, own AETHER_CACHE_DIR):**
+   - *Mac, arm64, Darwin 27.3:* all seven `bin/` entry points build clean.
+     `sh test/run-spec.sh`: 335 passing, 0 failing, 21 skipped, exit 0 (356
+     cases, as on Linux). The 17 fewer passes are skips: 4 PVE-token cases, the
+     7 live Landlock cases, 7 container-engine cases (podman is installed but its
+     machine is stopped) and 3 aeo-lb container cases (no Linux build of aeo-lb),
+     less the 4 that Linux skips for itself. `spec_confine_landlock.ae`: 21
+     passing. `spec_confine_landlock_live.ae`: 7 skipped, reason
+     "sandbox.spawn_socket: cannot contain a child on macOS".
+   - *ghostbsd, FreeBSD 15.1-RELEASE-p6 amd64:* the release tarball's `ae` links
+     without the Casper libraries on GhostBSD (no `.so` linker symlinks), so
+     `bin/aeo` (which imports std.casper through lib/host) needs
+     `AETHER_LDFLAGS_EXTRA="/lib/libcasper.so.1 /lib/libcap_pwd.so.1
+     /lib/libcap_sysctl.so.2 /lib/libcap_grp.so.1 /lib/libcap_dns.so.2"`; the
+     other six build as they are. With that: `sh test/run-spec.sh` 362 passing, 0
+     failing, 36 skipped, exit 0. The FreeBSD-only Capsicum specs run for real
+     there. Pure Landlock spec 21 passing; live one 7 skipped, reason
+     "sandbox.spawn_socket: cannot contain a child on FreeBSD yet".
+   - *Fixed on the way (specs that assumed a box):* the three container-engine
+     specs now skip when `<engine> info` fails, not only when no engine is on
+     PATH (14 failures on the Mac); the live Landlock spec tries the launcher on
+     every OS instead of a Linux check; the two bhyve guest specs skip when no
+     guest answers (14 failures on ghostbsd); the egress splice spec finds
+     python3 on PATH (it called /usr/bin/python3, absent on FreeBSD).
+   - *Still unverified:* win11 (MSYS2); a container engine actually running on
+     the Mac or ghostbsd, so the container specs have not run there; the two
+     bhyve guest specs and the Proxmox cases (no guest, no token); NetBSD and
+     OpenBSD; musl.
 3. **Paul has not yet decided the shipping shape** (the one-binary question
    below). Do not ship `aeo-confine` to fleet hosts until he has; ask.
 4. **Then the fleet**, each as its own dated, named-box result (no "live" claim
