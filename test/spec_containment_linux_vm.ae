@@ -28,33 +28,43 @@ main() {
 
         config.put("c.reports", _run_harness())
 
+        // HONEST SKIP: these cases need a Linux bhyve guest answering ssh at the
+        // harness address (172.16.0.50 by default). Where the
+        // harness could not get a report out (no guest), say so and skip rather
+        // than fail every assertion on an environment this box does not have.
+        ran = 1
+        if _r("HARNESS_") == 1 {
+            ran = 0
+        }
+        why = "no live guest: the harness gave no report: ${config.get(\"c.reports\")}"
+
         spec.describe("the contained reported back over the configured channel") {
-            spec.it("it is a Linux guest, and it reported") callback {
+            spec.it_when(ran, "it is a Linux guest, and it reported", why) callback {
                 spec.expect_int(_r("GUEST uname=Linux")).to_be_truthy()
                 spec.expect_int(_r("CONFIGURED-CHANNEL ok")).to_be_truthy()
             }
         }
 
         spec.describe("the VM boundary contains it (discovered by attempts, not self-imposed)") {
-            spec.it("cannot reach the host's bhyve binary") callback {
+            spec.it_when(ran, "cannot reach the host's bhyve binary", why) callback {
                 spec.expect_int(_r("host-bhyve-binary CONTAINED")).to_be_truthy()
             }
-            spec.it("cannot reach host-only (FreeBSD) files") callback {
+            spec.it_when(ran, "cannot reach host-only (FreeBSD) files", why) callback {
                 spec.expect_int(_r("host-freebsd-passwd CONTAINED")).to_be_truthy()
             }
-            spec.it("cannot see the host's processes (only its own)") callback {
+            spec.it_when(ran, "cannot see the host's processes (only its own)", why) callback {
                 spec.expect_int(_r("host-bhyve-process CONTAINED")).to_be_truthy()
             }
         }
 
         spec.describe("'cannot reach the container unless it configured you to'") {
-            spec.it("an UN-configured host port is unreachable") callback {
+            spec.it_when(ran, "an UN-configured host port is unreachable", why) callback {
                 spec.expect_int(_r("host-unconfigured-port-8911 CONTAINED")).to_be_truthy()
             }
-            spec.it("the CONFIGURED host channel IS reachable") callback {
+            spec.it_when(ran, "the CONFIGURED host channel IS reachable", why) callback {
                 spec.expect_int(_r("host-configured-port-22 REACHED")).to_be_truthy()
             }
-            spec.it("nothing host-side was REACHED that shouldn't be") callback {
+            spec.it_when(ran, "nothing host-side was REACHED that shouldn't be", why) callback {
                 spec.expect_int(_absent_r("host-bhyve-binary REACHED")).to_be_truthy()
                 spec.expect_int(_absent_r("host-unconfigured-port-8911 REACHED")).to_be_truthy()
             }

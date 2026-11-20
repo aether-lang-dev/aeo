@@ -19,7 +19,7 @@
 // missing — the run-spec.sh wrapper builds the binary and stages the harness.
 
 import std.spec
-import std.os (run_capture)
+import std.os (run_capture, os_which)
 import std.config
 import std.string
 import std.list
@@ -71,7 +71,13 @@ _run_harness() -> string {
     list_add(av, GW_BIN)
     list_add(av, "${UP_PORT}")
     list_add(av, "${GW_PORT}")
-    out, status, err = run_capture("/usr/bin/python3", av, null)
+    // python3 is /usr/bin on Linux and /usr/local/bin on FreeBSD: find it.
+    py = os_which("python3")
+    if py == null {
+        list_free(av)
+        return "HARNESS_UNAVAILABLE python3 not on PATH"
+    }
+    out, status, err = run_capture(py, av, null)
     list_free(av)
     if string.length(out) == 0 {
         return "HARNESS_UNAVAILABLE ${err}"
