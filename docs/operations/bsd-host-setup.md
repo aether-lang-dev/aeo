@@ -30,9 +30,20 @@ setup evolves.
 >   GhostBSD 26 desktop reboot is SLOW to bring sshd up (graphical stack first) —
 >   "Connection refused" for a few minutes post-reboot is normal, not a hang.
 
+> ### Fastest path: `sh test/bhyve-lab.sh up` (§7)
+> Since 2026-11-20 one idempotent command takes an empty vm-bhyve datastore to
+> both guests up and the live bhyve specs running. It is safe on a host with its
+> own pf ruleset: it never writes `/etc/pf.conf`. §7 says what it does, what it
+> needs installed first, and what it leaves for the operator.
+
 Reference boxes:
 - `paul@192.168.0.57` — GhostBSD on **FreeBSD 15.0-RELEASE-p2**, **AMD Ryzen 7 5800U**
   (Zen 3), ZFS root (`zroot`), NIC `re0`. The doc's original bhyve host.
+- `ghostbsd` (lab ssh alias) — **GhostBSD / FreeBSD 15.1-RELEASE-p6**, **Intel Core
+  i3-8109U** (4 threads, 16 GB), uplink **`ue0`** (USB ethernet; `em0` and `wlan0`
+  present but without carrier), vm-bhyve 1.7.5. Reimaged 2026-07-20; the bhyve lab
+  was rebuilt on it 2026-11-20 with §7. The stock Ubuntu image boots on this Intel
+  CPU with no GRUB patch (§5 is AMD-only).
 - `paul@192.168.0.204` — reimaged to **GhostBSD 26 / FreeBSD 15.0-RELEASE-p2**
   (2026-07-07; was FreeBSD 14.3 before), NIC `em0`. Where pf was redeemed (on 14.3)
   and where the **jails example is live-proven on 15** (`aeo check`/`up`/`suite` all
@@ -154,19 +165,20 @@ get **no reply back to the tap** (`netstat -I tap0 -b` → in=6000+, out=0) —
 the upstream LAN switch appears to limit MACs per port. NAT sidesteps L2 to
 the LAN entirely (guest on a private net behind the host, host NATs out).
 
-Run the one-time setup:
+Run (as the normal user; it uses `sudo -n`):
 ```sh
-sudo sh test/setup-nat.sh
+sh test/setup-nat.sh            # create what is missing, then report
+sh test/setup-nat.sh --check    # report only
 ```
-which does: install dnsmasq; `sysctl net.inet.ip.forwarding=1` +
-`sysrc gateway_enable=YES`; `/etc/pf.conf` source-NAT
-`nat on re0 from 172.16.0.0/24 -> (re0)` + `sysrc pf_enable=YES` +
-`service pf restart`; `/usr/local/etc/dnsmasq.conf`
-(`interface=vm-aeonat`, `dhcp-range=172.16.0.10,172.16.0.250`) +
-`service dnsmasq restart`; `vm switch create aeonat` +
-`vm switch address aeonat 172.16.0.1/24` + a `linux-nat` template on that
-switch. Guests then get a `172.16.0.x` lease from LOCAL dnsmasq (never
-touches the LAN switch). `sudo sh test/setup-nat.sh --check` shows state.
+It creates, only when missing: the switch `aeonat` with `172.16.0.1/24` (no
+physical port), the `linux-nat` and `freebsd-nat` templates, and
+`net.inet.ip.forwarding=1` + `gateway_enable=YES`. It **never writes
+`/etc/pf.conf` or reloads pf**: it finds the uplink from the default route and
+checks for `nat on <uplink> ... from 172.16.0.0/24`; when that is missing it prints
+the exact line to add by hand. (Until 2026-11 it replaced `/etc/pf.conf` with a
+three-line ruleset naming `re0` and restarted pf, which on a host with its own
+ruleset drops that ruleset; and it installed dnsmasq, which never saw a guest's
+DHCP on the bridge. Guests now take static addresses instead, §5b.)
 
 Note: vm-bhyve's *internal* NAT is disabled on FreeBSD — it warns and
 expects pf + dnsmasq done manually, which setup-nat.sh does.
@@ -336,7 +348,11 @@ aeo's sibling for the check/suite specs (§0). ipfw needs no attention here — 
 shared-stack jail path isn't governed by the guest-bridge pfil concern, and this
 kernel's ipfw is default-allow anyway.
 
-## 5. AMD Ryzen guest-boot fix (REQUIRED — patched image)
+## 5. AMD Ryzen guest-boot fix (AMD hosts only — patched image)
+
+> Not needed on Intel: on ghostbsd (i3-8109U) the stock Ubuntu 22.04 cloud image
+> boots to ssh in about 130 s cold and 25 s as a warm clone, unpatched. Only reach
+> for this on an AMD host whose guests hang early in boot.
 
 Ubuntu Linux guests hang very early in boot under bhyve on this AMD Ryzen
 box, intermittently — the guest barely transmits (~20 packets in minutes)
@@ -393,6 +409,14 @@ sudo vm start <name>
 Each guest gets a distinct static IP (.50, .51, …). The host NATs them out
 via the pf rule.
 
+> **vm-bhyve 1.7.5 renders `-n` correctly.** `vm create -n
+> "ip=172.16.0.50/24;gateway4=172.16.0.1;nameservers=172.16.0.1"` writes a valid
+> netplan network-config, so a fresh Ubuntu guest needs none of the above (seen on
+> ghostbsd 2026-11-20). A clone still needs `test/patch-static-ip.sh`, because its
+> seed names the base's MAC; the bhyve driver runs it before each boot. A FreeBSD
+> guest's nuageinit reads `addresses` + `gateway4` but not vm-bhyve's `routes`, so
+> `test/setup-freebsd-guest.sh` writes its own network-config.
+
 ## 6. Verify
 
 ```sh
@@ -407,3 +431,42 @@ See also `docs/bhyve-networking-journey.md` (the full journey — every
 approach tried, why each helped/failed, and which workarounds become
 removable once the AMD boot hang is fixed), memory `bhyve-guest-networking`
 (the running diagnosis trail), and `docs/aeo-agent.md`.
+
+## 7. The bhyve lab in one command (`test/bhyve-lab.sh`)
+
+What the live bhyve specs need, and what was lost when ghostbsd was reimaged:
+
+| piece | made by | where |
+|---|---|---|
+| NAT switch `aeonat` (172.16.0.1/24), templates `linux-nat`, `freebsd-nat` | `test/setup-nat.sh` | host |
+| guest key (`AEO_SSH_KEY`, default `~/.ssh/id_rsa`) | `bhyve-lab.sh` creates it if absent | host |
+| egress for guests: pf NAT on the uplink, else an HTTP proxy on 172.16.0.1:3128 (tinyproxy, run as the user, state in `AEO_LAB_DIR`) | operator (pf) / `bhyve-lab.sh` (proxy) | host |
+| golden Linux guest `aeo-base@golden`: Ubuntu 22.04, podman, python:3-alpine, redis:alpine, `localhost/aeo-examples/silly-add:latest`, static netplan, cloud-init off | `test/setup-base.sh` | datastore |
+| the Linux guest itself, `aeo-base` running at 172.16.0.50 | `setup-base.sh --start` | datastore |
+| FreeBSD guest `aeo-fbsd` at 172.16.0.52 (official BASIC-CLOUDINIT ufs image, sha256-checked, user `freebsd`, has cc) | `test/setup-freebsd-guest.sh` | datastore |
+
+```sh
+sudo pkg install vm-bhyve bhyve-firmware qemu-tools fusefs-ext2 python3   # + tinyproxy if pf does not NAT the guests
+sh test/bhyve-lab.sh up      # idempotent; ~10 min from an empty datastore
+sh test/bhyve-lab.sh check   # what is there, what answers, pf NAT or proxy, bhyve in capability mode
+sh test/bhyve-lab.sh down    # stop the guests and the proxy; they stay defined, not autostarted
+```
+
+Then, with the guests up:
+
+| check | what it proves |
+|---|---|
+| `sh test/run-spec.sh test/spec_containment_linux_vm.ae` | a naive process in the Linux guest cannot reach the host's bhyve, files or processes, or an unconfigured host port; the configured ssh channel works (7) |
+| `sh test/run-spec.sh test/spec_capsicum_bhyvevm_selfreport.ae` | a process in the FreeBSD guest enters capability mode and every escape class is blocked (8) |
+| `sh test/run-spec.sh test/spec_capsicum_bhyve_live.ae` | every running bhyve on the host is in capability mode, its disk and tap descriptors narrowed (3) |
+| `sh test/soup-to-nuts.sh` | `aeo up` of `examples/silly_addition_bhyve_podman.ae`: two VMs cloned from the golden, redis in one, the app in the other, curled from the host across both, then `aeo down` |
+
+The specs skip only when no guest answers on port 22; a guest that answers but
+cannot report fails them. Set `AEO_SSH_KEY` to the key `bhyve-lab.sh` used.
+
+What it does NOT do, by design: edit `/etc/pf.conf` or reload pf (it prints the
+`nat on <uplink>` line to add; until then the proxy covers apt and image pulls),
+install packages, touch a physical interface, set guests to start at boot, or
+reference `anchor "aeo/*"` in pf (without it `aeo up` warns "pf policy NOT
+enforced" and reports `applied: no`; adding it is an operator decision, see the
+per-VM anchor section above).
