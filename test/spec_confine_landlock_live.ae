@@ -8,7 +8,7 @@
 // not pass. The pure grammar is test/spec_confine_landlock.ae.
 
 import std.spec
-import std.os (run_capture, platform)
+import std.os (run_capture)
 import std.list
 import std.string (string_length, string_contains, string_trim)
 import driver_mac_exec (up_confined, down, probe, pidfile_for)
@@ -43,9 +43,14 @@ main() {
     // whole chain (binary present, preload found, Landlock + seccomp installed)
     // and its refusal text is the skip reason.
     avail = 0
-    why = "Linux-only (Landlock)"
-    if platform() == "linux" {
+    why = "aeo-confine was not built at ${launcher}"
+    _, built = _sh("test -x '${launcher}'")
+    if built == 0 {
         // sleep, not true: `command -v true` answers with the shell builtin.
+        // Tried on every OS, not only Linux: where the launcher cannot contain a
+        // child (macOS, FreeBSD) its own refusal is the skip reason, and a pass
+        // anywhere it should refuse would show here instead of being hidden by
+        // an OS check in the spec.
         zz = _real("sleep")
         out, rc = _sh("'${launcher}' --grants 'exec:${zz}' -- '${zz}' 0 2>&1")
         if rc == 0 {
