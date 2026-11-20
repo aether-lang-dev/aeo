@@ -138,7 +138,7 @@ _await_level(booted: ptr, min_secs: int) -> int {
         allup = 1
         i = 0
         while i < m {
-            bn = list_get_raw(booted, i)
+            bn, _ = list.get_string(booted, i)
             st = get_state(bn)
             if st == STATE_FAILED() {
                 return 0
@@ -224,7 +224,7 @@ _diag_level_not_up(booted: ptr, budget: int) {
     m = list_size(booted)
     i = 0
     while i < m {
-        bn = list_get_raw(booted, i)
+        bn, _ = list.get_string(booted, i)
         st = get_state(bn)
         if st != STATE_UP() {
             sn = "?"
@@ -379,7 +379,7 @@ _level_has_engine(booted: ptr, eng: string) -> int {
     m = list_size(booted)
     i = 0
     while i < m {
-        bn = list_get_raw(booted, i)
+        bn, _ = list.get_string(booted, i)
         if get_state(bn) == STATE_BOOTING() {
             if compose.get_kind(bn) == "container" {
                 if string_length(compose.get_health(bn)) == 0 {
@@ -444,7 +444,7 @@ _batch_pidfile_alive(booted: ptr) -> string {
     m = list_size(booted)
     i = 0
     while i < m {
-        bn = list_get_raw(booted, i)
+        bn, _ = list.get_string(booted, i)
         if get_state(bn) == STATE_BOOTING() {
             if _batchable(bn) == 1 {
                 pf = _pidfile_of(bn, compose.get_kind(bn))
@@ -481,7 +481,7 @@ _level_budget_ms(booted: ptr, min_secs: int) -> int {
     m = list_size(booted)
     i = 0
     while i < m {
-        bn = list_get_raw(booted, i)
+        bn, _ = list.get_string(booted, i)
         if compose.get_within_ms(bn) <= 0 {
             all_explicit = 0
         }
@@ -530,7 +530,7 @@ _level_tick(booted: ptr) -> int {
     m = list_size(booted)
     i = 0
     while i < m {
-        bn = list_get_raw(booted, i)
+        bn, _ = list.get_string(booted, i)
         iv = compose.get_interval(bn)
         if iv <= 0 {
             iv = 500
@@ -1795,7 +1795,7 @@ _down_engine_groups(halted: ptr) {
     prefs = list_new()
     i = 0
     while i < m {
-        nm = list_get_raw(halted, i)
+        nm, _ = list.get_string(halted, i)
         if _engine_downable(nm) == 1 {
             pref = compose.get_engine(nm)
             if _list_has(prefs, pref) == 0 {
@@ -1819,7 +1819,7 @@ _down_engine_groups(halted: ptr) {
     list_free(prefs)
     i = 0
     while i < m {
-        nm = list_get_raw(halted, i)
+        nm, _ = list.get_string(halted, i)
         if _engine_downable(nm) == 1 {
             set_state(nm, STATE_DOWN())
         }
@@ -1831,12 +1831,12 @@ _down_engine_groups(halted: ptr) {
 // (list_get results only ever flow as raw ptrs into string params — never
 // interpolated: the list_get footgun.)
 _names_for_pref(halted: ptr, prefs: ptr, p: int) -> string {
-    pref = list_get_raw(prefs, p)
+    pref, _ = list.get_string(prefs, p)
     names = ""
     m = list_size(halted)
     i = 0
     while i < m {
-        nm = list_get_raw(halted, i)
+        nm, _ = list.get_string(halted, i)
         if _engine_downable(nm) == 1 {
             if _eq(compose.get_engine(nm), pref) == 1 {
                 names = _sp_join(names, nm)
@@ -1847,7 +1847,7 @@ _names_for_pref(halted: ptr, prefs: ptr, p: int) -> string {
     return names
 }
 _down_many_for_pref(names: string, prefs: ptr, p: int) -> string {
-    pref = list_get_raw(prefs, p)
+    pref, _ = list.get_string(prefs, p)
     return driver_linux.down_many(names, pref)
 }
 
@@ -1856,7 +1856,8 @@ _list_has(lst: ptr, s: string) -> int {
     n = list_size(lst)
     i = 0
     while i < n {
-        if _eq(list_get_raw(lst, i), s) == 1 {
+        e, _ = list.get_string(lst, i)
+        if _eq(e, s) == 1 {
             return 1
         }
         i = i + 1
@@ -1884,7 +1885,8 @@ _await_level_gone(halted: ptr) {
     budget = 0
     i = 0
     while i < m {
-        w = _gone_window(list_get_raw(halted, i))
+        hn, _ = list.get_string(halted, i)
+        w = _gone_window(hn)
         if w > budget {
             budget = w
         }
@@ -1900,7 +1902,7 @@ _await_level_gone(halted: ptr) {
         pending = 0
         i = 0
         while i < m {
-            nm = list_get_raw(halted, i)
+            nm, _ = list.get_string(halted, i)
             if _gone_state(nm) == 0 {          // not yet verified/skipped
                 w = _gone_window(nm)
                 gone = 0
@@ -1988,7 +1990,7 @@ _gone_alive_set(halted: ptr) -> string {
     prefs = list_new()
     i = 0
     while i < m {
-        nm = list_get_raw(halted, i)
+        nm, _ = list.get_string(halted, i)
         if _engine_gonecheckable(nm) == 1 {
             if _gone_state(nm) == 0 {
                 pref = compose.get_engine(nm)
@@ -2013,7 +2015,7 @@ _gone_alive_set(halted: ptr) -> string {
 // running_names for the p-th pref in the list (raw ptr passed as a string arg —
 // never interpolated).
 _running_for_pref(prefs: ptr, p: int) -> string {
-    pref = list_get_raw(prefs, p)
+    pref, _ = list.get_string(prefs, p)
     return driver_linux.running_names(pref)
 }
 
