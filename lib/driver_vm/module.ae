@@ -576,9 +576,11 @@ _apply_static_ip(res_name: string, guest_ip: string) -> int {
     av = list_new()
     list_add(av, "-c")
     // The script self-sudoes each privileged op (no /bin/sh NOPASSWD), so we
-    // invoke it as the normal user. A marker file makes it idempotent
-    // (skip if already patched this VM). guest_ip is ipam-resolved per VM.
-    list_add(av, "S=${_aeo_home()}/test/patch-static-ip.sh; M=/tmp/aeo-staticip-${res_name}.done; if [ -f \"$S\" ] && [ ! -f \"$M\" ]; then sh \"$S\" ${res_name} ${guest_ip} >/dev/null 2>&1 && touch \"$M\"; fi; true")
+    // invoke it as the normal user. It runs before EVERY boot of a stopped VM
+    // (bhyve_up returns early for a running one): it is idempotent, and a
+    // marker in a shared /tmp named only by the VM outlived a destroyed VM and
+    // left its same-named successor unpatched. guest_ip is ipam-resolved per VM.
+    list_add(av, "S=${_aeo_home()}/test/patch-static-ip.sh; if [ -f \"$S\" ]; then sh \"$S\" ${res_name} ${guest_ip} >/dev/null 2>&1; fi; true")
     out, status, err = run_capture("/bin/sh", av, null)
     list_free(av)
     return 1
@@ -880,6 +882,8 @@ exec_capture(host_vm: string, host_ip: string, cmd: string) -> string {
 // Resolve the guest's reachable IP. Prefer the ipam-resolved host_ip (the
 // binding bhyve_up assigned this VM); if that doesn't answer ssh, fall back to
 // a MAC->arp/lease lookup. So multiple VMs each resolve to their OWN address.
+// No MAC (vm-bhyve writes it at first start) means no lookup: an empty pattern
+// matched every arp line and handed back ANOTHER guest's address.
 _guest_ip(host_vm: string, host_ip: string) -> string {
     // Reachability pre-check via nc when it exists; on a box WITHOUT nc, trust
     // the resolved host_ip and let ssh's own ConnectTimeout surface
@@ -889,7 +893,7 @@ _guest_ip(host_vm: string, host_ip: string) -> string {
     // port-closed (the bhyve DHCP-lease case).
     av = list_new()
     list_add(av, "-c")
-    list_add(av, "if ! command -v nc >/dev/null 2>&1; then echo ${host_ip}; elif nc -z -w2 ${host_ip} 22 2>/dev/null; then echo ${host_ip}; else MAC=$(grep -o 'network0_mac=\"[^\"]*\"' /zroot/vm/${host_vm}/${host_vm}.conf 2>/dev/null | cut -d'\"' -f2); ping -c1 -W1 172.16.0.255 >/dev/null 2>&1; arp -an 2>/dev/null | grep -i \"$MAC\" | grep -oE '172.16.0.[0-9]+' | head -1; fi")
+    list_add(av, "if ! command -v nc >/dev/null 2>&1; then echo ${host_ip}; elif nc -z -w2 ${host_ip} 22 2>/dev/null; then echo ${host_ip}; else MAC=$(grep -o 'network0_mac=\"[^\"]*\"' /zroot/vm/${host_vm}/${host_vm}.conf 2>/dev/null | cut -d'\"' -f2); ping -c1 -W1 172.16.0.255 >/dev/null 2>&1; [ -n \"$MAC\" ] && arp -an 2>/dev/null | grep -i \"$MAC\" | grep -oE '172.16.0.[0-9]+' | head -1; fi")
     out, status, err = run_capture("/bin/sh", av, null)
     list_free(av)
     return _first_line(out)
@@ -1285,20 +1289,28 @@ _bhyve_running(res_name: string) -> int {
 // _vm_out / _vm_status give the two values callers need without a tuple.
 _vm_out(sub: string, name: string) -> string {
     av = list_new()
+    list_add(av, "-n")
     list_add(av, "vm")
     list_add(av, sub)
     list_add(av, name)
-    out, status, err = run_capture("/usr/bin/sudo", av, null)
+    out, status, err = run_capture("sudo", av, null)
     list_free(av)
+    if string_length(err) > 0 {
+        return "${out}(could not run sudo -n vm ${sub}: ${err})"
+    }
     return out
 }
-// 1 if `vm <sub> <name>` exited 0, else 0. (Spawn failure also → 0.)
+// 1 if `vm <sub> <name>` exited 0, else 0. (Spawn failure also → 0.) sudo is
+// found on PATH: it is /usr/bin/sudo on Linux but /usr/local/bin/sudo on
+// FreeBSD, the only OS this runs on, where the old absolute path made every
+// `vm start` fail with "program not found".
 _vm_ok(sub: string, name: string) -> int {
     av = list_new()
+    list_add(av, "-n")
     list_add(av, "vm")
     list_add(av, sub)
     list_add(av, name)
-    out, status, err = run_capture("/usr/bin/sudo", av, null)
+    out, status, err = run_capture("sudo", av, null)
     list_free(av)
     if err != "" {
         return 0
