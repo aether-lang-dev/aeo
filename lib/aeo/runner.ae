@@ -1105,6 +1105,16 @@ driver_down(nm: string, k: string) -> string {
         if eng == "wsl_podman" {
             return driver_windows.down(nm, compose.get_wsl_distro(nm))
         }
+        // Nested in a bhyve guest: remove it there, over the same ssh seam that
+        // started it. (It used to fall through to the HOST's podman, which on
+        // FreeBSD cannot run rootless, so the container lived on until the VM
+        // was stopped, and teardown reported it "lingering".)
+        dh = compose.get_host(nm)
+        if dh != "" {
+            if compose.get_kind(dh) == "bhyve" {
+                return driver_vm.guest_container_down(dh, ipam.resolve_ip(compose.get_system(dh), dh), nm)
+            }
+        }
         return driver_linux.down(nm, eng)   // "" auto, "docker" pins
     }
     return driver_linux.down(nm, "")
@@ -1788,6 +1798,11 @@ _engine_downable(nm: string) -> int {
         }
         return 1                        // unknown kind -> driver_linux default arm
     }
+    // A container inside a bhyve guest is stopped there (driver_down over ssh),
+    // not by the host's engine sweep, which cannot see it.
+    if _in_bhyve_guest(nm) == 1 {
+        return 0
+    }
     eng = compose.get_engine(nm)
     if eng == "wslc" {
         return 0
@@ -1975,6 +1990,15 @@ _await_level_gone(halted: ptr) {
 // without() keep the old skip (window 0).
 _gone_window(nm: string) -> int {
     w = compose.get_without_ms(nm)
+    // Nested in a bhyve guest, removal is an ssh round trip plus podman's stop
+    // grace (5 s, which a PID-1 server that ignores SIGTERM uses up), and the
+    // gone check is another ssh, so verify for at least 15 s.
+    if _in_bhyve_guest(nm) == 1 {
+        if w < 15000 {
+            w = 15000
+        }
+        return w
+    }
     if _engine_downable(nm) == 1 {
         if w < 2000 {
             w = 2000
@@ -2002,6 +2026,17 @@ _mark_gone(nm: string) {
 // 1 iff `nm` can be gone-checked from the batched engine `ps` — engine-downable
 // AND top-level (a NESTED container's probe goes through the guest's agent, so
 // it keeps the per-node driver_probe path).
+// 1 if nm is nested in a bhyve VM (its guest runs it; reached over ssh).
+_in_bhyve_guest(nm: string) -> int {
+    h = compose.get_host(nm)
+    if h == "" {
+        return 0
+    }
+    if compose.get_kind(h) == "bhyve" {
+        return 1
+    }
+    return 0
+}
 _engine_gonecheckable(nm: string) -> int {
     if _engine_downable(nm) == 0 {
         return 0

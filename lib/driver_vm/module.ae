@@ -36,7 +36,7 @@ import death (unit_death_line)
 
 exports (
     name,
-    up, bhyve_up, guest_container_up, guest_container_probe, agent_delegate, agent_delegate_at, agent_delegate_fire, agent_status, agent_status_at, build_agent_seed, exec_capture, down, probe,
+    up, bhyve_up, guest_container_up, guest_container_probe, guest_container_down, agent_delegate, agent_delegate_at, agent_delegate_fire, agent_status, agent_status_at, build_agent_seed, exec_capture, down, probe,
     show_death_argv, death_state, guest_death_state, agent_death_at, agent_death_line, bhyve_death_state, bhyve_death_from_log, qemu_argv_shared,
     bhyve_argv, qemu_argv, qemu_argv_arch, bhyvectl_destroy_argv,
     pidfile_for, bootrom_path
@@ -878,6 +878,26 @@ guest_container_probe(host_vm: string, host_ip: string, name: string, health: st
         return 1
     }
     return 0
+}
+
+// guest_container_down — remove the container `name` nested in the local VM
+// guest (stop with a 5 s grace, then rm -f). "" on success or when the guest
+// no longer answers (a stopped guest holds no running container).
+guest_container_down(host_vm: string, host_ip: string, name: string) -> string {
+    ip = _guest_ip(host_vm, host_ip)
+    if ip == "" {
+        return ""
+    }
+    remote = "podman stop -t 5 ${name} >/dev/null 2>&1; podman rm -f ${name} >/dev/null 2>&1 || true"
+    av = list_new()
+    list_add(av, "-c")
+    list_add(av, "ssh -i ${_guest_key()} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ConnectTimeout=10 ${_guest_user()}@${ip} ${_shquote(remote)} 2>&1")
+    out, status, err = run_capture("/bin/sh", av, null)
+    list_free(av)
+    if status != 0 {
+        return "aeo: removing container '${name}' inside guest '${host_vm}' (${ip}) failed: ${out}"
+    }
+    return ""
 }
 
 // exec_capture — run `cmd` inside a bhyve guest over ssh, return its stdout ("" on
