@@ -143,9 +143,49 @@ else. Start here, in this order:
      guest answers (14 failures on ghostbsd); the egress splice spec finds
      python3 on PATH (it called /usr/bin/python3, absent on FreeBSD).
    - *Still unverified:* win11 (MSYS2); a container engine actually running on
-     the Mac or ghostbsd, so the container specs have not run there; the two
-     bhyve guest specs and the Proxmox cases (no guest, no token); NetBSD and
-     OpenBSD; musl.
+     the Mac or ghostbsd, so the container specs have not run there; the Proxmox
+     cases (no token); NetBSD and OpenBSD; musl. (The two bhyve guest specs ran
+     later the same day: see the next result.)
+
+   **Result, 2026-11-20, ghostbsd: the bhyve lab is back (agent bhyve-back).**
+   ghostbsd is now an Intel i3-8109U on FreeBSD 15.1-RELEASE-p6, uplink `ue0`,
+   vm-bhyve 1.7.5; its bhyve lab had not been rebuilt since the 2026-07-20 reimage.
+   - `sh test/bhyve-lab.sh up` (new) took an EMPTY datastore to both guests up in
+     519 s, rc 0: golden `aeo-base@golden` (Ubuntu 22.04 stock image, no AMD
+     patch, podman 3.4.4, python:3-alpine, redis:alpine, the silly-add app image),
+     `aeo-base` running at 172.16.0.50, FreeBSD 15.1 `aeo-fbsd` at 172.16.0.52.
+     A second run skipped every step. docs/operations/bsd-host-setup.md §7.
+   - `sh test/run-spec.sh` with both guests up: **380 passing, 0 failing, 21
+     skipped**, exit 0 (baseline that morning: 362 / 0 / 36). Now RUNNING:
+     spec_containment_linux_vm 7, spec_capsicum_bhyvevm_selfreport 8, and the new
+     spec_capsicum_bhyve_live 3 (every running bhyve in capability mode, disk and
+     tap descriptors narrowed; seen failing when pointed at tinyproxy). The 21
+     skips: 7 container-engine cases (FreeBSD podman cannot run rootless), 7 live
+     Landlock (no child containment on FreeBSD), 4 PVE (no token), 3 aeo-lb (no
+     engine, no Linux build of aeo-lb).
+   - `sh test/soup-to-nuts.sh`: `aeo up` of silly_addition_bhyve_podman.ae
+     clones db_vm (.11) and python_vm (.10) from the golden, redis in one, the app
+     in the other; host curls 5, 42, and CACHED99 after a redis poke in db_vm;
+     `aeo down` verifies app and db gone. PASS.
+   - `test/breakout-harness.sh`: vm 1/1 and fd 2/2 held (fd now reads the
+     clone's real bhyve via procstat); net skips (next bullet).
+   - **Fixed on the way:** lib/aeo/runner.ae no longer type-checked on ae
+     0.927.0 (list_get_raw ptr into string params, E0202), so `aeo up/check/status`
+     failed on every host; /usr/bin/sudo in driver_vm (FreeBSD's is
+     /usr/local/bin); nested containers dispatched before their VM booted, probed
+     and torn down with the HOST's podman, and given no env(); a static-IP race
+     between sibling VMs; podman 3.x `rm -f` under `set -e`; harnesses that
+     skipped when a guest answered but refused the key. setup-nat.sh no longer
+     writes /etc/pf.conf.
+   - **Not done / Paul to decide:** guest egress. pf NATs 172.16.0.0/24 out of
+     em0 and wlan0, but the uplink is ue0 (both others have no carrier), so
+     guests cannot reach the internet; apt and image pulls go through tinyproxy
+     on 172.16.0.1:3128, run by bhyve-lab.sh. The fix is one line in
+     /etc/pf.conf, `nat on ue0 inet from 172.16.0.0/24 to any -> (ue0)`, plus a
+     pf reload, not made (headless box, lockout risk). Also not referenced:
+     `anchor "aeo/*"`, so `aeo up` warns "pf policy NOT enforced" for both VMs.
+     NB nothing in the ruleset filters inbound on ue0 (the blocks name em0 and
+     wlan0 only).
 3. **Paul has not yet decided the shipping shape** (the one-binary question
    below). Do not ship `aeo-confine` to fleet hosts until he has; ask.
 4. **Then the fleet**, each as its own dated, named-box result (no "live" claim
@@ -257,6 +297,10 @@ enforced, with NO status signal (the WARN the docs cite lives in a dead, unwired
       (anchor before `vm start`; address = ipam static), but the live probe ran on
       a jail only (no guest image on the box). Also unverified: whether the cloud
       image's own DHCP netplan leases a SECOND address the anchor does not name.
+      (2026-11-20, ghostbsd: guests are back, see the bhyve lab result above,
+      but this probe is still blocked: the main ruleset does not reference
+      `anchor "aeo/*"`, so no anchor loads. Clones carry no DHCP netplan now:
+      the golden drops 50-cloud-init.yaml and disables cloud-init.)
 - [ ] driver_bsd does not mount devfs in a jail, so a backgrounded `exec.start`
       (`cmd &`) dies on `/bin/sh: cannot open /dev/null` (sh redirects an async
       list's stdin to /dev/null). a3-bringup-probe mounts devfs as a fixture;
@@ -339,7 +383,9 @@ bridge — full writeup in `docs/pf-enforcement-next-steps.md`:
       routed L3 (pf filters normally, no bridge), vs `pfil_bridge=1` (filter once
       on the bridge), vs guest-side firewall via the resident agent. See doc.
 - [ ] Re-run the 4 assertions once a working delivery is chosen (the test harness
-      + two guests aeo-base/.50 + testpeer/.51 are proven and reusable).
+      + two guests aeo-base/.50 + testpeer/.51 are proven and reusable). 2026-11-20:
+      aeo-base is rebuilt on ghostbsd (test/bhyve-lab.sh); testpeer is not, and
+      .52 is now the FreeBSD guest, so give testpeer .51 or another free address.
 - [x] Lockout-safety: Paul has console (kbd/display); pf/rctl missteps recoverable.
 
 ### 2. rctl resource caps — LIVE (MEDIUM)
