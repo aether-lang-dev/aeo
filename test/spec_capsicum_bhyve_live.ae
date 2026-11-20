@@ -1,0 +1,94 @@
+// spec_capsicum_bhyve_live.ae — the REAL hypervisor, not a model of it: every
+// bhyve process running on this FreeBSD host is in Capsicum capability mode and
+// holds its disk, tap and console descriptors with narrowed rights.
+//
+// spec_capsicum_bhyve_model runs bhyve's pattern in a process the spec owns,
+// because reading the rights on the real bhyve process's descriptors needs root.
+// This spec is its live counterpart: it reads them through `sudo -n procstat`
+// (-s: the credential FLAGS column carries C in capability mode; -C -f: the
+// Capsicum rights on each descriptor) for every process whose title matches
+// AEO_BHYVE_LIVE_MATCH (a pgrep -f pattern, default "^bhyve: ", the title
+// vm-bhyve's bhyve sets). It skips when no such process runs (no guest booted)
+// or when procstat cannot be run under sudo -n.
+//
+//   sh test/run-spec.sh test/spec_capsicum_bhyve_live.ae     (guest(s) up)
+//
+// Seen failing: AEO_BHYVE_LIVE_MATCH=tinyproxy points it at an unconfined
+// process, and the capability-mode and descriptor cases fail.
+
+import std.spec
+import std.string
+import std.os (run_capture, getenv)
+import std.list
+import std.config
+
+main() {
+    fw = spec.init()
+
+    spec.describe(fw, "the running bhyve hypervisors are Capsicum-confined (live, procstat)") {
+
+        config.put("bl.report", _survey())
+
+        ran = 1
+        if _has("NO_PROCESS") == 1 {
+            ran = 0
+        }
+        if _has("NO_PROCSTAT") == 1 {
+            ran = 0
+        }
+        why = "nothing to inspect: ${config.get(\"bl.report\")}"
+
+        spec.describe("capability mode") {
+            spec.it_when(ran, "every bhyve process is in capability mode (procstat -s FLAGS has C)", why) callback {
+                spec.expect_int(_has("PROC ")).to_be_truthy()
+                spec.expect_int(_lacks("CAPMODE 0")).to_be_truthy()
+            }
+        }
+
+        spec.describe("descriptors held with narrowed rights") {
+            spec.it_when(ran, "each one holds its disk image, and that descriptor cannot create, fexecve or mmap-execute", why) callback {
+                spec.expect_int(_lacks("DISK none")).to_be_truthy()
+                spec.expect_int(_lacks("DISK wide")).to_be_truthy()
+            }
+            spec.it_when(ran, "each one holds its tap device read/write only, with no seek, create or fexecve", why) callback {
+                spec.expect_int(_lacks("TAP none")).to_be_truthy()
+                spec.expect_int(_lacks("TAP wide")).to_be_truthy()
+            }
+        }
+    }
+
+    return spec.run_summary(fw)
+}
+
+// One line per matched process:
+//   PROC <pid> CAPMODE <0|1> DISK <narrow|wide|none> TAP <narrow|wide|none> | <rights>
+// "wide" means the rights include one a hypervisor never needs on that object
+// (cr create, fe fexecve, mmx map-execute; and on the tap also se seek).
+_survey() -> string {
+    m = getenv("AEO_BHYVE_LIVE_MATCH")
+    if m == null {
+        m = "^bhyve: "
+    }
+    if string.length(m) == 0 {
+        m = "^bhyve: "
+    }
+    av = list_new()
+    list_add(av, "-c")
+    list_add(av, "M=\"$1\"; sudo -n procstat -s $$ >/dev/null 2>&1 || { echo NO_PROCSTAT sudo -n procstat cannot run; exit 0; }; P=$(pgrep -f \"$M\"); [ -n \"$P\" ] || { echo NO_PROCESS no process matches $M; exit 0; }; for p in $P; do f=$(sudo -n procstat -s $p | awk 'NR==2{print $10}'); case \"$f\" in *C*) c=1;; *) c=0;; esac; R=$(sudo -n procstat -C -f $p 2>/dev/null); d=$(echo \"$R\" | awk '$NF ~ /disk[0-9]*\\.img$/ {print $6; exit}'); t=$(echo \"$R\" | awk '$NF ~ /^\\/dev\\/tap[0-9]+$/ {print $6; exit}'); dv=none; [ -n \"$d\" ] && dv=narrow; case \",$d,\" in *,cr,*|*,fe,*|*,mmx,*) dv=wide;; esac; tv=none; [ -n \"$t\" ] && tv=narrow; case \",$t,\" in *,cr,*|*,fe,*|*,mmx,*|*,se,*) tv=wide;; esac; echo \"PROC $p CAPMODE $c DISK $dv TAP $tv | disk=$d tap=$t\"; done")
+    list_add(av, "aeo-bhyve-live")
+    list_add(av, m)
+    out, status, err = run_capture("/bin/sh", av, null)
+    list_free(av)
+    if string.length(out) == 0 {
+        return "NO_PROCSTAT survey printed nothing: ${err}"
+    }
+    return out
+}
+_has(needle: string) -> int {
+    if string.contains(config.get("bl.report"), needle) == 1 { return 1 }
+    return 0
+}
+_lacks(needle: string) -> int {
+    if string.contains(config.get("bl.report"), needle) == 1 { return 0 }
+    return 1
+}
