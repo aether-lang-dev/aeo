@@ -20,6 +20,8 @@ set -eu
 VM="aeo-fbsd"
 IP="172.16.0.52"
 GW="172.16.0.1"
+. "$(dirname "$0")/guest-dns.sh"
+DNS=$(guest_dns_yaml)
 KEY="${AEO_SSH_KEY:-$HOME/.ssh/id_rsa}"
 REL="${AEO_FREEBSD_REL:-$(freebsd-version -k | sed 's/-p[0-9]*$//')}"
 F="FreeBSD-$REL-amd64-BASIC-CLOUDINIT-ufs.raw"
@@ -70,7 +72,7 @@ rm -f "$UD"
 # vm-bhyve's own network-config renames the NIC and uses `routes`, which
 # nuageinit does not read; replace it with the form nuageinit understands
 # (vm-bhyve rebuilds seed.iso from .cloud-init at every start).
-printf 'version: 2\nethernets:\n  vtnet0:\n    addresses: [%s/24]\n    gateway4: %s\n    nameservers:\n      addresses: [%s]\n' "$IP" "$GW" "$GW" \
+printf 'version: 2\nethernets:\n  vtnet0:\n    addresses: [%s/24]\n    gateway4: %s\n    nameservers:\n      addresses: [%s]\n' "$IP" "$GW" "$DNS" \
     | sudo -n tee "$DS/$VM/.cloud-init/network-config" >/dev/null
 sudo -n vm start "$VM" >/dev/null
 wait_ssh

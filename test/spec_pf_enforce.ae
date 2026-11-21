@@ -12,7 +12,7 @@
 
 import std.spec
 import compose (constrain, grant_fd, ingress_from, egress, ingress, deny_egress, pf_rules_for)
-import pf (resolve, resolve_pinned, anchor_name, anchor_path, _pin_lookup, _ready_verdict, _count_rules)
+import pf (resolve, resolve_pinned, anchor_name, anchor_path, _pin_lookup, _ready_verdict, _count_rules, _pfctl_busy)
 import ipam (resolve_ip, reset_bindings)
 import std.string (string_contains)
 
@@ -105,6 +105,10 @@ main() {
         }
         spec.it("enabled + anchor \"aeo/*\" referenced -> ready") callback {
             spec.expect_str(_ready_verdict("Status: Enabled for 0 days 00:00:05   Debug: Urgent", 0, "pass all flags S/SA keep state\nanchor \"aeo/*\" all")).to_equal_str("")
+        }
+        spec.it("a pfctl that lost the race for the device is worth retrying, a refused rule is not") callback {
+            spec.expect_int(_pfctl_busy("pfctl: DIOCADDRULE: Device busy\n")).to_be_truthy()
+            spec.expect_int(_pfctl_busy("/tmp/x:3: syntax error\n")).to_equal(0)
         }
         spec.it("_count_rules counts non-blank listing lines (the post-load read-back)") callback {
             spec.expect_int(_count_rules("")).to_equal(0)

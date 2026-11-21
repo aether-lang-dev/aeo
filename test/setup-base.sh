@@ -18,6 +18,8 @@
 # Runs as a normal user; privileged steps use `sudo -n`. Needs: vm-bhyve with
 # the linux-nat template (test/setup-nat.sh), qemu-img (pkg qemu-tools).
 #   AEO_SSH_KEY      private key whose .pub is installed (default ~/.ssh/id_rsa)
+#   AEO_GUEST_DNS    resolver(s) for the guest; default the host's own, from
+#                    /etc/resolv.conf (test/guest-dns.sh)
 #   AEO_GUEST_PROXY  http proxy the guest uses for apt and image pulls, e.g.
 #                    http://172.16.0.1:3128 when pf does not NAT the guests
 #                    (test/bhyve-lab.sh sets it); unset = direct
@@ -30,6 +32,10 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BASE="aeo-base"
 IP="172.16.0.50"
 GW="172.16.0.1"
+. "$(dirname "$0")/guest-dns.sh"
+DNS=$(guest_dns_yaml)
+# vm-bhyve's -n takes one nameserver here: the first of the host's.
+DNS1=${DNS%%,*}
 IMG="jammy-server-cloudimg-amd64.img"
 URL="https://cloud-images.ubuntu.com/jammy/current/$IMG"
 KEY="${AEO_SSH_KEY:-$HOME/.ssh/id_rsa}"
@@ -80,7 +86,7 @@ if ! sudo -n vm list | awk '{print $1}' | grep -qx "$BASE"; then
     # vm-bhyve 1.7.5 renders -n into a valid netplan network-config (1.7.3 did
     # not, which is why patch-static-ip.sh exists for clones).
     sudo -n vm create -t linux-nat -i "$IMG" -c 1 -m 2G -s 10G -C -u "$UD" \
-        -n "ip=$IP/24;gateway4=$GW;nameservers=$GW" "$BASE"
+        -n "ip=$IP/24;gateway4=$GW;nameservers=$DNS1" "$BASE"
     rm -f "$UD"
 fi
 sudo -n vm start "$BASE" >/dev/null 2>&1 || true
@@ -122,7 +128,7 @@ network:
         - to: default
           via: $GW
       nameservers:
-        addresses: [$GW]
+        addresses: [$DNS]
 NP
 sudo chmod 600 /etc/netplan/99-aeo-static.yaml
 sudo rm -f /etc/netplan/50-cloud-init.yaml

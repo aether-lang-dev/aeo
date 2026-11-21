@@ -261,4 +261,13 @@
 # `sh test/run-spec.sh` fails only spec_running_nodes and
 # spec_driver_loadbalancer_live, the same two as on 0.927.0 and 0.931.0 (that
 # host's podman 3.4.4 network plugin). The FreeBSD lane was not re-run.
-0.933.0
+#
+# Raised to 0.934.0 (2026-11-21): a floor move, for FreeBSD's sake. Since 0.932.0 (aether
+# #3795) the release `ae` links std.casper on FreeBSD by itself, so bin/aeo builds on GhostBSD
+# with no AETHER_LDFLAGS_EXTRA; on the released 0.931.0, in the same shell, it fails with
+# undefined cap_init and the other Casper symbols (asks/freebsd-release-casper-link.md,
+# RESOLVED). 0.934.0 also fixes a FreeBSD sandbox-preload recursion (#3799). Verified on
+# ghostbsd (FreeBSD 15.1, both bhyve guests up) with the released 0.934.0 and no environment
+# variable: all seven bin/ entry points build, and `sh test/run-spec.sh` is 380 passing,
+# 0 failing, 21 skipped, as it was on 0.931.0 with the workaround.
+0.934.0

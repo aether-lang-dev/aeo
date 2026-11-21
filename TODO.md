@@ -127,12 +127,10 @@ else. Start here, in this order:
      less the 4 that Linux skips for itself. `spec_confine_landlock.ae`: 21
      passing. `spec_confine_landlock_live.ae`: 7 skipped, reason
      "sandbox.spawn_socket: cannot contain a child on macOS".
-   - *ghostbsd, FreeBSD 15.1-RELEASE-p6 amd64:* the release tarball's `ae` links
-     without the Casper libraries on GhostBSD (no `.so` linker symlinks), so
-     `bin/aeo` (which imports std.casper through lib/host) needs
-     `AETHER_LDFLAGS_EXTRA="/lib/libcasper.so.1 /lib/libcap_pwd.so.1
-     /lib/libcap_sysctl.so.2 /lib/libcap_grp.so.1 /lib/libcap_dns.so.2"`; the
-     other six build as they are. With that: `sh test/run-spec.sh` 362 passing, 0
+   - *ghostbsd, FreeBSD 15.1-RELEASE-p6 amd64:* the 0.927.0 release tarball's `ae` did not link
+     `bin/aeo` (which imports std.casper through lib/host) on GhostBSD (asks/freebsd-release-casper-link.md,
+     fixed in Aether 0.932.0: the release `ae` now builds all seven entry points with no extra link flags);
+     the other six built as they were. Then: `sh test/run-spec.sh` 362 passing, 0
      failing, 36 skipped, exit 0. The FreeBSD-only Capsicum specs run for real
      there. Pure Landlock spec 21 passing; live one 7 skipped, reason
      "sandbox.spawn_socket: cannot contain a child on FreeBSD yet".

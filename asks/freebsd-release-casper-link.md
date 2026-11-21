@@ -1,5 +1,9 @@
 # The FreeBSD release tarball's `ae` does not link std.casper on GhostBSD
 
+**RESOLVED** in Aether 0.932.0 (PR #3795). Checked 2026-11-21 on ghostbsd (FreeBSD 15.1) with the released
+0.934.0 and no environment variable: all seven `bin/` entry points build; on the released 0.931.0, in
+the same shell, `bin/aeo` still fails to link. The text below is the original report.
+
 Found 2026-11-20 verifying aeo on ghostbsd (FreeBSD 15.1-RELEASE-p6 amd64) with
 the release tarball `aether-0.927.0-freebsd-x86_64.tar.gz` (sha256 1f68ab79...),
 unpacked under its own AETHER_HOME, `AE_CC=cc`.

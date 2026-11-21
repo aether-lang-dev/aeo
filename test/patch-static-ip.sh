@@ -20,6 +20,8 @@ set -eu
 VM="${1:?usage: patch-static-ip.sh <vm-name> [ip]}"
 IP="${2:-172.16.0.50}"
 GW="172.16.0.1"
+. "$(dirname "$0")/guest-dns.sh"
+DNS=$(guest_dns_yaml)
 DISK="/zroot/vm/$VM/disk0.img"
 [ -f "$DISK" ] || { echo "no disk $DISK (is $VM provisioned?)"; exit 1; }
 # Private scratch: aeo patches sibling VMs CONCURRENTLY (one level boots
@@ -52,7 +54,7 @@ network:
         - to: default
           via: $GW
       nameservers:
-        addresses: [$GW]
+        addresses: [$DNS]
 EOF
 sudo -n cp "$WORK/99-aeo-static.yaml" "$MNT/etc/netplan/99-aeo-static.yaml"
 sudo -n chmod 600 "$MNT/etc/netplan/99-aeo-static.yaml"
@@ -60,4 +62,4 @@ echo "network: {config: disabled}" > "$WORK/99-disable-net.cfg"
 sudo -n cp "$WORK/99-disable-net.cfg" "$MNT/etc/cloud/cloud.cfg.d/99-disable-network.cfg"
 
 sync; sudo -n umount "$MNT"; sudo -n mdconfig -d -u "$MD"; trap - EXIT; rm -rf "$WORK"
-echo "patched $VM with static $IP"
+echo "patched $VM with static $IP, resolver $DNS"

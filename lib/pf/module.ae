@@ -22,7 +22,7 @@ import std.string (string_length, string_char_at, string_substring, string_from_
 import std.fs (write_atomic)
 import ipam
 
-exports ( resolve, resolve_pinned, apply, apply_pinned, flush, anchor_name, anchor_path, ready, loaded_count, ipfw_conflict, ipfw_disable, _ipfw_warning, _ready_verdict, _count_rules, _pin_lookup )
+exports ( resolve, resolve_pinned, apply, apply_pinned, flush, anchor_name, anchor_path, ready, loaded_count, ipfw_conflict, ipfw_disable, _ipfw_warning, _ready_verdict, _count_rules, _pin_lookup, _pfctl_busy )
 
 // resolve(system, rules) — replace every $<name> token in `rules` with the
 // ipam IP for (system, name). A token is `$` followed by [A-Za-z0-9_]+ (the
@@ -119,6 +119,18 @@ apply_pinned(system: string, vm: string, rules: string, pins: string) -> string 
     // `sudo -n /sbin/pfctl -a aeo/<vm> -f <file>` — FULL path so the path-specific
     // NOPASSWD pfctl rule matches (a bare `pfctl` would not). -n: never prompt.
     out, status, err = _sudo_pfctl("-a ${anchor_name(vm)} -f ${path} 2>&1")
+    // Sibling nodes of one level are brought up together, and pf serves one
+    // ruleset transaction at a time: a second pfctl that arrives while another
+    // holds it fails with "DIOCADDRULE: Device busy" (seen on ghostbsd,
+    // 2026-11-21: db_vm lost the race with python_vm and started with no
+    // policy). That is not a refusal of the rules, so try again, a little
+    // later each time, before calling the policy not enforced.
+    tries = 1
+    while status != 0 && _pfctl_busy(out) == 1 && tries < 8 {
+        _sleep_ms(100 * tries)
+        out, status, err = _sudo_pfctl("-a ${anchor_name(vm)} -f ${path} 2>&1")
+        tries = tries + 1
+    }
     if status != 0 {
         return "aeo: pfctl load of anchor ${anchor_name(vm)} failed (exit ${_i(status)}): ${out}"
     }
@@ -128,6 +140,20 @@ apply_pinned(system: string, vm: string, rules: string, pins: string) -> string 
         return "aeo: pf anchor ${anchor_name(vm)} read back EMPTY after load — policy not in effect"
     }
     return ""
+}
+
+// _pfctl_busy(out) — 1 when pfctl's output says another ruleset transaction
+// holds the device, which is worth retrying. PURE, unit-tested (spec_pf_enforce).
+_pfctl_busy(out: string) -> int {
+    return string_contains(out, "Device busy")
+}
+
+_sleep_ms(ms: int) {
+    av = list_new()
+    list_add(av, "-c")
+    list_add(av, "sleep 0.${_i(ms / 100)}")
+    _o, _s, _e = run_capture("/bin/sh", av, null)
+    list_free(av)
 }
 
 // ready() — "" iff pf will EVALUATE aeo's per-node anchors: pf is enabled AND the
