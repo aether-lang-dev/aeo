@@ -253,4 +253,12 @@
 # host's podman 3.4.4 network plugin rejects the config podman writes); on
 # ghostbsd (FreeBSD 15.1, both bhyve guests up) 380 passing, 0 failing, as on
 # 0.927.0. aeb not involved (AEB_PIN unchanged).
-0.931.0
+#
+# Raised to 0.933.0 (2026-11-21): a tracking-only bump again, no new primitive
+# needed and no source change. Verified on 0.933.0 (ae-x64, Ubuntu 22.04 x86_64,
+# aeb v0.349 present but not used by aeo): all seven bin/ entry points build,
+# test/security-posture.sh, test/strict-mode.sh and test/compose-lint.sh pass, and
+# `sh test/run-spec.sh` fails only spec_running_nodes and
+# spec_driver_loadbalancer_live, the same two as on 0.927.0 and 0.931.0 (that
+# host's podman 3.4.4 network plugin). The FreeBSD lane was not re-run.
+0.933.0
