@@ -279,4 +279,9 @@
 # environment variable): all seven bin/ entry points build, test/security-posture.sh,
 # strict-mode.sh and compose-lint.sh pass, and `sh test/run-spec.sh` is 381 passing,
 # 0 failing, 21 skipped.
-0.935.0
+0# Raised to 0.936.0 (2026-11-22): a tracking-only bump, no new primitive needed and
+# no source change. Verified on ghostbsd (FreeBSD 15.1, both bhyve guests up, the
+# released 0.936.0, no environment variable): all seven bin/ entry points build,
+# test/security-posture.sh, strict-mode.sh and compose-lint.sh pass, and
+# `sh test/run-spec.sh` is 381 passing, 0 failing, 21 skipped, as on 0.935.0.
+0.936.0
