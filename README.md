@@ -523,6 +523,45 @@ test/                 ~48 specs (fluent std.spec style): driver/confinement/atte
 test/conformance-behavioral.sh  the live driver-conformance lifecycle (create->probe->confine->stop->verify-gone) per substrate
 ```
 
+## For consideration: connection deadlines and cancellation
+
+Aether 0.936.0 added, in `std.tcp` and `std.cryptography.tls13_client`
+(design: aether `docs/design/tcp-tls-deadlines-and-cancellation.md`):
+
+- **One absolute deadline per connection** on the monotonic clock
+  (`tcp.connect_until(host, port, due_ms, cancel)`, `tcp.set_deadline(sock,
+  due_ms, cancel)`, `tls13_client.conn_set_deadline(conn, due_ms, cancel)`,
+  and `due_ms:` / `cancel:` on the `tls13_client.connect*` calls). It covers
+  the dial, the handshake and every read and write after; a peer that
+  trickles a byte inside each per-call timeout no longer resets it.
+- **A cancel handle** (`tcp.cancel_new`, `cancel`, `cancel_retain`,
+  `cancel_free`) that another thread or actor trips to wake a blocked
+  connection. The canceller never touches the descriptor, so the owner stays
+  the only closer.
+- Two exact errors, `tcp.DEADLINE_EXCEEDED` and `tcp.CANCELLED`, distinct
+  from `"timeout"`, a peer's close and a TLS failure.
+
+It does **not** reach `std.http.client` or the WebSocket calls: those still
+have only their own per-request timeout. Nothing here is required; these are
+places it could help, not work that is planned.
+
+Where it might apply here:
+
+- **The egress relay** (`lib/egress_relay`) pumps bytes between two sockets
+  and treats a `"timeout"` read as "quiet but alive, poll again". If a tunnel
+  ever has to be torn down from outside the pump (a box stopped, a policy
+  change), a cancel handle per tunnel, bound to both sockets
+  with `tcp.set_deadline(sock, 0, c)`, would let the supervisor trip it and
+  have the pump's read return `tcp.CANCELLED` and close its own sockets: one closer,
+  no descriptor reused under a pump that is still reading.
+- **A tunnel lifetime or idle limit** as an absolute deadline on the pair,
+  instead of counting quiet polls.
+- **Control-plane calls** (`lib/transport_http`: 5 s, 10 s and 60 s
+  `set_timeout`s; `lib/egress_gateway`; `lib/driver_proxmox`) go through
+  `std.http.client`, which the new API does not reach. An `aeo down` that
+  should abandon a slow `/release` at once would need the HTTP client to take
+  a cancel; worth an ask if that wait has ever been a nuisance.
+
 ## What aeo is NOT
 
 Not a build (it `pkg install`s / pulls images, it doesn't compile — shell out to
