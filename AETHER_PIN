@@ -279,9 +279,19 @@
 # environment variable): all seven bin/ entry points build, test/security-posture.sh,
 # strict-mode.sh and compose-lint.sh pass, and `sh test/run-spec.sh` is 381 passing,
 # 0 failing, 21 skipped.
-0# Raised to 0.936.0 (2026-11-22): a tracking-only bump, no new primitive needed and
+# Raised to 0.936.0 (2026-11-22): a tracking-only bump, no new primitive needed and
 # no source change. Verified on ghostbsd (FreeBSD 15.1, both bhyve guests up, the
 # released 0.936.0, no environment variable): all seven bin/ entry points build,
 # test/security-posture.sh, strict-mode.sh and compose-lint.sh pass, and
 # `sh test/run-spec.sh` is 381 passing, 0 failing, 21 skipped, as on 0.935.0.
-0.936.0
+# Raised to 0.939.0 (2026-11-23): a tracking-only bump, no new primitive needed and
+# no source change. aeo's HTTP client calls (transport_http, the supervisor and
+# agent calls, driver_proxmox, the egress gateway) are one request per call or a
+# poll two seconds apart, and none used the std.http.client pool functions that
+# 0.939.0 removed, so each keeps plain requests. Verified on ghostbsd (FreeBSD 15.1,
+# both bhyve guests up, the released 0.939.0, no environment variable): all seven
+# bin/ entry points build, test/security-posture.sh, strict-mode.sh and
+# compose-lint.sh pass, and `sh test/run-spec.sh` has 368 passing and 14 failing,
+# all 14 in the two specs that drive the live Linux bhyve guest (see the commit);
+# the released 0.936.0 gives the same counts on the same host.
+0.939.0
