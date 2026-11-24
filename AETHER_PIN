@@ -294,4 +294,14 @@
 # compose-lint.sh pass, and `sh test/run-spec.sh` has 368 passing and 14 failing,
 # all 14 in the two specs that drive the live Linux bhyve guest (see the commit);
 # the released 0.936.0 gives the same counts on the same host.
-0.939.0
+# Raised to 0.941.0 (2026-11-24): a tracking-only bump, no new primitive needed and
+# no source change. 0.940.0 and 0.941.0 make the HTTP client retry a failed read only
+# for idempotent methods and reword its errors ("request timed out before the response
+# arrived" and so on); aeo's HTTP calls are one request each or a poll two seconds
+# apart, and no aeo source or test matches the old "recv timeout" wording. Verified on
+# ghostbsd (FreeBSD 15.1, both bhyve guests up, the released 0.941.0, no environment
+# variable): all seven bin/ entry points build, test/security-posture.sh, strict-mode.sh
+# and compose-lint.sh pass, and `sh test/run-spec.sh` has 368 passing, 14 failing and 21
+# skipped; the 14 are the two live Linux bhyve guest specs (cannot log in to the guest),
+# 7 each on the released 0.939.0 as well.
+0.941.0
