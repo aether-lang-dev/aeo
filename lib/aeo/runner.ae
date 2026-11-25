@@ -770,6 +770,26 @@ _strict_check_prop(nm: string, k: string, label: string, row: string) -> string 
     return "aeo: [${nm}] STRICT REFUSED — declared ${label} is not enforced here (supported=${supp}, applied=${appl}). A strict() system refuses a property it cannot apply; remove the declaration, run on a backend that supports it, or drop strict()."
 }
 
+// _syscall_unrendered(nm, k) — "" if this node's substrate can take a syscall
+// policy, else what it is (for "not rendered for <this> yet"). One definition,
+// shared by the boot gate and the status row so they cannot disagree.
+// Rendered today: a HOST container (podman/docker) only.
+_syscall_unrendered(nm: string, k: string) -> string {
+    if k != "container" {
+        return "kind '${k}'"
+    }
+    eng = compose.get_engine(nm)
+    if eng == "wslc" { return "the wslc engine" }
+    if eng == "wsl_podman" { return "the wsl_podman engine" }
+    host = compose.get_host(nm)
+    if host != "" {
+        if compose.is_load_balancer(host) == 0 {
+            return "a container nested inside '${host}'"
+        }
+    }
+    return ""
+}
+
 // _syscall_gate(nm, k) — a node that declares deny_syscalls() either gets that
 // policy or does not start. "" = go ahead; else the refusal. Unlike
 // _strict_gate this is NOT opt-in: a syscall denial the operator wrote down
@@ -786,20 +806,7 @@ _syscall_gate(nm: string, k: string) -> string {
         _ = audit.record(nm, k, "syscall-policy-refuse", perr)
         return "aeo: [${nm}] REFUSED — deny_syscalls(): ${perr}"
     }
-    why = ""
-    if k != "container" {
-        why = "kind '${k}'"
-    } else {
-        eng = compose.get_engine(nm)
-        if eng == "wslc" { why = "the wslc engine" }
-        if eng == "wsl_podman" { why = "the wsl_podman engine" }
-        host = compose.get_host(nm)
-        if host != "" {
-            if compose.is_load_balancer(host) == 0 {
-                why = "a container nested inside '${host}'"
-            }
-        }
-    }
+    why = _syscall_unrendered(nm, k)
     if why != "" {
         _ = audit.record(nm, k, "syscall-policy-refuse", "not rendered for ${why}")
         return "aeo: [${nm}] REFUSED — deny_syscalls() is declared, but a syscall policy is not rendered for ${why} yet. aeo will not start a node without a policy it was told to apply: run it as a host container (podman/docker), or remove the declaration."
@@ -2314,6 +2321,7 @@ _status_detail(nm: string, k: string) {
     _sec_line("attest     ", _secp_attest(nm, k))
     _sec_line("limits     ", _secp_limits(nm))
     _sec_line("cap-drop   ", _secp_capdrop(nm))
+    _sec_line("syscalls   ", _secp_syscalls(nm, k))
 }
 
 // Render one posture property as an indented human line, skipping undeclared
@@ -2374,6 +2382,7 @@ _sec_json(nm: string, k: string) -> string {
     out = _sec_json_add(out, "attestation", _secp_attest(nm, k))
     out = _sec_json_add(out, "limits", _secp_limits(nm))
     out = _sec_json_add(out, "cap_drop", _secp_capdrop(nm))
+    out = _sec_json_add(out, "syscalls", _secp_syscalls(nm, k))
     return out
 }
 _sec_json_add(acc: string, key: string, row: string) -> string {
@@ -2520,15 +2529,55 @@ _secp_limits(nm: string) -> string {
 _secp_capdrop(nm: string) -> string {
     grants = compose.get_constraints(nm)
     np = compose.get_netpolicy(nm)
+    sp = compose.get_syscall_policy(nm)
     if grants == "" {
-        if np == "" { return "" }
+        if np == "" {
+            if string_length(sp) == 0 { return "" }
+        }
     }
     decl = grants
-    if decl == "" { decl = "(from netpolicy)" }
+    if decl == "" {
+        decl = "(from netpolicy)"
+        if np == "" { decl = "(from deny_syscalls)" }
+    }
     if _sec_bsd() == 1 {
         return "${_oneline(decl)}|yes|capsicum fd grants|not probed"
     }
     return "${_oneline(decl)}|yes|--cap-drop ALL --security-opt no-new-privileges|not probed"
+}
+
+// syscall policy — deny_syscalls() -> a seccomp profile. supported = this
+// node's substrate can take one (the same test the boot gate uses). verified
+// reads the ENGINE's account of the running container back: the profile it
+// reports must be the one aeo wrote for this node. A running container that
+// reports no profile is "applied: no" — it is running without what was
+// declared, whatever the reason.
+_secp_syscalls(nm: string, k: string) -> string {
+    pol = compose.get_syscall_policy(nm)
+    if string_length(pol) == 0 { return "" }
+    perr = syscall_policy.policy_error(pol)
+    if perr != "" {
+        return "${pol}|yes|no (bad entry: ${perr})|not probed"
+    }
+    why = _syscall_unrendered(nm, k)
+    if why != "" {
+        return "${pol}|no|no (not rendered for ${why})|not probed"
+    }
+    appl = "seccomp profile over ${seccomp_baseline.source()}"
+    rep = driver_linux.seccomp_reported(nm, compose.get_engine(nm))
+    if string_length(rep) == 0 {
+        return "${pol}|yes|${appl}|not probed (node not running)"
+    }
+    if string_contains(rep, "seccomp=") == 0 {
+        return "${pol}|yes|no (the running container reports NO seccomp profile)|engine reports ${_oneline(_trim(rep))}"
+    }
+    want = driver_linux.seccomp_profile_path(nm)
+    if string_length(want) > 0 {
+        if string_contains(rep, "seccomp=${want}") == 1 {
+            return "${pol}|yes|${appl}|engine reports seccomp=${want}"
+        }
+    }
+    return "${pol}|yes|${appl}|engine reports a seccomp profile (not by aeo's path)"
 }
 
 // Collapse a newline-separated list to a comma-joined one-liner for status.

@@ -129,8 +129,27 @@ download for want of build provenance, and that refusal was left alone):
       rule; clone3 cannot be filtered). Documented in the module, not built.
 - [ ] no `setid` class by design: the OCI runtime sets the user after loading
       the filter, so the node could never start (measured).
-- [ ] the security-posture rows (`aeo status`: declared/supported/applied) and
-      strict() do not know about the policy yet; nor does drift detection.
+- [x] `aeo status` (and `--json`) has a `syscalls` row. supported/applied use
+      the SAME substrate test as the boot gate; verified reads the engine's own
+      account back. Seen live: "engine reports seccomp=<aeo's path>" on a node
+      aeo booted; "applied=no (the running container reports NO seccomp
+      profile)" after the container was swapped by hand for an unconfined one;
+      "supported=no" for lxc; "applied=no (bad entry …)" for a typo.
+- [ ] status has NO automated test for that row (checked by hand only);
+      test/security-posture.sh does not cover it.
+- [ ] strict() has no syscalls check — not needed for refusal (the boot gate
+      is unconditional), but drift detection (`converge`) still ignores a node
+      that lost its profile; only status shows it.
+- [ ] the cap-drop status row is not kind-aware: it reports "--cap-drop ALL"
+      for an lxc node too. Older than this work; more visible now that
+      deny_syscalls alone makes a node "constrained".
+- [ ] LXC rendering was NOT started: lxc is not installed on the Chromebook, so
+      nothing could be proven. Plan for the Pi 5: LXC takes its own text
+      format and its stock profile is a DENYLIST (and LGPL — do not copy it
+      into aeo). Compose at run time: read the host's own stock profile, append
+      "<name> errno 1" for each denied syscall, point lxc.seccomp.profile at
+      the result; refuse if the host file is missing or not a denylist.
+- [ ] docker: the daemon is not reachable on the Chromebook; untested.
 - [ ] the profile file is not digested into the audit entry (path + policy are).
 - [ ] the cutover (blue->green) path applies the policy but was only compiled.
 

@@ -31,7 +31,7 @@ exports (
     ps_running_argv, ps_all_running_argv, running_names, run_argv, run_argv_net, run_argv_confined, stop_argv, rm_argv, exec_health_argv,
     net_disconnect_argv, net_connect_alias_argv,
     pasta_dropin_path, pasta_dropin_content, pasta_forwarder_ensure, pasta_forwarder_active, pasta_forwarder_clear,
-    build_argv, seccomp_profile_install
+    build_argv, seccomp_profile_install, seccomp_profile_path, seccomp_reported
 )
 
 name() -> string {
@@ -1036,6 +1036,40 @@ build_argv(tag: string, dockerfile_path: string, context_dir: string) -> ptr {
     return av
 }
 
+// Where a node's seccomp profile lives ("" if HOME is not set).
+seccomp_profile_path(res_name: string) -> string {
+    home = getenv("HOME")
+    if string_length(home) == 0 {
+        return ""
+    }
+    return "${home}/.aeo/seccomp/${res_name}.json"
+}
+
+// What the ENGINE says a running container's security options are, e.g.
+// "[no-new-privileges seccomp=/home/x/.aeo/seccomp/db.json]". "" when there is
+// no engine or no such container. This is the engine's own account, read back
+// — the check that a profile aeo rendered is the one the node runs under.
+seccomp_reported(res_name: string, engine_pref: string) -> string {
+    eng = engine_resolve(engine_pref)
+    if eng == "" {
+        return ""
+    }
+    av = list_new()
+    list_add(av, "inspect")
+    list_add(av, res_name)
+    list_add(av, "--format")
+    list_add(av, "{{.HostConfig.SecurityOpt}}")
+    out, _eout, status, err = run_full(eng, av, null, "")
+    list_free(av)
+    if err != "" {
+        return ""
+    }
+    if status != 0 {
+        return ""
+    }
+    return out
+}
+
 // Write a node's rendered seccomp profile (lib/syscall_policy) where the
 // engine can read it. Returns the absolute path, or "ERR:why" — the caller
 // must not start the node on an error. Under $HOME, not /tmp: this file is a
@@ -1047,7 +1081,7 @@ seccomp_profile_install(res_name: string, json: string) -> string {
         return "ERR:aeo: cannot place the seccomp profile for '${res_name}': HOME is not set"
     }
     dir = "${home}/.aeo/seccomp"
-    p = "${dir}/${res_name}.json"
+    p = seccomp_profile_path(res_name)
     // The path is spliced into a space-separated flag string further up.
     if string_contains(p, " ") == 1 {
         return "ERR:aeo: cannot place the seccomp profile for '${res_name}': the path '${p}' contains a space"
