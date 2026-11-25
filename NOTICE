@@ -8,10 +8,10 @@ Third-party code
 ----------------
 None yet. When code is copied or ported from another project, add a
 "Portions Copyright <their years> <their name>" line at the top of this
-file, worded as that project words it, and record the rest here: the project, its licence, its copyright line, the contents of its own
-NOTICE file if it has one, and which aeo files carry the derived code. Each
-such file also keeps the original copyright notice and states that it was
-changed.
+file, worded as that project words it, and record the rest here: the
+project, its licence, the contents of its own NOTICE file if it has one,
+and which aeo files carry the derived code. Each such file also keeps the
+original copyright notice and states that it was changed.
 
 Apache-2.0 and MIT/BSD sources may be brought in on those terms. GPL or
 AGPL sources (Ansible, for one) may not.
