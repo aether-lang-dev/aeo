@@ -63,7 +63,10 @@ main() {
             uerr = driver_linux.up(NAME(), tag, "", PORT(), "")
             spec.expect_str(uerr).to_equal_str("")
             // wait for the http.server to bind, then curl FROM THE HOST
-            base = "http://localhost:8080"
+            // 127.0.0.1, not localhost: the service listens on IPv4 only, and
+            // where curl tries ::1 first (podman 6 + pasta, CachyOS) the
+            // forwarder accepts on ::1 and resets — 1 GET in 4 answered.
+            base = "http://127.0.0.1:8080"
             // curl shell-out, NOT std.http.client: the client aborts
             // intermittently on macOS (SIGABRT mid-request), and the
             // spec's subject is the ORCHESTRATION, not the transport.

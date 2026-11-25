@@ -83,8 +83,15 @@ main() {
             spec.expect_int(probe(node, "")).to_equal(1)
             pf = pidfile_for(node)
             comm, _ = _sh("sleep 1; cat /proc/$(cat '${pf}')/comm")
-            spec.expect_str(string_trim(comm)).to_equal_str("sh",
-                "the pid recorded is the workload's own shell, so down() signals the workload and not a wrapper")
+            // dash keeps its shell for the list; bash execs the last command
+            // in place, so on a bash-as-sh box (CachyOS) the pid is sleep's.
+            // Either is the workload; the launcher would be the bug.
+            c = string_trim(comm)
+            isw = 0
+            if c == "sh" { isw = 1 }
+            if c == "sleep" { isw = 1 }
+            spec.expect_int(isw).to_equal(1,
+                "the pid recorded is the workload's own (sh, or sleep where sh execs it), so down() signals the workload and not a wrapper; got '${c}'")
         }
 
         spec.it_when(avail, "it read and wrote what it was granted", why) callback {

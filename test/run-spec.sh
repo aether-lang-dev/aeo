@@ -95,31 +95,40 @@ run_one() {
             ;;
         *spec_driver_loadbalancer_live*)
             # LIVE LB lifecycle test: the driver runs the aeo-lb CONTAINER, whose
-            # image up() builds from an aeo-lb binary. On Linux that is bin/aeo-lb.
-            # On any other host (macOS: podman's machine is Linux) the host's own
-            # binary cannot run in the container, so build a Linux one for the
-            # machine's architecture, static (musl), and point the driver at it
-            # (AEO_LB_LINUX_DIR). No engine, no zig or no cross build: the spec
-            # self-skips, and says so (driver_loadbalancer.unavailable_reason).
-            if [ "$OS" != "Linux" ]; then
-                arch=$(podman info --format '{{.Host.Arch}}' 2>/dev/null || true)
-                case "$arch" in
-                    arm64|aarch64) tgt=aarch64-linux-musl ;;
-                    amd64|x86_64) tgt=x86_64-linux-musl ;;
-                    *) tgt="" ;;
-                esac
-                if [ -n "$tgt" ]; then
-                    lbdir="${TMPDIR:-/tmp}/aeo-lb-linux-$tgt"
-                    mkdir -p "$lbdir"
-                    if ae build "$ROOT/bin/aeo-lb.ae" -o "$lbdir/aeo-lb" --lib "$ROOT/lib" \
-                           --target="$tgt" >"$lbdir/build.log" 2>&1; then
-                        export AEO_LB_LINUX_DIR="$lbdir"
-                        # up() builds the image only when it is absent: drop one an
-                        # earlier run baked from an older binary.
-                        podman rmi -f localhost/aeo/aeo-lb:latest >/dev/null 2>&1 || true
-                    else
-                        echo "  (no Linux build of aeo-lb for the container ($tgt): $lbdir/build.log)"
+            # image up() builds from an aeo-lb binary COPYed into a Debian image.
+            # Build that binary static (musl) for the container's architecture
+            # on EVERY host and point the driver at it (AEO_LB_LINUX_DIR): on
+            # macOS the host's own binary is Mach-O, and on a Linux newer than
+            # the image's Debian a host-linked one does not start there either
+            # (CachyOS, 2026-11-25: "libssl.so.4: cannot open shared object
+            # file"). No engine, no zig or no cross build: the spec self-skips,
+            # and says so (driver_loadbalancer.unavailable_reason).
+            eng=$(command -v podman 2>/dev/null || command -v docker 2>/dev/null || true)
+            if [ "$OS" = "Linux" ]; then
+                arch=$(uname -m)
+            elif [ -n "$eng" ]; then
+                arch=$("$eng" info --format '{{.Host.Arch}}' 2>/dev/null || true)
+            else
+                arch=""
+            fi
+            case "$arch" in
+                arm64|aarch64) tgt=aarch64-linux-musl ;;
+                amd64|x86_64) tgt=x86_64-linux-musl ;;
+                *) tgt="" ;;
+            esac
+            if [ -n "$tgt" ]; then
+                lbdir="${TMPDIR:-/tmp}/aeo-lb-linux-$tgt-$(id -u)"
+                mkdir -p "$lbdir"
+                if ae build "$ROOT/bin/aeo-lb.ae" -o "$lbdir/aeo-lb" --lib "$ROOT/lib" \
+                       --target="$tgt" >"$lbdir/build.log" 2>&1; then
+                    export AEO_LB_LINUX_DIR="$lbdir"
+                    # up() builds the image only when it is absent: drop one an
+                    # earlier run baked from an older binary.
+                    if [ -n "$eng" ]; then
+                        "$eng" rmi -f localhost/aeo/aeo-lb:latest >/dev/null 2>&1 || true
                     fi
+                else
+                    echo "  (no static Linux build of aeo-lb for the container ($tgt): $lbdir/build.log)"
                 fi
             fi
             ;;

@@ -109,9 +109,6 @@ available() -> int {
     if string_length(eng) == 0 {
         return 0
     }
-    if _host_is_linux() == 1 {
-        return 1
-    }
     pinned = getenv("AEO_LB_IMAGE")
     if pinned != null {
         if string_length(pinned) > 0 {
@@ -135,6 +132,10 @@ unavailable_reason() -> string {
     }
     if _host_is_linux() == 0 {
         return "this host is not Linux, so its aeo-lb cannot run in the Linux container, and there is no Linux build of it: build one for the container's architecture (ae build bin/aeo-lb.ae --lib lib --target=aarch64-linux-musl or x86_64-linux-musl -o DIR/aeo-lb) and set AEO_LB_LINUX_DIR=DIR, or pin a prebuilt image with AEO_LB_IMAGE"
+    }
+    if available() == 0 {
+        bin = lb_binary("")
+        return "no aeo-lb image, and no aeo-lb binary at ${bin} to build one from (ae build bin/aeo-lb.ae --lib lib -o ${bin}, or set AEO_LB_LINUX_DIR or AEO_LB_IMAGE)"
     }
     return ""
 }
