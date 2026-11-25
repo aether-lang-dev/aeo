@@ -548,6 +548,33 @@ Reference checkouts in `~/scm`, all verified Apache-2.0 on 2026-11-25:
 (LGPL), Terraform and Nomad (BSL), OpenTofu (MPL). Don't use other projects'
 names as aeo feature names — the licence grants no trademark rights.
 
+## Delegate or port? (agreed 2026-11-25)
+
+**Delegate what enforces or runs; port what decides.**
+
+- **DELEGATE to the OS package manager** an engine or mechanism: it runs
+  workloads, holds state, enforces in the kernel, or talks to a kernel
+  interface directly (netlink, ioctls, BPF) — podman, LXC, qemu, bhyve, pf,
+  runc, firecracker. The distro patches a packaged tool; a port freezes at
+  the commit we copied and every later CVE becomes ours. This is how aeo
+  already works: drivers produce argv, substrates self-install their engine
+  via `host.pkg_install`.
+- **PORT into aeo** knowledge or decision logic: tables, formats, state
+  machines, semantics (which syscalls make up "mount", what a profile file
+  looks like, readiness vs liveness, which init system a host has). Also
+  anything that must exist BEFORE anything can be installed (the agent is one
+  static binary), must behave the same on every substrate, and can be tested
+  as a pure function.
+
+Three questions settle most cases: (1) does it enforce, or decide what to
+enforce? (2) if a vulnerability is found in it next year, who should fix it —
+if "the distro", delegate; (3) can it be read in one sitting — if not, the
+port will rot.
+
+**Ported code lands in aeo ONLY.** Aether's stdlib is MIT, so nothing derived
+from an Apache source may go there. A primitive that belongs in Aether (e.g.
+anything in `std.sandbox`) is written fresh, from docs and behaviour.
+
 ## Git
 
 `main` with ONE remote: `origin` (SSH, git@github.com:aether-lang-dev/aeo.git).
