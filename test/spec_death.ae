@@ -170,7 +170,8 @@ main() {
             }
             spec.it("start_argv carries the post-mortem log flags") callback {
                 av = driver_lxc.start_argv("db")
-                spec.expect_str(_join(av)).to_equal_str("-n db -o /tmp/aeo-lxc-db.log -l INFO")
+                lp = driver_lxc.death_log_path("db")
+                spec.expect_str(_join(av)).to_equal_str("-n db -o ${lp} -l INFO")
                 list_free(av)
             }
         }

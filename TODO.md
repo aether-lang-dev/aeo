@@ -94,7 +94,7 @@ malware and are impregnable to attack.* Two axes — stop a node REACHING things
 | rctl resource caps | ✅ | ✅ live + orchestrator-guarded | real-node deny proof pending |
 | Capsicum device grants | n/a | n/a | bhyve self-confines — no seam |
 | **Linux container confinement** | ✅ | ✅ **cgroups+cap-drop+netpolicy, fork-bomb refused live** | lib/confine_linux; reuses limit{}+constrain{} grammar (§5) |
-| **Syscall policy (`deny_syscalls`, seccomp)** | ✅ | ⚠️ one box; host podman only | lib/syscall_policy + lib/seccomp_baseline; see "Syscall policy" below |
+| **Syscall policy (`deny_syscalls`, seccomp)** | ✅ | ⚠️ podman on 3 kernels (x86_64 + arm64); lxc on one box; no docker | lib/syscall_policy + lib/seccomp_baseline; see "Syscall policy" below |
 | **Linux host-exec confinement (Landlock)** | ✅ | ⚠️ one box, local only | lib/confine_landlock + bin/aeo-confine; see "Landlock for host-exec nodes" below |
 | Image attestation | ✅ | ✅ **verify-before-boot, fail-closed; wrong digest refused live** | attest("sha256:..."); 3 greppable states (attested/unpinned/unattestable) |
 | Audit trail | ✅ | ✅ **tamper-evident hash chain; tamper + attest-refuse caught live** | lib/audit; `aeo audit` verifies the chain (§4) |
@@ -118,13 +118,108 @@ download for want of build provenance, and that refusal was left alone):
       is refused and audited, nothing started.
 - [x] full suite 388 passing / 0 failing / 4 skipped; all seven bin/ build.
 
+**Re-verified on the pin, Aether 0.945.0, 2026-11-25** (agent aeo-lxc, own lab
+dirs; live spec run with `AEO_SPEC_IMAGE=docker.io/library/ubuntu:22.04`,
+since no box had debian:trixie):
+- *ae-x64* (stands in for the Ubuntu NUC): Ubuntu 22.04.5, kernel
+  6.8.0-149-generic, x86_64, podman 3.4.4 + crun 0.17. `spec_syscall_policy_live`
+  10 passing. Full suite 413 passing / 7 failing / 14 skipped; all seven bin/
+  build. The 7 failures (spec_running_nodes 4, spec_driver_loadbalancer_live 3)
+  are a host defect, not aeo: Ubuntu 22.04's podman 3.4.4 writes CNI 1.0.0
+  network configs its containernetworking-plugins 0.9.1 reject, so no container
+  starts on ANY user network (`podman network create x; podman run --network x
+  alpine true` fails the same way). The 14 skips: 10 debian:trixie absent, 4 PVE.
+- *cachyos*: CachyOS, kernel 7.3.5-2-cachyos, x86_64, podman 6.2.0 + crun 1.31,
+  libseccomp 2.6.0. `spec_syscall_policy_live` 10 passing. Full suite 405 / 0 / 27
+  (13 lxc absent, 10 debian:trixie absent, 4 PVE). **docker is NOT proven**:
+  `/usr/bin/docker` there is the podman-docker shim and no docker daemon is
+  installed; no lab box has a real docker.
+- *arm64*: the Mac's podman machine (Fedora 44, kernel 7.1.10-200.fc44.aarch64,
+  podman 6.1.3, crun 1.30, libseccomp 2.6.1), spec binary built in
+  `aether-linux` and run inside the machine with
+  `AEO_SPEC_IMAGE=docker.io/arm64v8/ubuntu:22.04`: 10 passing (ptrace by its
+  arm64 number, 117). `aether-linux` (arm64 Ubuntu 22.04 container, Aether
+  0.945.0 built from the tag: there is no linux-arm64 release archive for
+  0.945.0): full suite 395 / 0 / 37, all seven bin/ build; its skips are every
+  engine/lxc/PVE case (no engine or lxc in the container). NOT proven: a Pi 5
+  kernel, nested LXC, arm64 LXC.
+- **Fixed on the way:** `sockets` did not stop a 32-bit binary: an i386 static
+  binary opened a socket through `socketcall` under the class on BOTH hosts
+  (the direct i386 `socket` was refused). `socketcall` is now in the class;
+  re-run: both refused, ae-x64 and cachyos. The live spec took ptrace's number
+  from the HOST's `uname -m` (wrong on a Mac); it now asks the container.
+  Elsewhere in the suite: the LB live spec failed on Linux (no aeo-lb unless a
+  checkout sat at ~/aeo, and `available()` said yes without one; on CachyOS a
+  host-linked aeo-lb cannot start in the Debian image: "libssl.so.4"), so
+  run-spec.sh now builds it static (musl) on every host and `available()`
+  checks for it; the integration spec curled `localhost`, which pasta forwards
+  on ::1 to an IPv4-only service (1 GET in 4 answered on CachyOS): now
+  127.0.0.1; the Landlock live spec expected the pid's comm to be `sh`, but
+  bash-as-sh execs the last command (`sleep`): either is the workload.
+
+**LXC (`lib/confine_lxc`), proven live on ONE box, 2026-11-25:** ae-x64 above,
+LXC 5.0.0 (`lxc-utils` 1:5.0.0~git2209-g5a7b9ce67-0ubuntu1.1, apt-installed for
+this; the `lxc` command there is the LXD 5.0.11 snap client, not used),
+libseccomp 2.5.3, ROOTFUL, image alpine:3.21 (download template), Aether 0.945.0.
+- [x] control: under the stock profile alone, `unshare -U` and a loopback
+      socket pair work inside the container.
+- [x] denied: `namespace` -> unshare EPERM; `sys:socket` -> no socket;
+      `sys:unshare`; `debug` leaves unshare alone.
+- [x] boots: with every offered class (all but `sockets`) Alpine's OpenRC init
+      reaches its runlevel.
+- [x] fail closed: stock file unreadable (`AEO_LXC_SECCOMP_STOCK` pointed at a
+      missing file) -> `aeo up` refuses, audited, nothing left; an unknown
+      entry; `sockets` (below).
+- [x] `aeo up` / `aeo status` / `aeo down`: verified="LXC loaded every denied
+      rule when it started init <pid>"; after the container was restarted by
+      hand without the profile: "applied=no (the running container's start did
+      not load: unshare,setns,…)". Audit records deny/stock/profile.
+- [x] `test/spec_confine_lxc.ae` (pure, 26) and `test/spec_confine_lxc_live.ae`
+      (13, seen failing before the driver code existed).
+- [x] the boot gate is OPEN for a host lxc node (`_syscall_unrendered`); a
+      nested one, and `proxmox_ct`, stay refused.
+
+Found on the box (answers to the plan's open questions):
+- Stock profile: `/usr/share/lxc/config/common.seccomp`, version 2, `denylist`
+  then `reject_force_umount` then `[all]`. aeo reads the file the container's
+  OWN config names (`lxc-info -c lxc.seccomp.profile`) and never copies it
+  (LGPL). aeo opens its own `[all]` section before its lines.
+- `errno 1` accepted; repeating a stock line (module class) is fine; `#`
+  comment lines are fine.
+- `lxc-info -c` reports the CONFIG FILE, not a value set with `-s` at start, so
+  the read-back uses LXC's own INFO start log instead (it lists each rule it
+  processed and the init pid). That log now lives in ~/.aeo/lxc and aeo creates
+  it first, so it is readable; rootful LXC creates it root 0640 otherwise.
+- Boot by init: Alpine/OpenRC boots with every class (`sockets` kills its
+  syslog service only). Ubuntu 22.04/systemd STOPS within 15 s under `mount`
+  or `sockets`; `namespace`, `keyring` and the rest boot. Not refused: up()
+  reports a node that never reaches RUNNING; documented here.
+- **`sockets` is REFUSED on lxc**: with LXC 5.0.0 + libseccomp 2.5.3 a 32-bit
+  binary still opened a socket through the direct i386 syscall; no line LXC
+  takes refuses it ("socket", "[x86] socket", "[x86] 359" all tried).
+  `socketcall` is refused. Re-test on a newer LXC/libseccomp before lifting.
+- A name libseccomp does not know for the host arch is SKIPPED with an INFO
+  line (e.g. `open_tree_attr` on 2.5.3). Harmless where the kernel lacks the
+  syscall; a silent gap where the kernel has it and libseccomp predates it.
+  Same question for podman's runtime libseccomp. Not handled.
+
 **Open:**
-- [ ] re-run on ae 0.945.0, on docker, on aarch64 (Pi 5), on Bazzite.
-- [ ] the other substrates. Each is REFUSED today, not skipped: lxc
-      (`lxc.seccomp.profile`, a different file format), bwrap (needs compiled
-      BPF on an fd), firecracker, nested containers (in a VM / via the agent —
-      the profile has to travel), wslc/wsl_podman, host-exec (std.sandbox owns
-      that filter; anything new there is original work in Aether, not a port).
+- [ ] docker (a real daemon: none in the lab), Bazzite, a Pi 5 (arm64 kernel
+      + arm64 LXC: `paul@192.168.0.78`, LXC already proven there via
+      driver_lxc).
+- [ ] LXC: unprivileged containers (only rootful was run); another distro's
+      LXC (6.x); the `proxmox_ct` route (raw `lxc.*` keys live in
+      /etc/pve/lxc/<id>.conf, which a PVE token cannot write: needs another
+      delivery route; stays refused).
+- [ ] ae-x64's podman cannot use user networks (above); fix the host or run
+      the container specs elsewhere.
+- [ ] The remaining substrates are REFUSED, not skipped: bwrap (needs compiled
+      BPF on an fd), firecracker, nested containers and nested lxc (the profile
+      has to travel), wslc/wsl_podman, host-exec (std.sandbox owns that filter;
+      anything new there is original work in Aether, not a port).
+- [ ] lb_binary's Linux default ($AEO_HOME/bin/aeo-lb, host-linked) cannot run
+      in the Debian LB image on a host newer than it (CachyOS). The specs now
+      build it static; production does not.
 - [ ] `clone(CLONE_NEW*)` is NOT covered by `namespace` (needs an argument
       rule; clone3 cannot be filtered). Documented in the module, not built.
 - [ ] no `setid` class by design: the OCI runtime sets the user after loading
@@ -134,24 +229,16 @@ download for want of build provenance, and that refusal was left alone):
       account back. Seen live: "engine reports seccomp=<aeo's path>" on a node
       aeo booted; "applied=no (the running container reports NO seccomp
       profile)" after the container was swapped by hand for an unconfined one;
-      "supported=no" for lxc; "applied=no (bad entry …)" for a typo.
+      "applied=no (bad entry …)" for a typo. lxc: see above.
 - [ ] status has NO automated test for that row (checked by hand only);
-      test/security-posture.sh does not cover it.
+      test/security-posture.sh does not cover it. (The lxc read-back itself is
+      covered by spec_confine_lxc_live.)
 - [ ] strict() has no syscalls check — not needed for refusal (the boot gate
       is unconditional), but drift detection (`converge`) still ignores a node
       that lost its profile; only status shows it.
 - [ ] the cap-drop status row is not kind-aware: it reports "--cap-drop ALL"
       for an lxc node too. Older than this work; more visible now that
       deny_syscalls alone makes a node "constrained".
-- [ ] LXC rendering was NOT started: lxc is not installed on the Chromebook, so
-      nothing could be proven. **The plan, with sources and the proof
-      required, is `lib/confine_lxc/PLAN.md`** — pick it up from there. In
-      short: LXC takes its own text
-      format and its stock profile is a DENYLIST (and LGPL — do not copy it
-      into aeo). Compose at run time: read the host's own stock profile, append
-      "<name> errno 1" for each denied syscall, point lxc.seccomp.profile at
-      the result; refuse if the host file is missing or not a denylist.
-- [ ] docker: the daemon is not reachable on the Chromebook; untested.
 - [ ] the profile file is not digested into the audit entry (path + policy are).
 - [ ] the cutover (blue->green) path applies the policy but was only compiled.
 

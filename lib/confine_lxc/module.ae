@@ -1,0 +1,252 @@
+// lib/confine_lxc — deny_syscalls() for an `lxc` node, as LXC's own seccomp
+// profile text.
+//
+// The podman/docker path (lib/syscall_policy) renders an OCI JSON ALLOW-list
+// over a baseline aeo carries. LXC is the other way round: its stock profile
+// is a DENY-list (allow by default, a handful refused), because a system
+// container runs a real init that needs mount, unshare and the rest. So here a
+// policy means: the stock denials, plus `<name> errno 1` for every syscall the
+// policy denies. Only ever tighter than stock.
+//
+// The stock profile is the HOST's, read when the node boots, never a copy in
+// aeo: LXC is LGPL-2.1 (AGENTS.md, "Licence & provenance"), and the distro
+// ships and patches its engine's defaults (AGENTS.md, "Delegate or port?").
+// The file to read is the one the container's own config names
+// (`lxc-info -c lxc.seccomp.profile`), i.e. exactly what it would get without
+// aeo; lxc.seccomp.profile names one file, with no include, so aeo writes one
+// file that is "theirs plus ours".
+//
+// FAIL CLOSED: no stock file, an unreadable one, or one that is not a
+// version-2 deny-list this module recognises is an ERROR. A profile holding
+// only aeo's lines would silently drop the stock denials; one appended to an
+// allow-list would mean something else entirely. Never guess.
+//
+// Original aeo code, written from lxc.container.conf(5) and LXC's observed
+// behaviour; nothing was taken from LXC (LGPL-2.1) or Incus. Pure except
+// stock_read and profile_install, which touch one file each.
+//
+// What the kernel and libseccomp do with a name is NOT decided here. Measured
+// on LXC 5.0.0 / libseccomp 2.5.3 (ae-x64, 2026-11-25): a name libseccomp does
+// not know for the host arch is SKIPPED with an INFO line, not refused —
+// harmless for a syscall the kernel does not have, a silent gap for one it
+// has and libseccomp predates (see TODO.md, "Syscall policy").
+
+import syscall_policy (policy_error, denied_names)
+import std.os (getenv)
+import std.fs
+import std.string (string_length, string_split, string_array_size,
+                   string_array_get, string_array_free, string_trim,
+                   string_index_of, string_substring, string_contains,
+                   string_ends_with, string_from_int, bytes)
+
+exports (
+    render, lxc_policy_error, stock_error, stock_read, profile_path, profile_install,
+    start_section, rules_seen
+)
+
+// The first word of a line (up to a space or tab), trimmed.
+fn _first_word(line: string) -> string {
+    t = string_trim(line)
+    sp = string_index_of(t, " ")
+    tb = string_index_of(t, "\t")
+    cut = sp
+    if tb >= 0 {
+        if cut < 0 { cut = tb }
+        if tb < cut { cut = tb }
+    }
+    if cut < 0 { return t }
+    return string_substring(t, 0, cut)
+}
+
+// "" if `text` is a version-2 deny-list profile, else why not. Line 1 is the
+// version, line 2 the policy word (denylist, or blacklist before LXC 4),
+// optionally followed by a default action; nothing may come before them.
+stock_error(text: string) -> string {
+    if string_length(string_trim(text)) == 0 {
+        return "the stock LXC seccomp profile is empty"
+    }
+    lines = string_split(text, "\n")
+    n = string_array_size(lines)
+    v = ""
+    pw = ""
+    if n > 0 { v = string_trim(string_array_get(lines, 0)) }
+    if n > 1 { pw = _first_word(string_array_get(lines, 1)) }
+    string_array_free(lines)
+    if v != "2" {
+        return "the stock LXC seccomp profile is not version 2 (its first line is '${v}')"
+    }
+    if pw == "denylist" { return "" }
+    if pw == "blacklist" { return "" }
+    return "the stock LXC seccomp profile is not a deny-list (its policy line is '${pw}'); aeo only appends denials to a deny-list"
+}
+
+// "" if every entry of a (well-formed) policy can be applied on an lxc node,
+// else why not. Pure.
+//   sockets  NOT offered: on LXC 5.0.0 + libseccomp 2.5.3 a 32-bit x86 binary
+//            in an x86_64 container still opened a socket through the direct
+//            i386 syscall, which no line LXC accepts would refuse ("socket",
+//            "[x86] socket" and "[x86] 359" were all tried; ae-x64,
+//            2026-11-25). A class that only half-applies is refused. One
+//            syscall by name (sys:socket) is still exactly what it says.
+lxc_policy_error(csv: string) -> string {
+    parts = string_split(csv, ",")
+    n = string_array_size(parts)
+    err = ""
+    i = 0
+    while i < n {
+        tok = string_trim(string_array_get(parts, i))
+        if tok == "sockets" {
+            err = "the class 'sockets' is not offered on an lxc node: LXC cannot refuse the 32-bit x86 socket syscalls, so a 32-bit binary in the container could still open one (deny sys:socket and friends by name, or run the node as a podman/docker container)"
+            break
+        }
+        i = i + 1
+    }
+    string_array_free(parts)
+    return err
+}
+
+// The profile for an lxc node: `stock` unchanged, then aeo's own [all]
+// section refusing each denied syscall with EPERM. ("", why) for a policy or
+// a stock text that is not well-formed. An empty policy is `stock` untouched.
+render(stock: string, csv: string) -> (string, string) {
+    perr = policy_error(csv)
+    if perr != "" {
+        return "", perr
+    }
+    lerr = lxc_policy_error(csv)
+    if lerr != "" {
+        return "", lerr
+    }
+    serr = stock_error(stock)
+    if serr != "" {
+        return "", serr
+    }
+    drop = denied_names(csv)
+    if string_length(drop) == 0 {
+        return stock, ""
+    }
+    out = stock
+    if string_ends_with(out, "\n") == 0 {
+        out = "${out}\n"
+    }
+    // Its own [all]: a stock file that ends inside an arch section ([x86_64])
+    // would otherwise scope aeo's lines to that one arch.
+    out = "${out}# aeo: deny_syscalls(${csv})\n[all]\n"
+    names = string_split(drop, ",")
+    n = string_array_size(names)
+    i = 0
+    while i < n {
+        nm = string_trim(string_array_get(names, i))
+        if string_length(nm) > 0 {
+            out = "${out}${nm} errno 1\n"
+        }
+        i = i + 1
+    }
+    string_array_free(names)
+    return out, ""
+}
+
+// Read a stock profile from the host and check it. (text, "") or ("", why).
+stock_read(path: string) -> (string, string) {
+    if string_length(path) == 0 {
+        return "", "no stock LXC seccomp profile is named (the container's config sets no lxc.seccomp.profile)"
+    }
+    txt, rerr = fs.read(path)
+    if rerr != "" {
+        return "", "cannot read the stock LXC seccomp profile ${path}: ${rerr}"
+    }
+    serr = stock_error(txt)
+    if serr != "" {
+        return "", "${path}: ${serr}"
+    }
+    return txt, ""
+}
+
+// Where a node's LXC profile lives: beside the podman ones, under $HOME (a
+// security control does not go in a world-writable directory).
+profile_path(res_name: string) -> string {
+    home = getenv("HOME")
+    if string_length(home) == 0 {
+        return ""
+    }
+    return "${home}/.aeo/seccomp/${res_name}.lxc"
+}
+
+// Write a node's profile. The path, or "ERR:why" (the caller must not start
+// the node on an error).
+profile_install(res_name: string, text: string) -> string {
+    p = profile_path(res_name)
+    if string_length(p) == 0 {
+        return "ERR:aeo: cannot place the LXC seccomp profile for '${res_name}': HOME is not set"
+    }
+    home = getenv("HOME")
+    merr = fs.mkdir_p("${home}/.aeo/seccomp")
+    if merr != "" {
+        return "ERR:aeo: cannot create ~/.aeo/seccomp for '${res_name}': ${merr}"
+    }
+    werr = fs.write_atomic(p, bytes(text))
+    if werr != "" {
+        return "ERR:aeo: cannot write the LXC seccomp profile for '${res_name}': ${werr}"
+    }
+    return p
+}
+
+// ---- read-back ------------------------------------------------------------
+// lxc-info -c reports the container's CONFIG FILE, not a value set with -s at
+// start (measured, LXC 5.0.0), so it cannot say which profile a running node
+// holds. LXC's own start log can: at INFO it records every rule line it
+// processed, and the pid of the init it started. These two read that log.
+
+// The part of an LXC log that belongs to the start which launched init `pid`:
+// from the last "Set process title" before `Started ... with pid "<pid>"` up
+// to that line. "" if the log has no such start.
+start_section(log: string, pid: int) -> string {
+    mark = "with pid \"${string_from_int(pid)}\""
+    end = string_index_of(log, mark)
+    if end < 0 {
+        return ""
+    }
+    head = string_substring(log, 0, end)
+    title = "Set process title to [lxc monitor]"
+    beg = 0 - 1
+    from = 0
+    more = 1
+    while more == 1 {
+        rest = string_substring(head, from, string_length(head))
+        i = string_index_of(rest, title)
+        if i < 0 {
+            more = 0
+        } else {
+            beg = from + i
+            from = from + i + 1
+        }
+    }
+    if beg < 0 {
+        return ""
+    }
+    return string_substring(log, beg, end + string_length(mark))
+}
+
+// The denied names (comma-joined) that a start section did NOT process as
+// `<name> errno 1`. "" = every one of them was loaded.
+rules_seen(section: string, csv: string) -> string {
+    missing = ""
+    names = string_split(denied_names(csv), ",")
+    n = string_array_size(names)
+    i = 0
+    while i < n {
+        nm = string_trim(string_array_get(names, i))
+        if string_length(nm) > 0 {
+            if string_contains(section, "Processing \"${nm} errno 1\"") == 0 {
+                if string_length(missing) == 0 {
+                    missing = nm
+                } else {
+                    missing = "${missing},${nm}"
+                }
+            }
+        }
+        i = i + 1
+    }
+    string_array_free(names)
+    return missing
+}

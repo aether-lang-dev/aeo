@@ -1,0 +1,228 @@
+// test/spec_confine_lxc.ae — the PURE half of deny_syscalls() on an lxc node:
+// lib/confine_lxc renders the policy as LXC's own seccomp text, appended to
+// the stock profile the HOST's LXC ships (read at run time, never carried in
+// aeo). Nothing here starts a container, so it runs anywhere ae does. The
+// kernel half is test/spec_confine_lxc_live.ae.
+//
+// The fixtures are written by hand. LXC's own common.seccomp is LGPL-2.1 and
+// must not be pasted in here (AGENTS.md, "Licence & provenance").
+
+import std.spec
+import std.string (string_contains, string_index_of, string_length, string_split, string_array_size, string_array_get, string_array_free, string_trim, string_ends_with)
+import syscall_policy (denied_names)
+import confine_lxc (render, stock_read, profile_path, profile_install, rules_seen, start_section)
+import driver_lxc (start_argv_shared, death_log_path)
+import std.list
+
+// How many lines of `text` are exactly `line`.
+_count_line(text: string, line: string) -> int {
+    parts = string_split(text, "\n")
+    n = string_array_size(parts)
+    c = 0
+    i = 0
+    while i < n {
+        if string_trim(string_array_get(parts, i)) == line {
+            c = c + 1
+        }
+        i = i + 1
+    }
+    string_array_free(parts)
+    return c
+}
+
+_join(av: ptr) -> string {
+    s = ""
+    n = list_size(av)
+    i = 0
+    while i < n {
+        it, _ = list.get_string(av, i)
+        if i == 0 {
+            s = "${it}"
+        } else {
+            s = "${s} ${it}"
+        }
+        i = i + 1
+    }
+    return s
+}
+
+main() {
+    fw = spec.init()
+
+    stock = "2\ndenylist\nreboot errno 1\n"
+
+    spec.describe(fw, "confine_lxc (deny_syscalls() as an LXC seccomp profile)") {
+
+        spec.describe("render: the stock denials, plus aeo's") {
+            spec.it("keeps the host's stock profile, unchanged, at the top") callback {
+                out, err = render(stock, "namespace")
+                spec.expect_str(err).to_equal_str("")
+                spec.expect_int(string_index_of(out, stock)).to_equal(0,
+                    "aeo only appends: a profile with the stock lines dropped would quietly lose the distro's denials")
+            }
+            spec.it("refuses each denied syscall with EPERM, in LXC's own syntax") callback {
+                out, _ = render(stock, "namespace")
+                spec.expect_int(_count_line(out, "unshare errno 1")).to_equal(1, out)
+                spec.expect_int(_count_line(out, "setns errno 1")).to_equal(1, out)
+            }
+            spec.it("opens its own [all] section, so a stock file that ends in an arch section cannot scope aeo's lines") callback {
+                arch = "2\ndenylist\n[x86_64]\nreboot errno 1\n"
+                out, _ = render(arch, "namespace")
+                a = string_index_of(out, "\n[all]\n")
+                u = string_index_of(out, "unshare errno 1")
+                spec.expect_int(a > 0).to_equal(1, out)
+                spec.expect_int(u > a).to_equal(1, out)
+            }
+            spec.it("says in the file what aeo added and from which policy") callback {
+                out, _ = render(stock, "namespace,sys:ptrace")
+                spec.expect_int(string_contains(out, "# aeo: deny_syscalls(namespace,sys:ptrace)")).to_equal(1, out)
+            }
+            spec.it("adds a missing final newline before appending") callback {
+                out, _ = render("2\ndenylist\nreboot errno 1", "sys:ptrace")
+                spec.expect_int(_count_line(out, "reboot errno 1")).to_equal(1, out)
+                spec.expect_int(_count_line(out, "ptrace errno 1")).to_equal(1, out)
+            }
+            spec.it("names every syscall of every class it offers exactly once") callback {
+                offered = "debug,mount,namespace,module,keyring,handle,memfd,time,io_uring,bpf,userfault"
+                out, err = render(stock, offered)
+                spec.expect_str(err).to_equal_str("")
+                names = string_split(denied_names(offered), ",")
+                n = string_array_size(names)
+                bad = ""
+                i = 0
+                while i < n {
+                    nm = string_array_get(names, i)
+                    if _count_line(out, "${nm} errno 1") != 1 {
+                        bad = "${bad} ${nm}"
+                    }
+                    i = i + 1
+                }
+                string_array_free(names)
+                spec.expect_str(bad).to_equal_str("")
+            }
+            spec.it("an empty policy is the stock profile untouched") callback {
+                out, err = render(stock, "")
+                spec.expect_str(err).to_equal_str("")
+                spec.expect_str(out).to_equal_str(stock)
+            }
+            spec.it("accepts the older 'blacklist' spelling, and keeps it") callback {
+                old = "2\nblacklist\nreboot errno 1\n"
+                out, err = render(old, "namespace")
+                spec.expect_str(err).to_equal_str("")
+                spec.expect_int(string_index_of(out, old)).to_equal(0)
+            }
+            spec.it("accepts a default action after the policy word, and CRLF line ends") callback {
+                _, e1 = render("2\ndenylist errno 1\n", "namespace")
+                spec.expect_str(e1).to_equal_str("")
+                _, e2 = render("2\r\ndenylist\r\n", "namespace")
+                spec.expect_str(e2).to_equal_str("")
+            }
+        }
+
+        spec.describe("render fails closed") {
+            spec.it("an unknown policy entry renders nothing") callback {
+                out, err = render(stock, "debug,nope")
+                spec.expect_str(out).to_equal_str("")
+                spec.expect_int(string_contains(err, "'nope'")).to_equal(1, err)
+            }
+            spec.it("no stock text is refused, not treated as 'no denials'") callback {
+                out, err = render("", "namespace")
+                spec.expect_str(out).to_equal_str("")
+                spec.expect_int(string_length(err) > 0).to_equal(1)
+            }
+            spec.it("an allow-list stock profile is refused (appending denials to it would mean nothing)") callback {
+                _, e1 = render("2\nallowlist\nread\n", "namespace")
+                spec.expect_int(string_contains(e1, "deny-list")).to_equal(1, e1)
+                _, e2 = render("2\nwhitelist\n", "namespace")
+                spec.expect_int(string_length(e2) > 0).to_equal(1)
+            }
+            spec.it("a version-1 profile is refused") callback {
+                _, err = render("1\nwhitelist\n0\n", "namespace")
+                spec.expect_int(string_contains(err, "version 2")).to_equal(1, err)
+            }
+            spec.it("anything before the version line is refused, not skipped") callback {
+                _, e1 = render("# a comment\n2\ndenylist\n", "namespace")
+                spec.expect_int(string_length(e1) > 0).to_equal(1)
+                _, e2 = render("2\ndenylisted\n", "namespace")
+                spec.expect_int(string_length(e2) > 0).to_equal(1, "a policy word is matched whole")
+            }
+        }
+
+        spec.describe("a class LXC cannot fully apply is refused, not half-applied") {
+            spec.it("sockets: a 32-bit x86 binary still opens a socket under LXC 5.0 + libseccomp 2.5.3") callback {
+                out, err = render(stock, "debug,sockets")
+                spec.expect_str(out).to_equal_str("")
+                spec.expect_int(string_contains(err, "'sockets'")).to_equal(1, err)
+            }
+            spec.it("one socket syscall by name is still what it says") callback {
+                out, err = render(stock, "sys:socket")
+                spec.expect_str(err).to_equal_str("")
+                spec.expect_int(_count_line(out, "socket errno 1")).to_equal(1, out)
+            }
+        }
+
+        spec.describe("the stock file is read from the host, and its absence refuses") {
+            spec.it("a missing file is an error, never an empty profile") callback {
+                txt, err = stock_read("/nonexistent/aeo/common.seccomp")
+                spec.expect_str(txt).to_equal_str("")
+                spec.expect_int(string_contains(err, "/nonexistent/aeo/common.seccomp")).to_equal(1, err)
+            }
+            spec.it("an empty path is an error (the container names no profile)") callback {
+                _, err = stock_read("")
+                spec.expect_int(string_length(err) > 0).to_equal(1)
+            }
+            spec.it("a file that is not a version-2 deny-list is refused when read") callback {
+                p = profile_install("spec-confine-lxc-allow", "2\nallowlist\nread\n")
+                txt, err = stock_read(p)
+                spec.expect_str(txt).to_equal_str("")
+                spec.expect_int(string_contains(err, "deny-list")).to_equal(1, err)
+            }
+        }
+
+        spec.describe("install") {
+            spec.it("writes the profile under ~/.aeo/seccomp as <node>.lxc") callback {
+                p = profile_install("spec-confine-lxc", stock)
+                spec.expect_int(string_ends_with(p, "/.aeo/seccomp/spec-confine-lxc.lxc")).to_equal(1, p)
+                spec.expect_str(p).to_equal_str(profile_path("spec-confine-lxc"))
+                txt, err = stock_read(p)
+                spec.expect_str(err).to_equal_str("")
+                spec.expect_str(txt).to_equal_str(stock)
+            }
+        }
+
+        spec.describe("the driver applies it at start") {
+            spec.it("the profile rides lxc-start as -s lxc.seccomp.profile=<path>, no config-file edit") callback {
+                av = start_argv_shared("db", "", "/home/x/.aeo/seccomp/db.lxc")
+                lp = death_log_path("db")
+                spec.expect_str(_join(av)).to_equal_str("-n db -s lxc.seccomp.profile=/home/x/.aeo/seccomp/db.lxc -o ${lp} -l INFO")
+                list_free(av)
+            }
+            spec.it("no profile adds no -s") callback {
+                av = start_argv_shared("db", "", "")
+                spec.expect_int(string_contains(_join(av), "seccomp")).to_equal(0)
+                list_free(av)
+            }
+            spec.it("LXC's log, which the read-back trusts, is not in /tmp by default") callback {
+                spec.expect_int(string_contains(death_log_path("db"), "/.aeo/lxc/")).to_equal(1, death_log_path("db"))
+            }
+        }
+
+        spec.describe("read-back from LXC's own start log") {
+            log = "lxc-start n 1 INFO     lxccontainer - lxccontainer.c:do_lxcapi_start:997 - Set process title to [lxc monitor] /var/lib/lxc n\nlxc-start n 1 INFO     seccomp - seccomp.c:parse_config_v2:807 - Processing \"unshare errno 1\"\nlxc-start n 1 NOTICE   start - start.c:post_start:2172 - Started \"/sbin/init\" with pid \"111\"\nlxc-start n 2 INFO     lxccontainer - lxccontainer.c:do_lxcapi_start:997 - Set process title to [lxc monitor] /var/lib/lxc n\nlxc-start n 2 INFO     seccomp - seccomp.c:parse_config_v2:807 - Processing \"unshare errno 1\"\nlxc-start n 2 INFO     seccomp - seccomp.c:parse_config_v2:807 - Processing \"setns errno 1\"\nlxc-start n 2 NOTICE   start - start.c:post_start:2172 - Started \"/sbin/init\" with pid \"222\"\n"
+            spec.it("finds the start that launched the running init") callback {
+                sec = start_section(log, 222)
+                spec.expect_int(string_contains(sec, "setns errno 1")).to_equal(1, sec)
+                old = start_section(log, 111)
+                spec.expect_int(string_contains(old, "setns errno 1")).to_equal(0, old)
+            }
+            spec.it("no start for this pid is no section") callback {
+                spec.expect_str(start_section(log, 333)).to_equal_str("")
+            }
+            spec.it("every denied name must have been processed in that start") callback {
+                spec.expect_str(rules_seen(start_section(log, 222), "namespace")).to_equal_str("")
+                spec.expect_str(rules_seen(start_section(log, 111), "namespace")).to_equal_str("setns")
+            }
+        }
+    }
+    return spec.run_summary(fw)
+}

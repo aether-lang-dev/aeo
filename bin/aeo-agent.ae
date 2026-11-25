@@ -537,9 +537,11 @@ _boot_node(node: string, kind_override: string) -> string {
     // download-template "dist:release" (default debian:trixie); driver picks the
     // arch. Self-contained: install lxc -> lxc-create downloads the rootfs -> start.
     if string_equals(kind, "lxc") == 1 {
+        // No syscall policy travels with a dispatch yet: the runner refuses
+        // deny_syscalls() on a node it does not boot itself.
         return driver_lxc.up(node,
             _env_or("AEO_BOOT_IMAGE", "debian:trixie"),
-            "")
+            "", "")
     }
     // NSPAWN SUBSTRATE: AEO_BOOT_KIND=nspawn routes to driver_nspawn — a
     // systemd-nspawn system container over a rootfs dir (systemd-container

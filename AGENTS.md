@@ -184,9 +184,11 @@ lib/confine_landlock/  a HOST-EXEC node held by the kernel to a grant list (Land
 lib/syscall_policy/    deny_syscalls() -> a seccomp profile: classes ("debug", "mount",
                    "namespace", …) or sys:NAME, only ever TIGHTENING the baseline.
                    Pure. The runner REFUSES a node whose substrate cannot take it
-                   (rendered for a host podman/docker container only, so far).
-lib/confine_lxc/   NOT BUILT — PLAN.md only: deny_syscalls() for lxc nodes (which
-                   are refused until it is proven). Start there.
+                   (rendered for a host podman/docker container and a host lxc node).
+lib/confine_lxc/   deny_syscalls() for an lxc node: LXC's own text format, the
+                   HOST's stock deny-list (read at run time; LGPL, never copied)
+                   plus "<name> errno 1" lines. Fail-closed: no stock file, or not
+                   a v2 deny-list, starts nothing. `sockets` is refused on lxc.
 lib/seccomp_baseline/  DERIVED (containers/common) — the stock container syscall
                    profile as a data table. Data only; keep logic out of it.
 lib/rctl/ lib/pf/  FreeBSD confinement: rctl caps + pf network policy.

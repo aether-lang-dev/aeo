@@ -1,0 +1,174 @@
+// test/spec_confine_lxc_live.ae — the KERNEL half of deny_syscalls() on an
+// lxc node: a real LXC system container, started by driver_lxc under the
+// profile lib/confine_lxc rendered over the host's own stock profile, is
+// refused what the policy denies, and is NOT refused it under the stock
+// profile alone (the control, without which a refusal proves nothing).
+//
+// Needs the lxc-* tools, `sudo -n` for them (rootful; driver_lxc's grant), and
+// the download template's image (AEO_SPEC_LXC_IMAGE, default alpine:3.21: it
+// has busybox unshare and nc, and OpenRC). Where any is missing every case
+// reports SKIPPED with the reason; it does not pass.
+//
+// The container names are aeo-spec-lxc-*; each case destroys its own. The
+// pure rendering is test/spec_confine_lxc.ae.
+
+import std.spec
+import std.os (run_capture, getenv, setenv, unsetenv)
+import std.list
+import std.string (string_length, string_contains, string_trim)
+import driver_lxc (up, down, probe, exec_capture, seccomp_reported)
+
+_sh(cmd: string) -> (string, int) {
+    av = list_new()
+    list_add(av, "-c")
+    list_add(av, cmd)
+    out, status, err = run_capture("/bin/sh", av, null)
+    list_free(av)
+    if err != "" {
+        return err, -1
+    }
+    return out, status
+}
+
+// Boot `nm` under `policy` ("" = the stock profile only), run `cmd` in it
+// (stdout and stderr), tear it down. ("ERR:<why>", -1) if it did not boot.
+_under(nm: string, img: string, policy: string, cmd: string) -> (string, int) {
+    _ = down(nm)
+    uerr = up(nm, img, "", policy)
+    if uerr != "" {
+        _ = down(nm)
+        return "ERR:${uerr}", -1
+    }
+    out = exec_capture(nm, "(${cmd}) 2>&1; true")
+    _ = down(nm)
+    return out, 0
+}
+
+main() {
+    fw = spec.init()
+
+    img = getenv("AEO_SPEC_LXC_IMAGE")
+    if string_length(img) == 0 {
+        img = "alpine:3.21"
+    }
+
+    // The gate: a container of this image boots under the stock profile here.
+    avail = 0
+    why = "the lxc-* tools are not installed"
+    have, _ = _sh("command -v lxc-start >/dev/null && command -v lxc-create >/dev/null && echo yes")
+    if string_contains(have, "yes") == 1 {
+        why = "no passwordless sudo for the lxc-* tools (driver_lxc runs them rootful)"
+        sud, _ = _sh("sudo -n /usr/bin/lxc-ls >/dev/null 2>&1 && echo yes")
+        if string_contains(sud, "yes") == 1 {
+            out, rc = _under("aeo-spec-lxc-gate", img, "", "echo GATE_OK")
+            if string_contains(out, "GATE_OK") == 1 {
+                avail = 1
+            } else {
+                why = "an LXC container of ${img} does not boot under the stock profile here (${rc}): ${string_trim(out)}"
+            }
+        }
+    }
+
+    unshare_cmd = "unshare -U true && echo UNSHARE_OK"
+    // a listener and a client on loopback: both need socket()
+    socket_cmd = "(nc -l -p 5555 > /tmp/got &) ; sleep 1; echo SOCKET_OK | nc 127.0.0.1 5555; sleep 1; cat /tmp/got"
+    // every class lib/confine_lxc offers ('sockets' is refused on lxc)
+    all = "debug,mount,namespace,module,keyring,handle,memfd,time,io_uring,bpf,userfault"
+
+    spec.describe(fw, "deny_syscalls() on an LXC system container, live") {
+
+        spec.describe("the control: the host's stock profile alone allows these") {
+            spec.it_when(avail, "a new user namespace can be made", why) callback {
+                out, _ = _under("aeo-spec-lxc-c1", img, "", unshare_cmd)
+                spec.expect_int(string_contains(out, "UNSHARE_OK")).to_equal(1, out)
+            }
+            spec.it_when(avail, "a socket can be created, bound and connected", why) callback {
+                out, _ = _under("aeo-spec-lxc-c2", img, "", socket_cmd)
+                spec.expect_int(string_contains(out, "SOCKET_OK")).to_equal(1, out)
+            }
+        }
+
+        spec.describe("a denied class is refused by the kernel") {
+            spec.it_when(avail, "namespace: unshare gets EPERM", why) callback {
+                out, _ = _under("aeo-spec-lxc-d1", img, "namespace", unshare_cmd)
+                spec.expect_int(string_contains(out, "UNSHARE_OK")).to_equal(0, out)
+                spec.expect_int(string_contains(out, "Operation not permitted")).to_equal(1, out)
+            }
+            spec.it_when(avail, "sys:socket: no socket can be created", why) callback {
+                out, _ = _under("aeo-spec-lxc-d2", img, "sys:socket", socket_cmd)
+                spec.expect_int(string_contains(out, "SOCKET_OK")).to_equal(0, out)
+                spec.expect_int(string_contains(out, "Operation not permitted")).to_equal(1, out)
+            }
+            spec.it_when(avail, "one syscall by name: sys:unshare", why) callback {
+                out, _ = _under("aeo-spec-lxc-d3", img, "sys:unshare", unshare_cmd)
+                spec.expect_int(string_contains(out, "UNSHARE_OK")).to_equal(0, out)
+            }
+        }
+
+        spec.describe("a denial takes only what it names") {
+            spec.it_when(avail, "denying debug leaves unshare working", why) callback {
+                out, _ = _under("aeo-spec-lxc-o1", img, "debug", unshare_cmd)
+                spec.expect_int(string_contains(out, "UNSHARE_OK")).to_equal(1, out)
+            }
+            spec.it_when(avail, "with EVERY class denied, init still reaches its runlevel", why) callback {
+                out, rc = _under("aeo-spec-lxc-o2", img, all, "sleep 3; test -s /run/openrc/softlevel && cat /etc/hostname >/dev/null && echo STILL_RUNS")
+                spec.expect_int(rc).to_equal(0, out)
+                spec.expect_int(string_contains(out, "STILL_RUNS")).to_equal(1, out)
+            }
+        }
+
+        spec.describe("fail closed") {
+            spec.it_when(avail, "the sockets class, which LXC cannot fully apply, starts nothing", why) callback {
+                nm = "aeo-spec-lxc-f0"
+                _ = down(nm)
+                err = up(nm, img, "", "sockets")
+                spec.expect_int(string_contains(err, "'sockets'")).to_equal(1, err)
+                spec.expect_int(probe(nm, "", "")).to_equal(0)
+                _ = down(nm)
+            }
+            spec.it_when(avail, "a policy with an unknown entry starts nothing", why) callback {
+                nm = "aeo-spec-lxc-f1"
+                _ = down(nm)
+                err = up(nm, img, "", "debug,nope")
+                spec.expect_int(string_contains(err, "'nope'")).to_equal(1, err)
+                spec.expect_int(probe(nm, "", "")).to_equal(0)
+                _ = down(nm)
+            }
+            spec.it_when(avail, "no stock profile to build on: nothing starts", why) callback {
+                nm = "aeo-spec-lxc-f2"
+                _ = down(nm)
+                _ = setenv("AEO_LXC_SECCOMP_STOCK", "/nonexistent/aeo/common.seccomp")
+                err = up(nm, img, "", "namespace")
+                _ = unsetenv("AEO_LXC_SECCOMP_STOCK")
+                spec.expect_int(string_contains(err, "/nonexistent/aeo/common.seccomp")).to_equal(1, err)
+                spec.expect_int(probe(nm, "", "")).to_equal(0, "a profile with only aeo's lines would drop the stock denials")
+                _ = down(nm)
+            }
+        }
+
+        spec.describe("read-back: what LXC says it loaded") {
+            spec.it_when(avail, "a booted node's start log shows every denied rule, for the running init", why) callback {
+                nm = "aeo-spec-lxc-r1"
+                _ = down(nm)
+                uerr = up(nm, img, "", "namespace,sys:ptrace")
+                spec.expect_str(uerr).to_equal_str("")
+                rep = seccomp_reported(nm, "namespace,sys:ptrace")
+                spec.expect_int(string_contains(rep, "OK:")).to_equal(1, rep)
+                _ = down(nm)
+            }
+            spec.it_when(avail, "a node started without the policy is reported as not having it", why) callback {
+                nm = "aeo-spec-lxc-r2"
+                _ = down(nm)
+                uerr = up(nm, img, "", "")
+                spec.expect_str(uerr).to_equal_str("")
+                rep = seccomp_reported(nm, "namespace")
+                spec.expect_int(string_contains(rep, "MISSING:unshare,setns")).to_equal(1, rep)
+                _ = down(nm)
+            }
+            spec.it_when(avail, "a stopped node is not probed", why) callback {
+                spec.expect_str(seccomp_reported("aeo-spec-lxc-absent", "namespace")).to_equal_str("")
+            }
+        }
+    }
+    return spec.run_summary(fw)
+}

@@ -41,6 +41,7 @@ import snapshot
 import snapshot_linux
 import confine_linux
 import syscall_policy
+import confine_lxc
 import seccomp_baseline
 import reconcile
 import extract
@@ -773,8 +774,15 @@ _strict_check_prop(nm: string, k: string, label: string, row: string) -> string 
 // _syscall_unrendered(nm, k) — "" if this node's substrate can take a syscall
 // policy, else what it is (for "not rendered for <this> yet"). One definition,
 // shared by the boot gate and the status row so they cannot disagree.
-// Rendered today: a HOST container (podman/docker) only.
+// Rendered today: a HOST container (podman/docker), and an lxc node aeo
+// starts itself (lib/confine_lxc).
 _syscall_unrendered(nm: string, k: string) -> string {
+    if k == "lxc" {
+        if compose.get_host(nm) != "" {
+            return "an lxc node nested inside '${compose.get_host(nm)}'"
+        }
+        return ""
+    }
     if k != "container" {
         return "kind '${k}'"
     }
@@ -795,7 +803,7 @@ _syscall_unrendered(nm: string, k: string) -> string {
 // _strict_gate this is NOT opt-in: a syscall denial the operator wrote down
 // and aeo quietly did not apply is the worst outcome here, so an unknown
 // entry, or a substrate the policy is not rendered for, refuses the boot.
-// Rendered today: a HOST container (podman/docker) only.
+// Rendered today: a HOST container (podman/docker), and a host lxc node.
 _syscall_gate(nm: string, k: string) -> string {
     pol = compose.get_syscall_policy(nm)
     if string_length(pol) == 0 {
@@ -806,10 +814,17 @@ _syscall_gate(nm: string, k: string) -> string {
         _ = audit.record(nm, k, "syscall-policy-refuse", perr)
         return "aeo: [${nm}] REFUSED — deny_syscalls(): ${perr}"
     }
+    if k == "lxc" {
+        lerr = confine_lxc.lxc_policy_error(pol)
+        if lerr != "" {
+            _ = audit.record(nm, k, "syscall-policy-refuse", lerr)
+            return "aeo: [${nm}] REFUSED — deny_syscalls(): ${lerr}"
+        }
+    }
     why = _syscall_unrendered(nm, k)
     if why != "" {
         _ = audit.record(nm, k, "syscall-policy-refuse", "not rendered for ${why}")
-        return "aeo: [${nm}] REFUSED — deny_syscalls() is declared, but a syscall policy is not rendered for ${why} yet. aeo will not start a node without a policy it was told to apply: run it as a host container (podman/docker), or remove the declaration."
+        return "aeo: [${nm}] REFUSED — deny_syscalls() is declared, but a syscall policy is not rendered for ${why} yet. aeo will not start a node without a policy it was told to apply: run it as a host container (podman/docker) or a host lxc node, or remove the declaration."
     }
     return ""
 }
@@ -864,7 +879,18 @@ driver_up(nm: string, k: string) -> string {
     if k == "lxc" {
         // REAL LXC system container (driver_lxc), not podman. image() is the
         // download-template "dist:release" (e.g. "alpine:3.21").
-        return driver_lxc.up(nm, compose.get_image(nm), _shares_of(nm))
+        // deny_syscalls(): driver_lxc renders it over the container's own
+        // stock profile and refuses to start without one (lib/confine_lxc).
+        lpol = compose.get_syscall_policy(nm)
+        lerr = driver_lxc.up(nm, compose.get_image(nm), _shares_of(nm), lpol)
+        if string_length(lpol) > 0 {
+            if lerr == "" {
+                _ = audit.record(nm, k, "syscall-policy", "deny=${lpol} stock=${driver_lxc.seccomp_stock_path(nm)} profile=${confine_lxc.profile_path(nm)}")
+            } else {
+                _ = audit.record(nm, k, "syscall-policy-refuse", lerr)
+            }
+        }
+        return lerr
     }
     if k == "container" {
         // ENGINE DISPATCH: `container` is the one OCI kind; get_engine(nm) picks
@@ -2563,6 +2589,13 @@ _secp_syscalls(nm: string, k: string) -> string {
     if why != "" {
         return "${pol}|no|no (not rendered for ${why})|not probed"
     }
+    if k == "lxc" {
+        lerr = confine_lxc.lxc_policy_error(pol)
+        if lerr != "" {
+            return "${pol}|no|no (${lerr})|not probed"
+        }
+        return _secp_syscalls_lxc(nm, pol)
+    }
     appl = "seccomp profile over ${seccomp_baseline.source()}"
     rep = driver_linux.seccomp_reported(nm, compose.get_engine(nm))
     if string_length(rep) == 0 {
@@ -2578,6 +2611,29 @@ _secp_syscalls(nm: string, k: string) -> string {
         }
     }
     return "${pol}|yes|${appl}|engine reports a seccomp profile (not by aeo's path)"
+}
+
+// The lxc arm: LXC's own start log, read back for the running init (lxc-info
+// cannot say which profile a value set at start named; see driver_lxc).
+_secp_syscalls_lxc(nm: string, pol: string) -> string {
+    appl = "LXC seccomp profile: the container's stock denials + aeo's"
+    rep = driver_lxc.seccomp_reported(nm, pol)
+    if string_length(rep) == 0 {
+        return "${pol}|yes|${appl}|not probed (node not running)"
+    }
+    c = string_index_of(rep, ":")
+    tag = string_substring(rep, 0, c)
+    rest = string_substring(rep, c + 1, string_length(rep))
+    if tag == "NOFILTER" {
+        return "${pol}|yes|no (${rest})|LXC reports no filter"
+    }
+    if tag == "MISSING" {
+        return "${pol}|yes|no (the running container's start did not load: ${rest})|LXC's start log read back"
+    }
+    if tag == "UNREADABLE" {
+        return "${pol}|yes|${appl}|not probed (${rest})"
+    }
+    return "${pol}|yes|${appl}|${rest}"
 }
 
 // Collapse a newline-separated list to a comma-joined one-liner for status.

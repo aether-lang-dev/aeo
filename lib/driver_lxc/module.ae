@@ -14,6 +14,9 @@
 //
 //   up    — if `lxc-info -n NAME` shows RUNNING, no-op; else lxc-create from the
 //           download template (image "dist:release", e.g. "alpine:3.21") + lxc-start.
+//           A deny_syscalls() policy rides the start as `-s lxc.seccomp.profile=`
+//           a file lib/confine_lxc writes: the container's own stock profile
+//           plus aeo's denials. No stock profile to build on: nothing starts.
 //   down  — lxc-stop + lxc-destroy -f; an absent container is success.
 //   probe — 1 if `lxc-info -n NAME` State is RUNNING (+ optional health via
 //           lxc-attach), else 0.
@@ -21,13 +24,17 @@
 
 import std.os (run_capture, run_full, getenv)
 import std.list
-import std.string (string_length, string_index_of, string_substring, string_contains, string_char_at, string_from_int, string_equals)
+import std.fs
+import std.string (string_length, string_index_of, string_substring, string_contains, string_char_at, string_from_int, string_equals, string_trim, string_starts_with)
 import host
+import syscall_policy (policy_error)
+import confine_lxc (render, lxc_policy_error, stock_read, profile_install, start_section, rules_seen)
 
 exports (
     name,
     up, down, probe, exec_capture,
     create_argv, start_argv, start_argv_shared, stop_argv, destroy_argv, info_argv, attach_argv,
+    seccomp_stock_path, seccomp_prepare, seccomp_reported,
     image_dist, image_release,
     death_log_path, death_from_log, death_state
 )
@@ -114,7 +121,7 @@ _ensure_lxc() {
 }
 
 start_argv(res_name: string) -> ptr {
-    return start_argv_shared(res_name, "")
+    return start_argv_shared(res_name, "", "")
 }
 
 // start_argv plus share() mounts, set AT START via `-s lxc.mount.entry=...`
@@ -123,11 +130,18 @@ start_argv(res_name: string) -> ptr {
 // RELATIVE to the container rootfs (LXC convention: a leading / would name a
 // host path), so dst has its leading slash stripped. LXC applies `ro` on bind
 // entries via its internal remount, so the read-only default is enforced.
-start_argv_shared(res_name: string, shares: string) -> ptr {
+// `seccomp` ("" = the container's own) is a profile path, set the same way:
+// `-s lxc.seccomp.profile=<path>` replaces the config file's value for this
+// start only.
+start_argv_shared(res_name: string, shares: string, seccomp: string) -> ptr {
     av = list_new()
     list_add(av, "-n")
     list_add(av, res_name)
     _add_share_defs(av, shares)
+    if string_length(seccomp) > 0 {
+        list_add(av, "-s")
+        list_add(av, "lxc.seccomp.profile=${seccomp}")
+    }
     // INFO-level log to an aeo-owned file: LXC records the init post-mortem
     // there ("Child <pid> ended on signal Killed(9)" / "ended on error (N)" —
     // wording proven against real LXC 6.x on .160, 2026-07-18) and NOWHERE
@@ -140,18 +154,129 @@ start_argv_shared(res_name: string, shares: string) -> ptr {
     return av
 }
 
-// The per-container post-mortem log. Default /tmp (always writable, exists on
-// every host); AEO_LXC_LOG_DIR overrides. NB on a ROOTFUL setup the file is
-// root-owned 0640, so the unprivileged post-mortem read degrades to "no
-// verdict" unless the operator points AEO_LXC_LOG_DIR at a directory with a
-// default read ACL (setfacl -d -m u:<aeouser>:r <dir>) — the same
-// operator-grant convention as the sudoers drop-in.
+// The per-container log: the post-mortem, and LXC's account of the seccomp
+// rules it loaded (seccomp_reported). Default ~/.aeo/lxc (/tmp without a
+// HOME); AEO_LXC_LOG_DIR overrides. up() creates the file as aeo's user
+// before a rootful lxc-start appends to it, so aeo can read it back: a file
+// LXC creates itself is root-owned 0640. Not /tmp: anyone could plant the
+// file there first, and write the log aeo then trusts.
 death_log_path(res_name: string) -> string {
     d = getenv("AEO_LXC_LOG_DIR")
     if string_length(d) == 0 {
-        d = "/tmp"
+        h = getenv("HOME")
+        if string_length(h) > 0 {
+            d = "${h}/.aeo/lxc"
+        } else {
+            d = "/tmp"
+        }
     }
     return "${d}/aeo-lxc-${res_name}.log"
+}
+
+// Create the log file as aeo's own user if it is absent (see death_log_path).
+_log_prepare(res_name: string) {
+    p = death_log_path(res_name)
+    if fs.exists(p) == 1 {
+        return
+    }
+    i = string_index_of(p, "/aeo-lxc-")
+    if i > 0 {
+        _ = fs.mkdir_p(string_substring(p, 0, i))
+    }
+    _ = fs.write(p, "")
+}
+
+// The stock profile this container would run under without aeo: the one its
+// own config names (`lxc-info -c lxc.seccomp.profile`; the download
+// template's config includes the distro's common.conf, which sets it).
+// AEO_LXC_SECCOMP_STOCK overrides. "" = none named.
+seccomp_stock_path(res_name: string) -> string {
+    o = getenv("AEO_LXC_SECCOMP_STOCK")
+    if string_length(o) > 0 {
+        return o
+    }
+    av = list_new()
+    list_add(av, "-n")
+    list_add(av, res_name)
+    list_add(av, "-c")
+    list_add(av, "lxc.seccomp.profile")
+    out, status, err = _lxc_query("lxc-info", av)
+    list_free(av)
+    if err != "" {
+        return ""
+    }
+    if status != 0 {
+        return ""
+    }
+    eq = string_index_of(out, "=")
+    if eq < 0 {
+        return ""
+    }
+    return string_trim(string_substring(out, eq + 1, string_length(out)))
+}
+
+// Render and write `policy` for a (created) container: its stock profile plus
+// aeo's denials. The profile path, or "ERR:why" — the caller must not start it.
+seccomp_prepare(res_name: string, policy: string) -> string {
+    sp = seccomp_stock_path(res_name)
+    stock, serr = stock_read(sp)
+    if serr != "" {
+        return "ERR:aeo: lxc '${res_name}' REFUSED — deny_syscalls(): ${serr}. A profile of aeo's lines alone would drop LXC's stock denials, so the node is not started."
+    }
+    prof, rerr = render(stock, policy)
+    if rerr != "" {
+        return "ERR:aeo: lxc '${res_name}' REFUSED — deny_syscalls(): ${rerr}"
+    }
+    return profile_install(res_name, prof)
+}
+
+// LXC's own account of the seccomp rules the RUNNING container was started
+// with, checked against `policy`:
+//   ""             not running (nothing to probe)
+//   "NOFILTER:…"   init holds no seccomp filter at all
+//   "UNREADABLE:…" the start log cannot be read, or has no record of this init
+//   "MISSING:a,b"  the start that launched this init did not load these
+//   "OK:…"         every denied rule was loaded when this init was started
+// lxc-info -c cannot do this: it reports the config file, not a value set
+// with -s at start (measured, LXC 5.0.0).
+seccomp_reported(res_name: string, policy: string) -> string {
+    iav = info_argv(res_name)
+    out, status, err = _lxc_query("lxc-info", iav)
+    list_free(iav)
+    if err != "" {
+        return ""
+    }
+    if status != 0 {
+        return ""
+    }
+    if string_contains(out, "RUNNING") == 0 {
+        return ""
+    }
+    pid = _info_pid(out)
+    if pid <= 0 {
+        return ""
+    }
+    ps = string_from_int(pid)
+    st, sterr = fs.read("/proc/${ps}/status")
+    if sterr == "" {
+        if string_contains(st, "\nSeccomp:\t0") == 1 {
+            return "NOFILTER:init (pid ${ps}) runs with no seccomp filter"
+        }
+    }
+    lp = death_log_path(res_name)
+    lg, lerr = fs.read(lp)
+    if lerr != "" {
+        return "UNREADABLE:LXC's start log ${lp}: ${lerr}"
+    }
+    sec = start_section(lg, pid)
+    if string_length(sec) == 0 {
+        return "UNREADABLE:LXC's start log ${lp} has no record of starting init ${ps}"
+    }
+    miss = rules_seen(sec, policy)
+    if string_length(miss) > 0 {
+        return "MISSING:${miss}"
+    }
+    return "OK:LXC loaded every denied rule when it started init ${ps} (${lp})"
 }
 
 stop_argv(res_name: string) -> ptr {
@@ -234,12 +359,19 @@ _add_share_defs(av: ptr, shares: string) {
 
 // Bring the LXC container up idempotently. `image` is "dist:release" (e.g.
 // "alpine:3.21"). Returns "" on success else an error.
-up(res_name: string, image: string, shares: string) -> string {
+up(res_name: string, image: string, shares: string, policy: string) -> string {
     if probe(res_name, "", "") == 1 {
         return ""
     }
     if string_length(image) == 0 {
         return "aeo: lxc '${res_name}' has no image() set (want dist:release, e.g. alpine:3.21)"
+    }
+    perr = policy_error(policy)
+    if perr == "" {
+        perr = lxc_policy_error(policy)
+    }
+    if perr != "" {
+        return "aeo: lxc '${res_name}' REFUSED — deny_syscalls(): ${perr}"
     }
     // SELF-BOOTSTRAP the LXC toolchain if absent — the driver_linux parallel for
     // the lxc substrate. So a `boot` of an lxc node installs lxc through the agent
@@ -250,8 +382,18 @@ up(res_name: string, image: string, shares: string) -> string {
     cav = create_argv(res_name, image)
     _co, _cs, _ce = _sudo_lxc("lxc-create", cav)
     list_free(cav)
+    // the syscall policy, if any: built on the stock profile the container's
+    // own config names, so it is read after the create.
+    prof = ""
+    if string_length(policy) > 0 {
+        prof = seccomp_prepare(res_name, policy)
+        if string_starts_with(prof, "ERR:") == 1 {
+            return string_substring(prof, 4, string_length(prof))
+        }
+    }
+    _log_prepare(res_name)
     // start
-    sav = start_argv_shared(res_name, shares)
+    sav = start_argv_shared(res_name, shares, prof)
     out, status, err = _sudo_lxc("lxc-start", sav)
     list_free(sav)
     if err != "" {

@@ -94,7 +94,7 @@ main() {
         spec.describe("lxc rendering (-s lxc.mount.entry, dst RELATIVE to rootfs)") {
             spec.it("ro default carries bind,ro; rw plain bind; leading slash stripped") callback {
                 s = "/srv/data|/data|ro\n/srv/out|/out|rw"
-                av = driver_lxc.start_argv_shared("c1", s)
+                av = driver_lxc.start_argv_shared("c1", s, "")
                 j = _join(av)
                 spec.expect_str(j).to_contain("lxc.mount.entry=/srv/data data none bind,ro,create=dir 0 0")
                 spec.expect_str(j).to_contain("lxc.mount.entry=/srv/out out none bind,create=dir 0 0")
