@@ -185,6 +185,8 @@ lib/syscall_policy/    deny_syscalls() -> a seccomp profile: classes ("debug", "
                    "namespace", …) or sys:NAME, only ever TIGHTENING the baseline.
                    Pure. The runner REFUSES a node whose substrate cannot take it
                    (rendered for a host podman/docker container only, so far).
+lib/confine_lxc/   NOT BUILT — PLAN.md only: deny_syscalls() for lxc nodes (which
+                   are refused until it is proven). Start there.
 lib/seccomp_baseline/  DERIVED (containers/common) — the stock container syscall
                    profile as a data table. Data only; keep logic out of it.
 lib/rctl/ lib/pf/  FreeBSD confinement: rctl caps + pf network policy.

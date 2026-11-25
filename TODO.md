@@ -144,7 +144,9 @@ download for want of build provenance, and that refusal was left alone):
       for an lxc node too. Older than this work; more visible now that
       deny_syscalls alone makes a node "constrained".
 - [ ] LXC rendering was NOT started: lxc is not installed on the Chromebook, so
-      nothing could be proven. Plan for the Pi 5: LXC takes its own text
+      nothing could be proven. **The plan, with sources and the proof
+      required, is `lib/confine_lxc/PLAN.md`** — pick it up from there. In
+      short: LXC takes its own text
       format and its stock profile is a DENYLIST (and LGPL — do not copy it
       into aeo). Compose at run time: read the host's own stock profile, append
       "<name> errno 1" for each denied syscall, point lxc.seccomp.profile at
