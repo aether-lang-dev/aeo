@@ -517,6 +517,18 @@ every file must say which it is:
 - **A derived file carries a header**, and its source gets a `NOTICE` entry:
   `// Derived from <org>/<repo> <path> @ <commit>, Apache-2.0, (c) <holder>. Modified.`
 - **No header = original** (Paul + Claude), free to move to aether/aeb.
+- **Its project gets a `Portions Copyright …` line at the top of `NOTICE`**,
+  beside ours, the first time anything is taken from it. Use THEIR wording
+  and THEIR years, copied from the source file's own header — the year is
+  theirs, not the year we ported it. As found 2026-11-25: Pulumi files say
+  `Copyright 2016, Pulumi Corporation.` (year varies per file); Kubernetes
+  `Copyright 2015 The Kubernetes Authors.`; Firecracker `Copyright 2018
+  Amazon.com, Inc. or its affiliates. All Rights Reserved.`; Chef `Copyright
+  (c) 2009-2026 Progress Software Corporation and/or its subsidiaries` (some
+  files name an individual instead — use what the file says); Salt
+  `Copyright 2012-2022 VMware, Inc.`; runc `Copyright 2012-2015 Docker, Inc.`
+  Podman, Incus and OpenVox files mostly carry NO per-file line — credit
+  them by project name ("the Podman authors") and say the file had none.
 - **Whole modules are one or the other.** Never mix a borrowed function into
   an original file — put derived code in its own module.
 - **The test is what was open when the code was written.** If a foreign SOURCE
