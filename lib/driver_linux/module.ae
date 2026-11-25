@@ -31,7 +31,7 @@ exports (
     ps_running_argv, ps_all_running_argv, running_names, run_argv, run_argv_net, run_argv_confined, stop_argv, rm_argv, exec_health_argv,
     net_disconnect_argv, net_connect_alias_argv,
     pasta_dropin_path, pasta_dropin_content, pasta_forwarder_ensure, pasta_forwarder_active, pasta_forwarder_clear,
-    build_argv
+    build_argv, seccomp_profile_install
 )
 
 name() -> string {
@@ -1034,6 +1034,30 @@ build_argv(tag: string, dockerfile_path: string, context_dir: string) -> ptr {
     list_add(av, dockerfile_path)
     list_add(av, context_dir)
     return av
+}
+
+// Write a node's rendered seccomp profile (lib/syscall_policy) where the
+// engine can read it. Returns the absolute path, or "ERR:why" — the caller
+// must not start the node on an error. Under $HOME, not /tmp: this file is a
+// security control, and a predictable path in a world-writable directory is
+// one another local user could plant first.
+seccomp_profile_install(res_name: string, json: string) -> string {
+    home = getenv("HOME")
+    if string_length(home) == 0 {
+        return "ERR:aeo: cannot place the seccomp profile for '${res_name}': HOME is not set"
+    }
+    dir = "${home}/.aeo/seccomp"
+    p = "${dir}/${res_name}.json"
+    // The path is spliced into a space-separated flag string further up.
+    if string_contains(p, " ") == 1 {
+        return "ERR:aeo: cannot place the seccomp profile for '${res_name}': the path '${p}' contains a space"
+    }
+    _ = _mkdir(dir)
+    werr = write_atomic(p, bytes(json))
+    if werr != "" {
+        return "ERR:aeo: cannot write the seccomp profile for '${res_name}': ${werr}"
+    }
+    return p
 }
 
 // Build an image from inline Dockerfile `text`, tagged for `res_name`. The

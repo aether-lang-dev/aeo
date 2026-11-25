@@ -1,0 +1,99 @@
+// Derived from containers/common pkg/seccomp/seccomp.json @ a5ccdae846b629b5ceaefa6ffd5c6511409c3487,
+// Apache-2.0, Copyright 2013-2018 Docker, Inc. Modified: the JSON rule list is
+// re-encoded as one line per rule (format below); no rule was added, dropped or
+// reordered. See NOTICE.
+//
+// lib/seccomp_baseline — the DEFAULT container syscall profile, as data. This
+// is the table podman and docker apply when nobody says otherwise: deny by
+// default (ENOSYS), ~370 syscalls allowed outright, a few allowed only for
+// certain arguments, architectures or capabilities.
+//
+// aeo carries its own copy so that the profile a node boots under is the SAME
+// on every host and is known to aeo (it can be digested and audited), rather
+// than "whatever file this host's engine happens to ship". lib/syscall_policy
+// TIGHTENS it; nothing in aeo loosens it.
+//
+// THIS MODULE IS DATA ONLY and is the only derived part. Keep it that way: no
+// logic here, so the original code around it stays free to move to the MIT
+// siblings (AGENTS.md, "Licence & provenance").
+//
+// One rule per line, seven fields separated by "|":
+//   ACTION | errno | arches | caps-required | caps-absent | args | names
+//   ACTION         ALLOW or ERRNO
+//   errno          the errno an ERRNO rule returns (1 = EPERM); "" for ALLOW
+//   arches         rule applies only on these architectures ("" = all)
+//   caps-required  rule applies only if the container HAS all of these
+//   caps-absent    rule applies only if the container has NONE of these
+//   args           "INDEX:OP:VALUE" joined by "&" (OP is EQ or NE); "" = any
+//   names          the syscalls, comma-separated
+//
+// To refresh: re-run the conversion over a newer upstream seccomp.json and
+// update the commit above and in NOTICE. The spec pins the rule count.
+
+exports (
+    source, default_errno, arch_map_json, rules
+)
+
+// Where this table came from, for the audit trail.
+source() -> string {
+    return "containers/common@a5ccdae846b6"
+}
+
+// What a syscall named by NO rule returns: ENOSYS, so a program probing for a
+// newer syscall falls back instead of treating the refusal as fatal.
+default_errno() -> int {
+    return 38
+}
+
+// Which 32-bit ABIs ride along with each 64-bit architecture. Passed through
+// to the engine verbatim.
+arch_map_json() -> string {
+    return <<ARCHMAP
+[{"architecture":"SCMP_ARCH_X86_64","subArchitectures":["SCMP_ARCH_X86","SCMP_ARCH_X32"]},{"architecture":"SCMP_ARCH_AARCH64","subArchitectures":["SCMP_ARCH_ARM"]},{"architecture":"SCMP_ARCH_MIPS64","subArchitectures":["SCMP_ARCH_MIPS","SCMP_ARCH_MIPS64N32"]},{"architecture":"SCMP_ARCH_MIPS64N32","subArchitectures":["SCMP_ARCH_MIPS","SCMP_ARCH_MIPS64"]},{"architecture":"SCMP_ARCH_MIPSEL64","subArchitectures":["SCMP_ARCH_MIPSEL","SCMP_ARCH_MIPSEL64N32"]},{"architecture":"SCMP_ARCH_MIPSEL64N32","subArchitectures":["SCMP_ARCH_MIPSEL","SCMP_ARCH_MIPSEL64"]},{"architecture":"SCMP_ARCH_S390X","subArchitectures":["SCMP_ARCH_S390"]}]
+ARCHMAP
+}
+
+rules() -> string {
+    return <<RULES
+ERRNO|1|||||bdflush,cachestat,futex_requeue,futex_wait,futex_waitv,futex_wake,io_pgetevents,io_pgetevents_time64,kexec_file_load,kexec_load,map_shadow_stack,migrate_pages,move_pages,nfsservctl,nice,oldfstat,oldlstat,oldolduname,oldstat,olduname,pciconfig_iobase,pciconfig_read,pciconfig_write,sgetmask,ssetmask,swapoff,swapon,syscall,sysfs,uselib,userfaultfd,ustat,vm86,vm86old,vmsplice
+ALLOW||||||_llseek,_newselect,accept,accept4,access,adjtimex,alarm,bind,brk,capget,capset,chdir,chmod,chown,chown32,clock_adjtime,clock_adjtime64,clock_getres,clock_getres_time64,clock_gettime,clock_gettime64,clock_nanosleep,clock_nanosleep_time64,clone,clone3,close,close_range,connect,copy_file_range,creat,dup,dup2,dup3,epoll_create,epoll_create1,epoll_ctl,epoll_ctl_old,epoll_pwait,epoll_pwait2,epoll_wait,epoll_wait_old,eventfd,eventfd2,execve,execveat,exit,exit_group,faccessat,faccessat2,fadvise64,fadvise64_64,fallocate,fanotify_init,fanotify_mark,fchdir,fchmod,fchmodat,fchmodat2,fchown,fchown32,fchownat,fcntl,fcntl64,fdatasync,fgetxattr,flistxattr,flock,fork,fremovexattr,fsconfig,fsetxattr,fsmount,fsopen,fspick,fstat,fstat64,fstatat64,fstatfs,fstatfs64,fsync,ftruncate,ftruncate64,futex,futex_time64,futimesat,get_mempolicy,get_robust_list,get_thread_area,getcpu,getcwd,getdents,getdents64,getegid,getegid32,geteuid,geteuid32,getgid,getgid32,getgroups,getgroups32,getitimer,getpeername,getpgid,getpgrp,getpid,getppid,getpriority,getrandom,getresgid,getresgid32,getresuid,getresuid32,getrlimit,getrusage,getsid,getsockname,getsockopt,gettid,gettimeofday,getuid,getuid32,getxattr,inotify_add_watch,inotify_init,inotify_init1,inotify_rm_watch,io_cancel,io_destroy,io_getevents,io_setup,io_submit,ioctl,ioprio_get,ioprio_set,ipc,keyctl,kill,landlock_add_rule,landlock_create_ruleset,landlock_restrict_self,lchown,lchown32,lgetxattr,link,linkat,listen,listxattr,llistxattr,lremovexattr,lseek,lsetxattr,lstat,lstat64,madvise,mbind,membarrier,memfd_create,memfd_secret,mincore,mkdir,mkdirat,mknod,mknodat,mlock,mlock2,mlockall,mmap,mmap2,mount,mount_setattr,move_mount,mprotect,mq_getsetattr,mq_notify,mq_open,mq_timedreceive,mq_timedreceive_time64,mq_timedsend,mq_timedsend_time64,mq_unlink,mremap,msgctl,msgget,msgrcv,msgsnd,msync,munlock,munlockall,munmap,name_to_handle_at,nanosleep,newfstatat,open,open_tree,openat,openat2,pause,pidfd_getfd,pidfd_open,pidfd_send_signal,pipe,pipe2,pivot_root,pkey_alloc,pkey_free,pkey_mprotect,poll,ppoll,ppoll_time64,prctl,pread64,preadv,preadv2,prlimit64,process_mrelease,process_vm_readv,process_vm_writev,pselect6,pselect6_time64,ptrace,pwrite64,pwritev,pwritev2,read,readahead,readlink,readlinkat,readv,reboot,recv,recvfrom,recvmmsg,recvmmsg_time64,recvmsg,remap_file_pages,removexattr,rename,renameat,renameat2,restart_syscall,rmdir,rseq,rt_sigaction,rt_sigpending,rt_sigprocmask,rt_sigqueueinfo,rt_sigreturn,rt_sigsuspend,rt_sigtimedwait,rt_sigtimedwait_time64,rt_tgsigqueueinfo,sched_get_priority_max,sched_get_priority_min,sched_getaffinity,sched_getattr,sched_getparam,sched_getscheduler,sched_rr_get_interval,sched_rr_get_interval_time64,sched_setaffinity,sched_setattr,sched_setparam,sched_setscheduler,sched_yield,seccomp,select,semctl,semget,semop,semtimedop,semtimedop_time64,send,sendfile,sendfile64,sendmmsg,sendmsg,sendto,set_mempolicy,set_robust_list,set_thread_area,set_tid_address,setfsgid,setfsgid32,setfsuid,setfsuid32,setgid,setgid32,setgroups,setgroups32,setitimer,setns,setpgid,setpriority,setregid,setregid32,setresgid,setresgid32,setresuid,setresuid32,setreuid,setreuid32,setrlimit,setsid,setsockopt,setuid,setuid32,setxattr,shmat,shmctl,shmdt,shmget,shutdown,sigaltstack,signal,signalfd,signalfd4,sigprocmask,sigreturn,socketcall,socketpair,splice,stat,stat64,statfs,statfs64,statx,symlink,symlinkat,sync,sync_file_range,syncfs,sysinfo,syslog,tee,tgkill,time,timer_create,timer_delete,timer_getoverrun,timer_gettime,timer_gettime64,timer_settime,timer_settime64,timerfd_create,timerfd_gettime,timerfd_gettime64,timerfd_settime,timerfd_settime64,times,tkill,truncate,truncate64,ugetrlimit,umask,umount,umount2,uname,unlink,unlinkat,unshare,utime,utimensat,utimensat_time64,utimes,vfork,wait4,waitid,waitpid,write,writev
+ALLOW|||||0:EQ:0|personality
+ALLOW|||||0:EQ:8|personality
+ALLOW|||||0:EQ:131072|personality
+ALLOW|||||0:EQ:131080|personality
+ALLOW|||||0:EQ:4294967295|personality
+ALLOW||ppc64le||||sync_file_range2,swapcontext
+ALLOW||arm,arm64||||arm_fadvise64_64,arm_sync_file_range,breakpoint,cacheflush,set_tls,sync_file_range2
+ALLOW||amd64,x32||||arch_prctl
+ALLOW||amd64,x32,x86||||modify_ldt
+ALLOW||s390,s390x||||s390_pci_mmio_read,s390_pci_mmio_write,s390_runtime_instr
+ALLOW||riscv64||||riscv_flush_icache
+ALLOW|||CAP_DAC_READ_SEARCH|||open_by_handle_at
+ERRNO|1|||CAP_DAC_READ_SEARCH||open_by_handle_at
+ALLOW|||CAP_SYS_ADMIN|||bpf,lookup_dcookie,quotactl,quotactl_fd,setdomainname,sethostname,setns
+ERRNO|1|||CAP_SYS_ADMIN||lookup_dcookie,perf_event_open,quotactl,quotactl_fd,setdomainname,sethostname,setns
+ALLOW|||CAP_SYS_CHROOT|||chroot
+ERRNO|1|||CAP_SYS_CHROOT||chroot
+ALLOW|||CAP_SYS_MODULE|||delete_module,finit_module,init_module,query_module
+ERRNO|1|||CAP_SYS_MODULE||delete_module,finit_module,init_module,query_module
+ALLOW|||CAP_SYS_PACCT|||acct
+ERRNO|1|||CAP_SYS_PACCT||acct
+ALLOW|||CAP_SYS_PTRACE|||kcmp,process_madvise
+ERRNO|1|||CAP_SYS_PTRACE||kcmp,process_madvise
+ALLOW|||CAP_SYS_RAWIO|||ioperm,iopl
+ERRNO|1|||CAP_SYS_RAWIO||ioperm,iopl
+ALLOW|||CAP_SYS_TIME|||clock_settime,clock_settime64,settimeofday,stime
+ERRNO|1|||CAP_SYS_TIME||clock_settime,clock_settime64,settimeofday,stime
+ALLOW|||CAP_SYS_TTY_CONFIG|||vhangup
+ERRNO|1|||CAP_SYS_TTY_CONFIG||vhangup
+ERRNO|22|||CAP_AUDIT_WRITE|0:EQ:16&2:EQ:9|socket
+ALLOW||||CAP_AUDIT_WRITE|2:NE:9|socket
+ALLOW||||CAP_AUDIT_WRITE|0:NE:16|socket
+ALLOW||||CAP_AUDIT_WRITE|2:NE:9|socket
+ALLOW|||CAP_AUDIT_WRITE|||socket
+ERRNO|1|||CAP_SYS_ADMIN,CAP_BPF||bpf
+ALLOW|||CAP_BPF|||bpf
+ERRNO|1|||CAP_SYS_ADMIN,CAP_BPF||perf_event_open
+ALLOW|||CAP_PERFMON|||perf_event_open
+RULES
+}

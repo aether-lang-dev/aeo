@@ -181,6 +181,12 @@ lib/confine_landlock/  a HOST-EXEC node held by the kernel to a grant list (Land
                    seccomp via std.sandbox.spawn_socket; no root). `bin/aeo-confine`
                    is its launcher; driver_mac_exec.up_confined shells to it.
                    Fail-closed. NOT a deny_egress renderer (Landlock has no UDP rule).
+lib/syscall_policy/    deny_syscalls() -> a seccomp profile: classes ("debug", "mount",
+                   "namespace", …) or sys:NAME, only ever TIGHTENING the baseline.
+                   Pure. The runner REFUSES a node whose substrate cannot take it
+                   (rendered for a host podman/docker container only, so far).
+lib/seccomp_baseline/  DERIVED (containers/common) — the stock container syscall
+                   profile as a data table. Data only; keep logic out of it.
 lib/rctl/ lib/pf/  FreeBSD confinement: rctl caps + pf network policy.
 lib/attest/        image attestation (verify-before-boot, 3 greppable states).
 lib/audit/         tamper-evident hash-chained audit trail.
@@ -541,7 +547,7 @@ every file must say which it is:
 
 Reference checkouts in `~/scm`, all verified Apache-2.0 on 2026-11-25:
 `openvox` (Puppet), `chef`, `salt`, `pulumi`, `kubernetes`, `podman`, `runc`,
-`firecracker`, `incus`. **Never take from their `vendor/`, `third_party/` or
+`firecracker`, `incus`, `containers-common`. **Never take from their `vendor/`, `third_party/` or
 `LICENSES/` trees** — those hold other people's code under other licences
 (firecracker also has BSD-licensed Chromium OS portions; keep that notice).
 **Do not take from:** Ansible (GPL), Proxmox (AGPL), systemd and bubblewrap

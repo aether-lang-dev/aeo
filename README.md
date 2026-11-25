@@ -342,9 +342,12 @@ grouped by what they declare:
   `health_interval`/`health_budget` int forms remain.)
 - **confinement** — `limit{}` caps (`limit_mem`, `limit_maxproc`, `limit_cpu`,
   `limit_openfiles`) and `constrain{}` (`grant_fd`, `egress`, `ingress`,
-  `ingress_from`, `deny_egress`, `deny_ingress`). The *same* grammar renders to
+  `ingress_from`, `deny_egress`, `deny_ingress`, `deny_syscalls`). The *same* grammar renders to
   rctl/Capsicum/pf on FreeBSD and cgroups/seccomp/network on Linux —
-  substrate-portable confinement.
+  substrate-portable confinement. `deny_syscalls("namespace")` (a class, or
+  `"sys:ptrace"` for one call) tightens the stock container syscall profile;
+  it is applied to host podman/docker containers, and a node on any other
+  substrate that declares it is refused rather than started without it.
 - **supply chain:** `attest("sha256:…")` — pin a node's expected image digest;
   aeo verifies it before boot and refuses on mismatch.
 - **device claims:** `gpu("shared"|"exclusive")` (+ optional `gpu_device(pin)`) —

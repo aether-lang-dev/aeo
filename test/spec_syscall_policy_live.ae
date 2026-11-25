@@ -1,0 +1,170 @@
+// test/spec_syscall_policy_live.ae — the KERNEL half of the syscall policy: a
+// real container, started under the profile lib/syscall_policy rendered and
+// driver_linux installed, is actually refused the syscalls its policy denies —
+// and is NOT refused them under the untightened baseline (the control, without
+// which a refusal proves nothing about the policy).
+//
+// Needs a container engine (podman or docker) and the test image already
+// present locally (AEO_SPEC_IMAGE, default docker.io/library/debian:trixie —
+// it needs sh, unshare and perl). Where either is missing every case reports
+// SKIPPED with the reason; it does not pass. Nothing is pulled.
+// The pure grammar and rendering is test/spec_syscall_policy.ae.
+
+import std.spec
+import std.os (run_capture, getenv)
+import std.list
+import std.string (string_length, string_contains, string_trim, string_equals)
+import syscall_policy (render)
+import driver_linux (engine_resolve, seccomp_profile_install)
+
+// Render `policy`, install it as node `tag`'s profile, run `cmd` in a fresh
+// container under it. Returns the container's combined output and exit status;
+// status -1 with the reason when the profile could not be made.
+_under(eng: string, img: string, tag: string, policy: string, cmd: string) -> (string, int) {
+    json, rerr = render(policy)
+    if rerr != "" {
+        return rerr, -1
+    }
+    path = seccomp_profile_install(tag, json)
+    if string_contains(path, "ERR:") == 1 {
+        return path, -1
+    }
+    av = list_new()
+    list_add(av, "run")
+    list_add(av, "--rm")
+    list_add(av, "--cap-drop")
+    list_add(av, "ALL")
+    list_add(av, "--security-opt")
+    list_add(av, "no-new-privileges")
+    list_add(av, "--security-opt")
+    list_add(av, "seccomp=${path}")
+    list_add(av, img)
+    list_add(av, "sh")
+    list_add(av, "-c")
+    list_add(av, "(${cmd}) 2>&1")
+    out, status, err = run_capture(eng, av, null)
+    list_free(av)
+    if err != "" {
+        return err, -1
+    }
+    return out, status
+}
+
+_host(prog: string, a1: string, a2: string, a3: string) -> (string, int) {
+    av = list_new()
+    list_add(av, a1)
+    if string_length(a2) > 0 { list_add(av, a2) }
+    if string_length(a3) > 0 { list_add(av, a3) }
+    out, status, err = run_capture(prog, av, null)
+    list_free(av)
+    if err != "" {
+        return err, -1
+    }
+    return out, status
+}
+
+main() {
+    fw = spec.init()
+
+    img = getenv("AEO_SPEC_IMAGE")
+    if string_length(img) == 0 {
+        img = "docker.io/library/debian:trixie"
+    }
+
+    // The gate is a container actually running under the rendered BASELINE:
+    // engine present, image present, profile accepted by this engine.
+    avail = 0
+    why = "no container engine (podman or docker) on this host"
+    eng = engine_resolve("")
+    if eng != null {
+        if string_length(eng) > 0 {
+            _, have = _host(eng, "image", "inspect", img)
+            if have != 0 {
+                why = "image ${img} is not present locally (pull it, or set AEO_SPEC_IMAGE)"
+            } else {
+                out, rc = _under(eng, img, "aeo-syscall-spec-gate", "", "echo GATE_OK")
+                if string_contains(out, "GATE_OK") == 1 {
+                    avail = 1
+                } else {
+                    why = "a container does not start under the rendered baseline here (exit ${rc}): ${string_trim(out)}"
+                }
+            }
+        }
+    }
+
+    // ptrace has no shell command in a base image; call it by number.
+    arch, _ = _host("uname", "-m", "", "")
+    arch = string_trim(arch)
+    nr = ""
+    if string_equals(arch, "x86_64") == 1 { nr = "101" }
+    if string_equals(arch, "aarch64") == 1 { nr = "117" }
+    have_nr = 0
+    if string_length(nr) > 0 { have_nr = avail }
+    why_nr = why
+    if avail == 1 { why_nr = "no ptrace syscall number known for ${arch}" }
+
+    ptrace_cmd = "perl -e 'print((syscall(${nr},0,0,0,0)==0) ? qq(PTRACE_OK) : qq(PTRACE_REFUSED))'"
+    socket_cmd = "perl -e 'print(socket(S,2,1,0) ? qq(SOCKET_OK) : qq(SOCKET_REFUSED))'"
+    unshare_cmd = "unshare -U true && echo UNSHARE_OK"
+
+    spec.describe(fw, "syscall policy, live (the kernel refuses what the policy denies)") {
+
+        spec.describe("the control: the untightened baseline allows these") {
+            spec.it_when(avail, "a new user namespace can be made", why) callback {
+                out, _ = _under(eng, img, "aeo-syscall-spec", "", unshare_cmd)
+                spec.expect_int(string_contains(out, "UNSHARE_OK")).to_equal(1, out)
+            }
+            spec.it_when(have_nr, "ptrace is answered", why_nr) callback {
+                out, _ = _under(eng, img, "aeo-syscall-spec", "", ptrace_cmd)
+                spec.expect_int(string_contains(out, "PTRACE_OK")).to_equal(1, out)
+            }
+            spec.it_when(avail, "a socket can be created", why) callback {
+                out, _ = _under(eng, img, "aeo-syscall-spec", "", socket_cmd)
+                spec.expect_int(string_contains(out, "SOCKET_OK")).to_equal(1, out)
+            }
+        }
+
+        spec.describe("a denied class is refused by the kernel") {
+            spec.it_when(avail, "namespace: unshare gets EPERM", why) callback {
+                out, _ = _under(eng, img, "aeo-syscall-spec", "namespace", unshare_cmd)
+                spec.expect_int(string_contains(out, "UNSHARE_OK")).to_equal(0, out)
+                spec.expect_int(string_contains(out, "Operation not permitted")).to_equal(1, out)
+            }
+            spec.it_when(have_nr, "debug: ptrace is refused", why_nr) callback {
+                out, _ = _under(eng, img, "aeo-syscall-spec", "debug", ptrace_cmd)
+                spec.expect_int(string_contains(out, "PTRACE_REFUSED")).to_equal(1, out)
+            }
+            spec.it_when(avail, "sockets: no socket can be created", why) callback {
+                out, _ = _under(eng, img, "aeo-syscall-spec", "sockets", socket_cmd)
+                spec.expect_int(string_contains(out, "SOCKET_REFUSED")).to_equal(1, out)
+            }
+            spec.it_when(avail, "one syscall by name: sys:unshare", why) callback {
+                out, _ = _under(eng, img, "aeo-syscall-spec", "sys:unshare", unshare_cmd)
+                spec.expect_int(string_contains(out, "UNSHARE_OK")).to_equal(0, out)
+            }
+        }
+
+        spec.describe("a denial takes only what it names") {
+            spec.it_when(avail, "denying debug leaves unshare working", why) callback {
+                out, _ = _under(eng, img, "aeo-syscall-spec", "debug", unshare_cmd)
+                spec.expect_int(string_contains(out, "UNSHARE_OK")).to_equal(1, out)
+            }
+            spec.it_when(avail, "with EVERY class denied the node still starts, reads and forks", why) callback {
+                all = "debug,mount,namespace,module,keyring,handle,memfd,sockets,time,io_uring,bpf,userfault"
+                out, rc = _under(eng, img, "aeo-syscall-spec", all, "cat /etc/hostname >/dev/null && (sleep 0 & wait) && echo STILL_RUNS")
+                spec.expect_int(string_contains(out, "STILL_RUNS")).to_equal(1, out)
+                spec.expect_int(rc).to_equal(0)
+            }
+        }
+
+        spec.describe("fail closed") {
+            spec.it_when(avail, "a policy with an unknown entry starts nothing", why) callback {
+                out, rc = _under(eng, img, "aeo-syscall-spec", "debug,nope", "echo SHOULD_NOT_RUN")
+                spec.expect_int(rc).to_equal(-1)
+                spec.expect_int(string_contains(out, "SHOULD_NOT_RUN")).to_equal(0)
+                spec.expect_int(string_contains(out, "'nope'")).to_equal(1, out)
+            }
+        }
+    }
+    return spec.run_summary(fw)
+}

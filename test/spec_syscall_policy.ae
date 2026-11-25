@@ -1,0 +1,185 @@
+// test/spec_syscall_policy.ae — the PURE half of the syscall policy: the
+// deny_syscalls() grammar, lib/syscall_policy's checks and its rendering of a
+// seccomp profile over lib/seccomp_baseline. Nothing here starts a container,
+// so it runs anywhere ae does. The kernel half (is the syscall actually
+// refused?) is test/spec_syscall_policy_live.ae.
+
+import std.spec
+import std.string (string_contains, string_split, string_array_size, string_array_get, string_array_free, string_length, string_trim, string_index_of)
+import syscall_policy (classes, class_members, known, token_error, policy_error, denied_names, render)
+import seccomp_baseline
+import compose (system, container, image, constrain, deny_syscalls, get_syscall_policy)
+
+_rule_count() -> int {
+    lines = string_split(seccomp_baseline.rules(), "\n")
+    n = string_array_size(lines)
+    c = 0
+    i = 0
+    while i < n {
+        if string_length(string_trim(string_array_get(lines, i))) > 0 {
+            c = c + 1
+        }
+        i = i + 1
+    }
+    string_array_free(lines)
+    return c
+}
+
+main() {
+    fw = spec.init()
+
+    spec.describe(fw, "syscall_policy (what a confined node may ask the kernel for)") {
+
+        spec.describe("the baseline table (derived from containers/common)") {
+            spec.it("says where it came from") callback {
+                spec.expect_int(string_index_of(seccomp_baseline.source(), "containers/common@")).to_equal(0,
+                    "the audit trail names the upstream commit the table was taken at")
+            }
+            spec.it("denies by default with ENOSYS") callback {
+                spec.expect_int(seccomp_baseline.default_errno()).to_equal(38)
+            }
+            spec.it("has the 40 rules of the commit it was taken at") callback {
+                spec.expect_int(_rule_count()).to_equal(40,
+                    "a refresh of the table must be deliberate: update this with the commit")
+            }
+            spec.it("knows ordinary syscalls and not invented ones") callback {
+                spec.expect_int(known("read")).to_equal(1)
+                spec.expect_int(known("ptrace")).to_equal(1)
+                spec.expect_int(known("socket")).to_equal(1)
+                spec.expect_int(known("rea")).to_equal(0, "a prefix of a name is not the name")
+                spec.expect_int(known("nosuchcall")).to_equal(0)
+                spec.expect_int(known("")).to_equal(0)
+            }
+        }
+
+        spec.describe("classes") {
+            spec.it("each listed class has members") callback {
+                all = string_split(classes(), ",")
+                n = string_array_size(all)
+                empty = 0
+                i = 0
+                while i < n {
+                    if string_length(class_members(string_array_get(all, i))) == 0 {
+                        empty = empty + 1
+                    }
+                    i = i + 1
+                }
+                string_array_free(all)
+                spec.expect_int(n).to_equal(12)
+                spec.expect_int(empty).to_equal(0)
+            }
+            spec.it("namespace is unshare and setns, and nothing about clone") callback {
+                spec.expect_str(class_members("namespace")).to_equal_str("unshare,setns")
+            }
+            spec.it("there is no setid class (the runtime could never start the node)") callback {
+                spec.expect_str(class_members("setid")).to_equal_str("")
+            }
+        }
+
+        spec.describe("entries that are accepted") {
+            spec.it("a class name, with or without surrounding space") callback {
+                spec.expect_str(token_error("debug")).to_equal_str("")
+                spec.expect_str(token_error(" mount ")).to_equal_str("")
+            }
+            spec.it("one syscall by name") callback {
+                spec.expect_str(token_error("sys:ptrace")).to_equal_str("")
+            }
+            spec.it("no policy at all (the baseline, untightened)") callback {
+                spec.expect_str(policy_error("")).to_equal_str("")
+            }
+            spec.it("several entries") callback {
+                spec.expect_str(policy_error("debug,namespace,sys:chmod")).to_equal_str("")
+            }
+        }
+
+        spec.describe("entries that are refused (a typo is never a silently absent denial)") {
+            spec.it("an unknown class, listing the real ones") callback {
+                e = token_error("debgu")
+                spec.expect_int(string_contains(e, "unknown syscall class 'debgu'")).to_equal(1)
+                spec.expect_int(string_contains(e, "namespace")).to_equal(1)
+            }
+            spec.it("a syscall the baseline has never heard of") callback {
+                spec.expect_str(token_error("sys:nosuchcall")).to_equal_str("'nosuchcall' is not a syscall the baseline profile knows")
+            }
+            spec.it("sys: naming nothing, and an empty entry") callback {
+                spec.expect_str(token_error("sys:")).to_equal_str("'sys:' names no syscall")
+                spec.expect_str(token_error("")).to_equal_str("empty syscall policy entry")
+                spec.expect_str(policy_error("debug,,mount")).to_equal_str("empty syscall policy entry")
+            }
+            spec.it("the first bad entry of a list is the one reported") callback {
+                e = policy_error("debug,nope,alsonope")
+                spec.expect_int(string_contains(e, "'nope'")).to_equal(1)
+            }
+            spec.it("the class that does not exist") callback {
+                spec.expect_int(string_contains(token_error("setid"), "unknown syscall class")).to_equal(1)
+            }
+        }
+
+        spec.describe("what a policy denies") {
+            spec.it("a class expands to its members") callback {
+                spec.expect_str(denied_names("namespace")).to_equal_str("unshare,setns")
+            }
+            spec.it("a name appears once however often it is asked for") callback {
+                spec.expect_str(denied_names("namespace,sys:unshare,namespace")).to_equal_str("unshare,setns")
+            }
+            spec.it("nothing, for no policy") callback {
+                spec.expect_str(denied_names("")).to_equal_str("")
+            }
+        }
+
+        spec.describe("rendering the profile") {
+            spec.it("a bad policy renders NOTHING, with the reason") callback {
+                json, err = render("debug,nope")
+                spec.expect_str(json).to_equal_str("")
+                spec.expect_int(string_contains(err, "'nope'")).to_equal(1)
+            }
+            spec.it("no policy renders the baseline: deny by default, ptrace allowed") callback {
+                json, err = render("")
+                spec.expect_str(err).to_equal_str("")
+                spec.expect_int(string_index_of(json, "{\"defaultAction\":\"SCMP_ACT_ERRNO\",\"defaultErrnoRet\":38,\"archMap\":[")).to_equal(0)
+                spec.expect_int(string_contains(json, "\"ptrace\",")).to_equal(1)
+                spec.expect_int(string_contains(json, "\"names\":[\"ptrace\"]")).to_equal(0)
+            }
+            spec.it("a denied syscall leaves every allow rule and gets one EPERM rule, last") callback {
+                json, err = render("sys:ptrace")
+                spec.expect_str(err).to_equal_str("")
+                spec.expect_int(string_contains(json, "\"ptrace\",")).to_equal(0,
+                    "ptrace must not survive inside any allow list")
+                spec.expect_int(string_contains(json, ",\"ptrace\"")).to_equal(0)
+                spec.expect_int(string_contains(json, ",{\"names\":[\"ptrace\"],\"action\":\"SCMP_ACT_ERRNO\",\"errnoRet\":1}]}")).to_equal(1)
+            }
+            spec.it("a rule left with no names is dropped, not rendered empty") callback {
+                json, _ = render("sys:chroot,sys:acct")
+                spec.expect_int(string_contains(json, "\"names\":[]")).to_equal(0)
+            }
+            spec.it("argument and capability conditions survive") callback {
+                json, _ = render("debug")
+                spec.expect_int(string_contains(json, "{\"names\":[\"personality\"],\"action\":\"SCMP_ACT_ALLOW\",\"args\":[{\"index\":0,\"value\":8,\"valueTwo\":0,\"op\":\"SCMP_CMP_EQ\"}]}")).to_equal(1)
+                spec.expect_int(string_contains(json, "\"excludes\":{\"caps\":[\"CAP_SYS_CHROOT\"]}")).to_equal(1)
+                spec.expect_int(string_contains(json, "\"includes\":{\"arches\":[\"arm\",\"arm64\"]}")).to_equal(1)
+            }
+        }
+
+        spec.describe("the grammar: deny_syscalls() inside constrain{}") {
+            spec.it("accumulates per node, in declared order") callback {
+                system("sp_spec") {
+                    container("sp_a") {
+                        image("x")
+                        constrain("sp_a") {
+                            deny_syscalls("debug")
+                            deny_syscalls("namespace")
+                            deny_syscalls("sys:chmod")
+                        }
+                    }
+                    container("sp_b") {
+                        image("x")
+                    }
+                }
+                spec.expect_str(get_syscall_policy("sp_a")).to_equal_str("debug,namespace,sys:chmod")
+                spec.expect_str(get_syscall_policy("sp_b")).to_equal_str("")
+                spec.expect_str(policy_error(get_syscall_policy("sp_a"))).to_equal_str("")
+            }
+        }
+    }
+    return spec.run_summary(fw)
+}

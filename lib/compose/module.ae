@@ -64,8 +64,8 @@ exports (
     image_recipe, from, install, netplan_static, systemd_unit, realize_as,
     imgcount, imgname_at, get_img_from, get_img_install, get_img_netplan,
     get_img_units, get_img_unit_body, get_img_realize,
-    suspend, constrain, grant_fd, egress, egress_fqdn, ingress, ingress_from, deny_egress, deny_ingress, start,
-    get_suspended, get_started, get_constraints, get_netpolicy, has_egress_fqdn, egress_fqdn_csv, pf_rules_for,
+    suspend, constrain, grant_fd, egress, egress_fqdn, ingress, ingress_from, deny_egress, deny_ingress, deny_syscalls, start,
+    get_suspended, get_started, get_constraints, get_netpolicy, get_syscall_policy, has_egress_fqdn, egress_fqdn_csv, pf_rules_for,
     limit, limit_mem, limit_vmem, limit_cpu, limit_maxproc, limit_openfiles, get_rctl,
     load_balancer, listens, publish, publish_map, balance_to, algorithm, lb_health, balancer_weight,
     breaker, cache, l4,
@@ -626,6 +626,25 @@ ingress_from(_ctx: ptr, port: int, peer: string) {
 }
 deny_egress(_ctx: ptr)  { _net_add(_nm(_ctx), "egress:DENY-ALL") }
 deny_ingress(_ctx: ptr) { _net_add(_nm(_ctx), "ingress:DENY-ALL") }
+
+// Syscall policy inside a constrain(node){} block — what the node's processes
+// may ask the KERNEL for, on top of the stock container profile.
+//   deny_syscalls(what)   — refuse a CLASS of syscalls ("debug", "mount",
+//       "namespace", "module", "keyring", "handle", "memfd", "sockets", "time",
+//       "io_uring", "bpf", "userfault") or one by name ("sys:ptrace"). Repeat
+//       the call for more. It only ever TIGHTENS; there is no allow verb.
+// Pure accumulation here, like every setter. lib/syscall_policy checks and
+// renders it; the runner REFUSES to start the node if an entry is unknown or
+// the node's substrate cannot apply a syscall policy (never silently skipped).
+deny_syscalls(_ctx: ptr, what: string) {
+    key = "aeo.cmp.syscalls.${_nm(_ctx)}"
+    prev = config.get(key)
+    if string_length(prev) == 0 {
+        config.put(key, what)
+    } else {
+        config.put(key, "${prev},${what}")
+    }
+}
 
 // ---- Load-balancer grammar (docs/built_in_load_balancing.md) --------------
 // Two directional port verbs (§2):
@@ -1520,6 +1539,9 @@ get_constraints(vm: string) -> string { return config.get("aeo.cmp.constraints.$
 // A VM's network whitelist (egress/ingress in its constrain block). "" = no
 // rules declared; once any rule exists, all other traffic is denied.
 get_netpolicy(vm: string) -> string { return config.get("aeo.cmp.netpolicy.${vm}") }
+// A node's declared syscall denials (deny_syscalls in its constrain block), as
+// a comma-separated list. "" = none declared.
+get_syscall_policy(vm: string) -> string { return config.get("aeo.cmp.syscalls.${vm}") }
 has_egress_fqdn(vm: string) -> int {
     if string_contains(get_netpolicy(vm), "egress_fqdn:") == 1 {
         return 1

@@ -1,12 +1,20 @@
 aeo
 Portions Copyright 2026 aeo Contributors
 Copyright 2026 Aether language development team
+Portions Copyright 2013-2018 Docker, Inc. (in respect of lines taken from
+the containers/common project)
 
 Licensed under the Apache License, Version 2.0 (see LICENSE).
 
 Third-party code
 ----------------
-None yet. When code is copied or ported from another project, add a
+containers/common (https://github.com/containers/common), Apache-2.0,
+  commit a5ccdae846b629b5ceaefa6ffd5c6511409c3487. It has no NOTICE file.
+  Taken: pkg/seccomp/seccomp.json, the default container syscall profile.
+  Carried in: lib/seccomp_baseline/module.ae (the rule list re-encoded one
+  rule per line; nothing added, dropped or reordered).
+
+When code is copied or ported from another project, add a
 line at the top of this file in this form, with the holder and years
 worded as that project words them:
 

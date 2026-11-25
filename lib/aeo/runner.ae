@@ -40,6 +40,8 @@ import rctl
 import snapshot
 import snapshot_linux
 import confine_linux
+import syscall_policy
+import seccomp_baseline
 import reconcile
 import extract
 import transport_http (post_path, probe_health)
@@ -768,10 +770,72 @@ _strict_check_prop(nm: string, k: string, label: string, row: string) -> string 
     return "aeo: [${nm}] STRICT REFUSED — declared ${label} is not enforced here (supported=${supp}, applied=${appl}). A strict() system refuses a property it cannot apply; remove the declaration, run on a backend that supports it, or drop strict()."
 }
 
+// _syscall_gate(nm, k) — a node that declares deny_syscalls() either gets that
+// policy or does not start. "" = go ahead; else the refusal. Unlike
+// _strict_gate this is NOT opt-in: a syscall denial the operator wrote down
+// and aeo quietly did not apply is the worst outcome here, so an unknown
+// entry, or a substrate the policy is not rendered for, refuses the boot.
+// Rendered today: a HOST container (podman/docker) only.
+_syscall_gate(nm: string, k: string) -> string {
+    pol = compose.get_syscall_policy(nm)
+    if string_length(pol) == 0 {
+        return ""
+    }
+    perr = syscall_policy.policy_error(pol)
+    if perr != "" {
+        _ = audit.record(nm, k, "syscall-policy-refuse", perr)
+        return "aeo: [${nm}] REFUSED — deny_syscalls(): ${perr}"
+    }
+    why = ""
+    if k != "container" {
+        why = "kind '${k}'"
+    } else {
+        eng = compose.get_engine(nm)
+        if eng == "wslc" { why = "the wslc engine" }
+        if eng == "wsl_podman" { why = "the wsl_podman engine" }
+        host = compose.get_host(nm)
+        if host != "" {
+            if compose.is_load_balancer(host) == 0 {
+                why = "a container nested inside '${host}'"
+            }
+        }
+    }
+    if why != "" {
+        _ = audit.record(nm, k, "syscall-policy-refuse", "not rendered for ${why}")
+        return "aeo: [${nm}] REFUSED — deny_syscalls() is declared, but a syscall policy is not rendered for ${why} yet. aeo will not start a node without a policy it was told to apply: run it as a host container (podman/docker), or remove the declaration."
+    }
+    return ""
+}
+
+// _syscall_flags(nm, k) — the engine flag that applies this node's syscall
+// policy: "" (none declared), "--security-opt seccomp=<file>", or "ERR:why".
+// Writes the profile and records what was applied.
+_syscall_flags(nm: string, k: string) -> string {
+    pol = compose.get_syscall_policy(nm)
+    if string_length(pol) == 0 {
+        return ""
+    }
+    json, rerr = syscall_policy.render(pol)
+    if rerr != "" {
+        return "ERR:aeo: [${nm}] deny_syscalls(): ${rerr}"
+    }
+    path = driver_linux.seccomp_profile_install(nm, json)
+    if string_starts_err(path) == 1 {
+        return path
+    }
+    src = seccomp_baseline.source()
+    _ = audit.record(nm, k, "syscall-policy", "deny=${pol} baseline=${src} profile=${path}")
+    return "--security-opt seccomp=${path}"
+}
+
 driver_up(nm: string, k: string) -> string {
     sgate = _strict_gate(nm, k)
     if sgate != "" {
         return sgate
+    }
+    ygate = _syscall_gate(nm, k)
+    if ygate != "" {
+        return ygate
     }
     // A3 — NETPOLICY BEFORE REACHABILITY (FreeBSD): load the node's pf deny-default
     // anchor HERE, before any driver creates the jail / starts the guest, so there
@@ -924,6 +988,19 @@ driver_up(nm: string, k: string) -> string {
         // so a composition's confinement is substrate-portable. A node with
         // peer-only egress lands on the internal net (can't phone home).
         confine = _confine_flags(nm, net, inet)
+        // SYSCALL POLICY: deny_syscalls() -> a seccomp profile for this node
+        // (_syscall_gate already refused the substrates that cannot take one).
+        sysflags = _syscall_flags(nm, k)
+        if string_starts_err(sysflags) == 1 {
+            return _strip_err(sysflags)
+        }
+        if string_length(sysflags) > 0 {
+            if string_length(confine) > 0 {
+                confine = "${confine} ${sysflags}"
+            } else {
+                confine = sysflags
+            }
+        }
         // GPU (§G): a gpu("shared") claim renders to a --device token, spliced into
         // the SAME argv path as confine. exclusive/VM claims never reach here
         // (refused at check). We PROBE the host for a CDI spec first: if present we
@@ -1335,6 +1412,13 @@ _confine_flags(nm: string, net: string, inet: string) -> string {
     rctl = compose.get_rctl(nm)
     constraints = compose.get_constraints(nm)
     netpolicy = compose.get_netpolicy(nm)
+    // deny_syscalls() lives in the constrain{} block, so on its own it still
+    // makes the node a constrained one (cap-drop + no-new-privileges).
+    if string_length(constraints) == 0 {
+        if string_length(compose.get_syscall_policy(nm)) > 0 {
+            constraints = "syscalls"
+        }
+    }
     // A node that is the TARGET of any peer egress (egress->nm) must join the
     // INTERNAL net so its internal-confined callers can reach it (peers must share
     // a network). Synthesize an internal marker into its policy for net placement
@@ -3365,6 +3449,19 @@ run_cutover() {
     net = "aeo-${compose.get_system(node)}"
     inet = "aeo-${compose.get_system(node)}-int"
     confine = _confine_flags(node, net, inet)
+    // green boots under the SAME syscall policy as blue, or not at all.
+    sysflags = _syscall_flags(node, k)
+    if string_starts_err(sysflags) == 1 {
+        println(_strip_err(sysflags))
+        return
+    }
+    if string_length(sysflags) > 0 {
+        if string_length(confine) > 0 {
+            confine = "${confine} ${sysflags}"
+        } else {
+            confine = sysflags
+        }
+    }
 
     println("aeo: cutover ${node} -> green (${green}) image=${green_img}")
 

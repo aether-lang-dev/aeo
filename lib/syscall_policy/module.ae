@@ -1,0 +1,388 @@
+// lib/syscall_policy — which SYSCALLS a confined node may make, declared as
+// intent and rendered to a seccomp profile the container engine enforces.
+//
+// The split (AGENTS.md, "Delegate or port?"): the ENGINE compiles and installs
+// the filter (podman/docker hand it to the OCI runtime, the kernel holds it);
+// aeo DECIDES what goes in it. This module is the deciding half, and it is
+// pure — strings in, strings out, nothing run.
+//
+//   baseline   lib/seccomp_baseline: the stock container profile, carried in
+//              aeo so every host boots a node under the same one.
+//   policy     a comma-separated list of things to DENY on top of it:
+//                CLASS        a named group below ("debug", "mount", …)
+//                sys:NAME     one syscall by name
+//   render     baseline minus the denied names, plus one rule refusing them
+//              with EPERM.
+//
+// A policy only ever TIGHTENS. There is no "allow" token: loosening the
+// baseline is not something a composition gets to ask for.
+//
+// FAIL CLOSED: an unknown class, or a sys: name the baseline has never heard
+// of, is an ERROR — a typo must not become a silently absent denial.
+//
+// What a class does NOT do — say it, don't imply it:
+//   namespace  refuses unshare/setns. It does NOT stop clone(CLONE_NEW*):
+//              clone is how fork and threads work, and filtering its flags
+//              needs an argument rule (and clone3 cannot be filtered at all).
+//              Not built.
+//   sockets    refuses creating or using ANY socket, unix sockets included.
+//              It is a belt for a deny_egress node, not a network policy.
+//   (no setid) there is deliberately NO class for setuid/setgid and friends.
+//              The OCI runtime sets the container's user AFTER it loads the
+//              filter, so refusing them means the container never starts
+//              (measured, crun 1.8.1: "cannot setresgid to 0"). A class that
+//              can only ever fail to boot is a trap, so it does not exist;
+//              no-new-privileges + cap-drop are what cover that ground.
+//   mount      the stock profile ALLOWS mount and leaves it to capabilities.
+//              This makes the refusal a second, independent one.
+
+import seccomp_baseline
+import std.string (string_length, string_substring, string_index_of,
+                   string_equals, string_split, string_array_size,
+                   string_array_get, string_array_free, string_trim,
+                   string_contains, string_from_int)
+
+exports (
+    classes, class_members, known, token_error, policy_error,
+    denied_names, render
+)
+
+// Every class name, in the order the docs list them.
+classes() -> string {
+    return "debug,mount,namespace,module,keyring,handle,memfd,sockets,time,io_uring,bpf,userfault"
+}
+
+// The syscalls a class stands for. "" = no such class.
+class_members(cls: string) -> string {
+    if string_equals(cls, "debug") == 1 {
+        // read or steer another process
+        return "ptrace,process_vm_readv,process_vm_writev,kcmp,process_madvise,perf_event_open,pidfd_getfd"
+    }
+    if string_equals(cls, "mount") == 1 {
+        // change what the filesystem tree looks like
+        return "mount,umount,umount2,pivot_root,chroot,move_mount,open_tree,open_tree_attr,fsopen,fsconfig,fsmount,fspick,mount_setattr"
+    }
+    if string_equals(cls, "namespace") == 1 {
+        return "unshare,setns"
+    }
+    if string_equals(cls, "module") == 1 {
+        // load code into, or replace, the kernel
+        return "init_module,finit_module,delete_module,query_module,kexec_load,kexec_file_load"
+    }
+    if string_equals(cls, "keyring") == 1 {
+        return "keyctl,add_key,request_key"
+    }
+    if string_equals(cls, "handle") == 1 {
+        // open a file by handle, sidestepping path-based checks
+        return "name_to_handle_at,open_by_handle_at"
+    }
+    if string_equals(cls, "memfd") == 1 {
+        // anonymous in-memory files: the usual way to run code never on disk
+        return "memfd_create,memfd_secret"
+    }
+    if string_equals(cls, "sockets") == 1 {
+        return "socket,socketpair,connect,bind,listen,accept,accept4"
+    }
+    if string_equals(cls, "time") == 1 {
+        return "clock_settime,clock_settime64,settimeofday,stime,adjtimex,clock_adjtime,clock_adjtime64"
+    }
+    if string_equals(cls, "io_uring") == 1 {
+        return "io_uring_setup,io_uring_enter,io_uring_register"
+    }
+    if string_equals(cls, "bpf") == 1 {
+        return "bpf"
+    }
+    if string_equals(cls, "userfault") == 1 {
+        return "userfaultfd"
+    }
+    return ""
+}
+
+// "a,b,c" has the member `name`? (whole-name match, not a substring)
+fn _csv_has(csv: string, name: string) -> int {
+    if string_length(name) == 0 {
+        return 0
+    }
+    return string_contains(",${csv},", ",${name},")
+}
+
+// The names field (the 7th) of one baseline rule line.
+fn _field(line: string, want: int) -> string {
+    parts = string_split(line, "|")
+    out = ""
+    if string_array_size(parts) > want {
+        out = string_trim(string_array_get(parts, want))
+    }
+    string_array_free(parts)
+    return out
+}
+
+// Is `name` a syscall the baseline names in ANY rule?
+known(name: string) -> int {
+    lines = string_split(seccomp_baseline.rules(), "\n")
+    n = string_array_size(lines)
+    i = 0
+    found = 0
+    while i < n {
+        if _csv_has(_field(string_array_get(lines, i), 6), name) == 1 {
+            found = 1
+            break
+        }
+        i = i + 1
+    }
+    string_array_free(lines)
+    return found
+}
+
+// Pure: is this one policy token well-formed? "" = yes, else the reason.
+token_error(raw: string) -> string {
+    tok = string_trim(raw)
+    if string_length(tok) == 0 {
+        return "empty syscall policy entry"
+    }
+    if string_index_of(tok, "sys:") == 0 {
+        nm = string_substring(tok, 4, string_length(tok))
+        if string_length(nm) == 0 {
+            return "'sys:' names no syscall"
+        }
+        if known(nm) == 0 {
+            return "'${nm}' is not a syscall the baseline profile knows"
+        }
+        return ""
+    }
+    if string_length(class_members(tok)) == 0 {
+        all = classes()
+        return "unknown syscall class '${tok}' (${all}, or sys:NAME)"
+    }
+    return ""
+}
+
+// Pure: is the whole policy well-formed? "" = yes, else the first reason.
+// An empty policy is valid: it means "the baseline, untightened".
+policy_error(csv: string) -> string {
+    if string_length(csv) == 0 {
+        return ""
+    }
+    parts = string_split(csv, ",")
+    n = string_array_size(parts)
+    i = 0
+    err = ""
+    while i < n {
+        err = token_error(string_array_get(parts, i))
+        if err != "" {
+            break
+        }
+        i = i + 1
+    }
+    string_array_free(parts)
+    return err
+}
+
+// Add each name in `more` to `acc` unless already there.
+fn _merge(acc: string, more: string) -> string {
+    out = acc
+    parts = string_split(more, ",")
+    n = string_array_size(parts)
+    i = 0
+    while i < n {
+        nm = string_trim(string_array_get(parts, i))
+        if string_length(nm) > 0 {
+            if _csv_has(out, nm) == 0 {
+                if string_length(out) == 0 {
+                    out = nm
+                } else {
+                    out = "${out},${nm}"
+                }
+            }
+        }
+        i = i + 1
+    }
+    string_array_free(parts)
+    return out
+}
+
+// Every syscall a (well-formed) policy refuses, each once, in declared order.
+denied_names(csv: string) -> string {
+    out = ""
+    if string_length(csv) == 0 {
+        return out
+    }
+    parts = string_split(csv, ",")
+    n = string_array_size(parts)
+    i = 0
+    while i < n {
+        tok = string_trim(string_array_get(parts, i))
+        if string_index_of(tok, "sys:") == 0 {
+            out = _merge(out, string_substring(tok, 4, string_length(tok)))
+        } else {
+            out = _merge(out, class_members(tok))
+        }
+        i = i + 1
+    }
+    string_array_free(parts)
+    return out
+}
+
+// ---- rendering ------------------------------------------------------------
+
+// "a,b" -> "\"a\",\"b\""
+fn _quoted(csv: string) -> string {
+    out = ""
+    parts = string_split(csv, ",")
+    n = string_array_size(parts)
+    i = 0
+    while i < n {
+        nm = string_trim(string_array_get(parts, i))
+        if string_length(nm) > 0 {
+            if string_length(out) == 0 {
+                out = "\"${nm}\""
+            } else {
+                out = "${out},\"${nm}\""
+            }
+        }
+        i = i + 1
+    }
+    string_array_free(parts)
+    return out
+}
+
+// `names` without any that appear in `drop`.
+fn _without(names: string, drop: string) -> string {
+    out = ""
+    parts = string_split(names, ",")
+    n = string_array_size(parts)
+    i = 0
+    while i < n {
+        nm = string_trim(string_array_get(parts, i))
+        if string_length(nm) > 0 {
+            if _csv_has(drop, nm) == 0 {
+                if string_length(out) == 0 {
+                    out = nm
+                } else {
+                    out = "${out},${nm}"
+                }
+            }
+        }
+        i = i + 1
+    }
+    string_array_free(parts)
+    return out
+}
+
+// "0:EQ:16&2:EQ:9" -> the JSON objects of an "args" array.
+fn _args_json(spec: string) -> string {
+    out = ""
+    conds = string_split(spec, "&")
+    n = string_array_size(conds)
+    i = 0
+    while i < n {
+        f = string_split(string_array_get(conds, i), ":")
+        if string_array_size(f) == 3 {
+            idx = string_trim(string_array_get(f, 0))
+            op = string_trim(string_array_get(f, 1))
+            val = string_trim(string_array_get(f, 2))
+            one = "{\"index\":${idx},\"value\":${val},\"valueTwo\":0,\"op\":\"SCMP_CMP_${op}\"}"
+            if string_length(out) == 0 {
+                out = one
+            } else {
+                out = "${out},${one}"
+            }
+        }
+        string_array_free(f)
+        i = i + 1
+    }
+    string_array_free(conds)
+    return out
+}
+
+// One baseline rule line -> its JSON object, with `drop` removed from its
+// names. "" when no name survives (the rule then says nothing and is left out).
+fn _rule_json(line: string, drop: string) -> string {
+    parts = string_split(line, "|")
+    if string_array_size(parts) != 7 {
+        string_array_free(parts)
+        return ""
+    }
+    action = string_trim(string_array_get(parts, 0))
+    errno = string_trim(string_array_get(parts, 1))
+    arches = string_trim(string_array_get(parts, 2))
+    capin = string_trim(string_array_get(parts, 3))
+    capex = string_trim(string_array_get(parts, 4))
+    args = string_trim(string_array_get(parts, 5))
+    names = _without(string_array_get(parts, 6), drop)
+    string_array_free(parts)
+    if string_length(names) == 0 {
+        return ""
+    }
+    qn = _quoted(names)
+    out = "{\"names\":[${qn}],\"action\":\"SCMP_ACT_${action}\""
+    if string_length(errno) > 0 {
+        out = "${out},\"errnoRet\":${errno}"
+    }
+    if string_length(args) > 0 {
+        aj = _args_json(args)
+        out = "${out},\"args\":[${aj}]"
+    }
+    inc = ""
+    if string_length(arches) > 0 {
+        qa = _quoted(arches)
+        inc = "\"arches\":[${qa}]"
+    }
+    if string_length(capin) > 0 {
+        qc = _quoted(capin)
+        if string_length(inc) > 0 {
+            inc = "${inc},"
+        }
+        inc = "${inc}\"caps\":[${qc}]"
+    }
+    if string_length(inc) > 0 {
+        out = "${out},\"includes\":{${inc}}"
+    }
+    if string_length(capex) > 0 {
+        qx = _quoted(capex)
+        out = "${out},\"excludes\":{\"caps\":[${qx}]}"
+    }
+    return "${out}}"
+}
+
+// The seccomp profile for a policy, as the JSON podman and docker take with
+// `--security-opt seccomp=FILE`. Returns (json, ""), or ("", why) for a policy
+// that is not well-formed — never a profile that quietly drops an entry.
+render(csv: string) -> (string, string) {
+    perr = policy_error(csv)
+    if perr != "" {
+        return "", perr
+    }
+    drop = denied_names(csv)
+    body = ""
+    count = 0
+    lines = string_split(seccomp_baseline.rules(), "\n")
+    n = string_array_size(lines)
+    i = 0
+    while i < n {
+        line = string_trim(string_array_get(lines, i))
+        if string_length(line) > 0 {
+            rj = _rule_json(line, drop)
+            if string_length(rj) > 0 {
+                if count == 0 {
+                    body = rj
+                } else {
+                    body = "${body},${rj}"
+                }
+                count = count + 1
+            }
+        }
+        i = i + 1
+    }
+    string_array_free(lines)
+    if count == 0 {
+        return "", "the baseline profile has no rules (seccomp_baseline is damaged)"
+    }
+    if string_length(drop) > 0 {
+        qd = _quoted(drop)
+        body = "${body},{\"names\":[${qd}],\"action\":\"SCMP_ACT_ERRNO\",\"errnoRet\":1}"
+    }
+    derr = string_from_int(seccomp_baseline.default_errno())
+    am = string_trim(seccomp_baseline.arch_map_json())
+    return "{\"defaultAction\":\"SCMP_ACT_ERRNO\",\"defaultErrnoRet\":${derr},\"archMap\":${am},\"syscalls\":[${body}]}", ""
+}

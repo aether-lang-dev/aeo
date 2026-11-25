@@ -94,9 +94,45 @@ malware and are impregnable to attack.* Two axes — stop a node REACHING things
 | rctl resource caps | ✅ | ✅ live + orchestrator-guarded | real-node deny proof pending |
 | Capsicum device grants | n/a | n/a | bhyve self-confines — no seam |
 | **Linux container confinement** | ✅ | ✅ **cgroups+cap-drop+netpolicy, fork-bomb refused live** | lib/confine_linux; reuses limit{}+constrain{} grammar (§5) |
+| **Syscall policy (`deny_syscalls`, seccomp)** | ✅ | ⚠️ one box; host podman only | lib/syscall_policy + lib/seccomp_baseline; see "Syscall policy" below |
 | **Linux host-exec confinement (Landlock)** | ✅ | ⚠️ one box, local only | lib/confine_landlock + bin/aeo-confine; see "Landlock for host-exec nodes" below |
 | Image attestation | ✅ | ✅ **verify-before-boot, fail-closed; wrong digest refused live** | attest("sha256:..."); 3 greppable states (attested/unpinned/unattestable) |
 | Audit trail | ✅ | ✅ **tamper-evident hash chain; tamper + attest-refuse caught live** | lib/audit; `aeo audit` verifies the chain (§4) |
+
+### Syscall policy (started 2026-11-25, on the Chromebook)
+
+`constrain{ deny_syscalls("namespace") }` renders to a seccomp profile: the
+stock container profile (lib/seccomp_baseline, DERIVED from containers/common
+— the first use of the provenance rule) minus the denied names, plus one EPERM
+rule for them. The engine enforces; aeo decides (AGENTS.md "Delegate or port?").
+
+**Proven, one box** (Crostini, kernel 6.6, x86_64, podman 4.3.1 + crun 1.8.1,
+ae 0.927.0 — BELOW the 0.945.0 pin: `ae version install 0.945.0` refused the
+download for want of build provenance, and that refusal was left alone):
+- [x] an empty policy renders the upstream profile rule-for-rule (40 rules).
+- [x] live: `unshare`, `ptrace` and `socket` are refused under their class and
+      ALLOWED under the baseline (the control); every class at once still boots.
+- [x] `aeo up`: the container runs under `seccomp=~/.aeo/seccomp/<node>.json`
+      with cap-drop + no-new-privileges; the audit chain records the policy.
+- [x] fail closed: an unknown entry, or a node of another kind (tried: lxc),
+      is refused and audited, nothing started.
+- [x] full suite 388 passing / 0 failing / 4 skipped; all seven bin/ build.
+
+**Open:**
+- [ ] re-run on ae 0.945.0, on docker, on aarch64 (Pi 5), on Bazzite.
+- [ ] the other substrates. Each is REFUSED today, not skipped: lxc
+      (`lxc.seccomp.profile`, a different file format), bwrap (needs compiled
+      BPF on an fd), firecracker, nested containers (in a VM / via the agent —
+      the profile has to travel), wslc/wsl_podman, host-exec (std.sandbox owns
+      that filter; anything new there is original work in Aether, not a port).
+- [ ] `clone(CLONE_NEW*)` is NOT covered by `namespace` (needs an argument
+      rule; clone3 cannot be filtered). Documented in the module, not built.
+- [ ] no `setid` class by design: the OCI runtime sets the user after loading
+      the filter, so the node could never start (measured).
+- [ ] the security-posture rows (`aeo status`: declared/supported/applied) and
+      strict() do not know about the policy yet; nor does drift detection.
+- [ ] the profile file is not digested into the audit entry (path + policy are).
+- [ ] the cutover (blue->green) path applies the policy but was only compiled.
 
 ### Landlock for host-exec nodes (started 2026-11-20, on the Chromebook)
 
