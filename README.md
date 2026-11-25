@@ -568,3 +568,8 @@ Not a build (it `pkg install`s / pulls images, it doesn't compile — shell out 
 aeb for that). Not multi-host by default (every node is local unless a future
 `host(...)` control-plane form is used). Not YAML — the composition *is* the
 config, full Aether underneath. Don't add a config-file parser; expose setters.
+
+## Licence
+
+Apache License 2.0 — see [LICENSE](LICENSE) and [NOTICE](NOTICE). Code
+derived from other projects is credited in NOTICE.

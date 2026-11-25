@@ -507,6 +507,32 @@ Don't over-engineer this into an in-process binding.
 - Don't overclaim "live" → keep the proven-vs-modeled discipline; say which box,
   which date, what was actually run.
 
+## Licence & provenance (Apache-2.0, chosen 2026-11-25)
+
+aeo is **Apache-2.0** (`LICENSE`, `NOTICE`) so it can take code, with credit,
+from other Apache-2.0 infrastructure projects. The siblings `aether` and `aeb`
+are MIT. Original aeo code can still flow to them; DERIVED code cannot. So
+every file must say which it is:
+
+- **A derived file carries a header**, and its source gets a `NOTICE` entry:
+  `// Derived from <org>/<repo> <path> @ <commit>, Apache-2.0, (c) <holder>. Modified.`
+- **No header = original** (Paul + Claude), free to move to aether/aeb.
+- **Whole modules are one or the other.** Never mix a borrowed function into
+  an original file — put derived code in its own module.
+- **The test is what was open when the code was written.** If a foreign SOURCE
+  file was read to write it, mark it derived, even if every line was retyped
+  in Aether. Published docs and observed behaviour do not make code derived.
+- **Commit messages carry `Derived-from: <org>/<repo>@<commit>`** too.
+
+Reference checkouts in `~/scm`, all verified Apache-2.0 on 2026-11-25:
+`openvox` (Puppet), `chef`, `salt`, `pulumi`, `kubernetes`, `podman`, `runc`,
+`firecracker`, `incus`. **Never take from their `vendor/`, `third_party/` or
+`LICENSES/` trees** — those hold other people's code under other licences
+(firecracker also has BSD-licensed Chromium OS portions; keep that notice).
+**Do not take from:** Ansible (GPL), Proxmox (AGPL), systemd and bubblewrap
+(LGPL), Terraform and Nomad (BSL), OpenTofu (MPL). Don't use other projects'
+names as aeo feature names — the licence grants no trademark rights.
+
 ## Git
 
 `main` with ONE remote: `origin` (SSH, git@github.com:aether-lang-dev/aeo.git).

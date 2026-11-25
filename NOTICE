@@ -1,0 +1,15 @@
+aeo
+Copyright 2026 aeo Contributors
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+Third-party code
+----------------
+None yet. When code derived from another project is brought in, record it
+here: the project, its licence, its copyright line, the contents of its own
+NOTICE file if it has one, and which aeo files carry the derived code. Each
+such file also keeps the original copyright notice and states that it was
+changed.
+
+Apache-2.0 and MIT/BSD sources may be brought in on those terms. GPL or
+AGPL sources (Ansible, for one) may not.
