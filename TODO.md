@@ -230,12 +230,22 @@ Found on the box (answers to the plan's open questions):
       aeo booted; "applied=no (the running container reports NO seccomp
       profile)" after the container was swapped by hand for an unconfined one;
       "applied=no (bad entry …)" for a typo. lxc: see above.
-- [ ] status has NO automated test for that row (checked by hand only);
-      test/security-posture.sh does not cover it. (The lxc read-back itself is
-      covered by spec_confine_lxc_live.)
-- [ ] strict() has no syscalls check — not needed for refusal (the boot gate
-      is unconditional), but drift detection (`converge`) still ignores a node
-      that lost its profile; only status shows it.
+- [x] `test/syscall-policy-live.sh` (20 assertions, 2026-11-25, same box):
+      the status row in its four states, AND drift. `aeo reconcile` now treats
+      the profile as part of the envelope: a container swapped for an
+      unconfined one is detected and audited, left alone without `--converge`
+      (alert, not mutate), and recreated under its profile with it; a profile
+      on disk that no longer matches what the declared policy renders is
+      detected too (the engine reports a PATH, and the path does not change
+      when the policy does). Prints SKIP and exits 0 without podman/the image.
+- [ ] that script is not run by `test/run-spec.sh`; run it by hand (like
+      security-posture.sh).
+- [ ] docker: it reports the profile inline, not by path. Drift detection
+      deliberately does NOT flag that (it would recreate the node every pass
+      under --converge); status says "not by aeo's path". Untested — measure
+      what docker reports on cachyos and make it comparable.
+- [ ] strict() has no syscalls check (not needed for refusal: the boot gate is
+      unconditional).
 - [ ] the cap-drop status row is not kind-aware: it reports "--cap-drop ALL"
       for an lxc node too. Older than this work; more visible now that
       deny_syscalls alone makes a node "constrained".

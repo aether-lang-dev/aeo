@@ -2927,6 +2927,43 @@ _desired_line(nm: string) -> string {
     return reconcile.render_desired(img, mem, pids, "0", net)
 }
 
+// _syscall_drift(nm) — "" if the RUNNING container is under the seccomp profile
+// its composition declares, else what is wrong. Two ways to drift: the engine
+// does not report aeo's profile for this node at all (the container was
+// replaced, or started by hand), or the profile on disk is no longer what the
+// declared policy renders (the composition changed since the node booted).
+// A node that declares no policy is not examined: aeo does not police a
+// profile nobody asked for.
+_syscall_drift(nm: string) -> string {
+    pol = compose.get_syscall_policy(nm)
+    if string_length(pol) == 0 {
+        return ""
+    }
+    json, rerr = syscall_policy.render(pol)
+    if rerr != "" {
+        return "seccomp: declared policy is not valid (${rerr})"
+    }
+    rep = driver_linux.seccomp_reported(nm, compose.get_engine(nm))
+    if string_length(rep) == 0 {
+        return ""
+    }
+    want = driver_linux.seccomp_profile_path(nm)
+    if string_contains(rep, "seccomp=${want}") == 0 {
+        // docker reports the profile's CONTENT inline, not its path, and how it
+        // re-serialises it is not something aeo has measured. That cannot be
+        // compared yet, and calling it drift would recreate the node on every
+        // pass under --converge. Status says "not by aeo's path" for this case.
+        if string_contains(rep, "seccomp={") == 1 {
+            return ""
+        }
+        return "seccomp: declared deny=${pol}, but the running container reports ${_oneline(_trim(rep))}"
+    }
+    if driver_linux.seccomp_profile_is(nm, json) == 0 {
+        return "seccomp: the node booted under a profile that is not what deny=${pol} renders now"
+    }
+    return ""
+}
+
 // _reconcile_node(nm, converge) — reconcile ONE container node. Returns the number
 // of drift/failure events observed (0 = coherent). Audits every event + action.
 _reconcile_node(nm: string, converge: int) -> int {
@@ -2970,6 +3007,17 @@ _reconcile_node(nm: string, converge: int) -> int {
     }
     desired = _desired_line(nm)
     d = reconcile.state_diff(desired, actual)
+    // The syscall policy is part of the envelope: a node running without the
+    // profile it declares (or under an older one) has drifted, the same as one
+    // running without its memory cap.
+    sd = _syscall_drift(nm)
+    if string_length(sd) > 0 {
+        if string_length(d) == 0 {
+            d = sd
+        } else {
+            d = "${d}; ${sd}"
+        }
+    }
     if string_length(d) == 0 {
         return 0
     }

@@ -22,7 +22,7 @@
 import std.os (run_capture, run_full, os_which, getenv)
 import std.list
 import std.string (bytes, string_length, string_contains, string_char_at, string_substring, string_index_of, string_ends_with, string_get_int)
-import std.fs (write_atomic)
+import std.fs (write_atomic, read)
 import host
 
 exports (
@@ -31,7 +31,7 @@ exports (
     ps_running_argv, ps_all_running_argv, running_names, run_argv, run_argv_net, run_argv_confined, stop_argv, rm_argv, exec_health_argv,
     net_disconnect_argv, net_connect_alias_argv,
     pasta_dropin_path, pasta_dropin_content, pasta_forwarder_ensure, pasta_forwarder_active, pasta_forwarder_clear,
-    build_argv, seccomp_profile_install, seccomp_profile_path, seccomp_reported
+    build_argv, seccomp_profile_install, seccomp_profile_path, seccomp_reported, seccomp_profile_is
 )
 
 name() -> string {
@@ -1043,6 +1043,27 @@ seccomp_profile_path(res_name: string) -> string {
         return ""
     }
     return "${home}/.aeo/seccomp/${res_name}.json"
+}
+
+// Is the profile on disk for this node exactly `json`? 1 yes, 0 no (including
+// "no file"). The engine reports a profile by PATH, and the path does not
+// change when the policy does — so "same path" alone cannot tell a node booted
+// under last week's policy from one booted under today's. The file is written
+// when the node boots; if it no longer matches what the composition renders,
+// the node is running under something else.
+seccomp_profile_is(res_name: string, json: string) -> int {
+    p = seccomp_profile_path(res_name)
+    if string_length(p) == 0 {
+        return 0
+    }
+    have, rerr = read(p)
+    if rerr != "" {
+        return 0
+    }
+    if string_length(have) != string_length(json) {
+        return 0
+    }
+    return string_contains(have, json)
 }
 
 // What the ENGINE says a running container's security options are, e.g.
