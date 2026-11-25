@@ -92,9 +92,14 @@ main() {
         }
     }
 
-    // ptrace has no shell command in a base image; call it by number.
-    arch, _ = _host("uname", "-m", "", "")
-    arch = string_trim(arch)
+    // ptrace has no shell command in a base image; call it by number, for the
+    // CONTAINER's arch: the engine's host, not this one (podman on a Mac is an
+    // arm64 Linux VM; `uname -m` here says "arm64" and is not the kernel's).
+    arch = ""
+    if avail == 1 {
+        arch, _ = _under(eng, img, "aeo-syscall-spec", "", "uname -m")
+        arch = string_trim(arch)
+    }
     nr = ""
     if string_equals(arch, "x86_64") == 1 { nr = "101" }
     if string_equals(arch, "aarch64") == 1 { nr = "117" }

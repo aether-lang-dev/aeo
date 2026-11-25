@@ -71,6 +71,11 @@ main() {
             spec.it("namespace is unshare and setns, and nothing about clone") callback {
                 spec.expect_str(class_members("namespace")).to_equal_str("unshare,setns")
             }
+            spec.it("sockets also takes socketcall, 32-bit x86's multiplexed door to every socket call") callback {
+                m = ",${class_members("sockets")},"
+                spec.expect_int(string_index_of(m, ",socketcall,") >= 0).to_equal(1,
+                    "without it an i386 binary in an x86_64 node opened a socket under 'sockets' (podman and LXC, 2026-11-25)")
+            }
             spec.it("there is no setid class (the runtime could never start the node)") callback {
                 spec.expect_str(class_members("setid")).to_equal_str("")
             }

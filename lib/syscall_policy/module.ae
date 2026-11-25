@@ -25,7 +25,8 @@
 //              clone is how fork and threads work, and filtering its flags
 //              needs an argument rule (and clone3 cannot be filtered at all).
 //              Not built.
-//   sockets    refuses creating or using ANY socket, unix sockets included.
+//   sockets    refuses creating or using ANY socket, unix sockets included,
+//              and socketcall (32-bit x86's multiplexed route to the same).
 //              It is a belt for a deny_egress node, not a network policy.
 //   (no setid) there is deliberately NO class for setuid/setgid and friends.
 //              The OCI runtime sets the container's user AFTER it loads the
@@ -81,7 +82,10 @@ class_members(cls: string) -> string {
         return "memfd_create,memfd_secret"
     }
     if string_equals(cls, "sockets") == 1 {
-        return "socket,socketpair,connect,bind,listen,accept,accept4"
+        // socketcall: 32-bit x86 reaches every socket call through it as well
+        // as directly; without it an i386 binary in an x86_64 node opened a
+        // socket under this class (podman and LXC, ae-x64 + cachyos, 2026-11-25).
+        return "socket,socketpair,connect,bind,listen,accept,accept4,socketcall"
     }
     if string_equals(cls, "time") == 1 {
         return "clock_settime,clock_settime64,settimeofday,stime,adjtimex,clock_adjtime,clock_adjtime64"
