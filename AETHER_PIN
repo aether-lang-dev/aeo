@@ -312,4 +312,11 @@
 # points build, test/security-posture.sh, strict-mode.sh and compose-lint.sh pass, and
 # `sh test/run-spec.sh` has 368 passing, 14 failing and 21 skipped, the same counts as
 # 0.941.0; the 14 are the same two live Linux bhyve guest specs (7 each).
-0.944.0
+# Raised to 0.945.0 (2026-11-25): a tracking-only bump, no new primitive needed and
+# no source change. 0.945.0 fixes the macOS cross-build link and three typechecker rules
+# (struct literal fields against module variables, glob imports bind only exports, a local
+# named like an imported function is E0301); aeo's source compiles unchanged. Verified on
+# ghostbsd (FreeBSD 15.1, both bhyve guests up, the released 0.945.0, no environment
+# variable): all seven bin/ entry points build, test/security-posture.sh, strict-mode.sh
+# and compose-lint.sh pass, and `sh test/run-spec.sh` has 368 passing, 14 failing and 21 skipped, the same counts as 0.944.0 and 0.941.0; the 14 are the same two live Linux bhyve guest specs (7 each).
+0.945.0
