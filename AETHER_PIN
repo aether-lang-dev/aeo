@@ -304,4 +304,12 @@
 # and compose-lint.sh pass, and `sh test/run-spec.sh` has 368 passing, 14 failing and 21
 # skipped; the 14 are the two live Linux bhyve guest specs (cannot log in to the guest),
 # 7 each on the released 0.939.0 as well.
-0.941.0
+# Raised to 0.944.0 (2026-11-25): a tracking-only bump, no new primitive needed and
+# no source change. 0.942.0 to 0.944.0 are performance changes (runtime actor batching,
+# std.math scalar functions inlined, slice-view release inline) with no language or stdlib
+# API change; aeo's source compiles unchanged. Verified on ghostbsd (FreeBSD 15.1, both
+# bhyve guests up, the released 0.944.0, no environment variable): all seven bin/ entry
+# points build, test/security-posture.sh, strict-mode.sh and compose-lint.sh pass, and
+# `sh test/run-spec.sh` has 368 passing, 14 failing and 21 skipped, the same counts as
+# 0.941.0; the 14 are the same two live Linux bhyve guest specs (7 each).
+0.944.0
