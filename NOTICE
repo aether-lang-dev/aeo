@@ -7,8 +7,13 @@ Licensed under the Apache License, Version 2.0 (see LICENSE).
 Third-party code
 ----------------
 None yet. When code is copied or ported from another project, add a
-"Portions Copyright <their years> <their name>" line at the top of this
-file, worded as that project words it, and record the rest here: the
+line at the top of this file in this form, with the holder and years
+worded as that project words them:
+
+    Portions Copyright <their years> <their name> (in respect of lines
+    taken from the <Project> project)
+
+Then record the rest here: the
 project, its licence, the contents of its own NOTICE file if it has one,
 and which aeo files carry the derived code. Each such file also keeps the
 original copyright notice and states that it was changed.

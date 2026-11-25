@@ -518,7 +518,10 @@ every file must say which it is:
   `// Derived from <org>/<repo> <path> @ <commit>, Apache-2.0, (c) <holder>. Modified.`
 - **No header = original** (Paul + Claude), free to move to aether/aeb.
 - **Its project gets a `Portions Copyright …` line at the top of `NOTICE`**,
-  beside ours, the first time anything is taken from it. Use THEIR wording
+  beside ours, the first time anything is taken from it — always in this
+  form, never their bare line (a bare line reads as a claim on all of aeo):
+  `Portions Copyright 2012-2022 VMware, Inc. (in respect of lines taken
+  from the Salt project)`. Use THEIR wording
   and THEIR years, copied from the source file's own header — the year is
   theirs, not the year we ported it. As found 2026-11-25: Pulumi files say
   `Copyright 2016, Pulumi Corporation.` (year varies per file); Kubernetes
