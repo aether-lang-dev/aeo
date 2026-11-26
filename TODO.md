@@ -488,6 +488,22 @@ report's sha256 in the audit chain (event `run-report`).
   refused at boot with its dependent not-attempted, the teardown's own report,
   audit entries, an edited report not matching the chain. **One box**: Crostini,
   kernel 6.6, x86_64, podman 4.3.1, ae 0.927.0 (below the pin).
+- [x] **Reports do not keep a node's secrets (2026-11-26).** A node's reason is
+  its driver's error, which quotes engine output (a failed `podman run`, a whole
+  failed image build). Before it is kept: the node's `env()` values and the
+  agent token are replaced by `[withheld]`, then it is cut to its first 200 +
+  last 300 characters. `.aeo/reports/` is 0700 and each file 0600. Two reports
+  of one command in one second no longer share a file (the second used to
+  overwrite the first, which the audit chain already pointed at). Spec now 13
+  cases; live script 37 assertions, incl. a build that prints an `env()` value
+  and fails — same one box.
+- [ ] The withholding only knows values it was told: `env()` and `AEO_TOKEN`.
+  A secret that reaches engine output another way (baked into an image, fetched
+  during a build, a per-host `AEO_TOKEN_<host>`) is NOT caught, and values under
+  4 characters are not registered. The terminal still prints the full text.
+- [ ] `.aeo/audit.log` is still written with the default umask (0644 here). It
+  holds decisions, not engine output, but nobody has checked every `detail`
+  that goes into it for the same problem.
 - [ ] Only `container` nodes have been through it live. The hooks are
   kind-agnostic (they sit in the actor and the two level loops), but no lxc /
   kvm / jail / bhyve / proxmox run has produced a report yet.

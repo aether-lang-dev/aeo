@@ -206,6 +206,10 @@ lib/run_report/    what one `aeo up`/`aeo down` DID, node by node (outcome from 
                    newest. NOT the audit trail (that is security decisions) — but
                    each report's sha256 is recorded in it. A report never rounds
                    up: anything but all-started / all-stopped is "failed".
+                   A reason QUOTES ENGINE OUTPUT, so it is scrubbed of the node's
+                   env() values + the agent token and cut to size before it is
+                   kept; the files are 0600 in a 0700 dir. Any new route by
+                   which a secret reaches a node must call withhold().
 lib/secrets/       SEALED values (aeo1 envelope): ciphertext in state/env/logs,
                    plaintext only at the use boundary via resolve(), fail-closed.
                    `aeo secrets keygen|seal|unseal`. NB `seal` is RESERVED —

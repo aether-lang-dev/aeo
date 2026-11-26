@@ -5,8 +5,17 @@
 import std.spec
 import std.os
 import std.fs
-import std.string (string_contains, string_length)
+import std.string (string_contains, string_length, string_trim, string_equals)
+import std.list
 import run_report
+
+_argv2(fmt: string, path: string) -> ptr {
+    av = list_new()
+    list_add(av, "-c")
+    list_add(av, fmt)
+    list_add(av, path)
+    return av
+}
 
 main() {
     fw = spec.init()
@@ -74,6 +83,55 @@ main() {
                 spec.expect_int(string_contains(t, "up failed in")).to_equal(1)
                 spec.expect_int(string_contains(t, "1 failed, 2 not-attempted")).to_equal(1)
                 spec.expect_int(string_contains(t, "image digest does not match")).to_equal(1)
+            }
+            spec.it("withholds a node's registered values from its reason") callback {
+                run_report.begin("up")
+                run_report.declare("db", "container", "web")
+                run_report.declare("app", "container", "web")
+                run_report.withhold_env("db", "PGPASSWORD=hunter2-s3cret,PORT=5432,ON=1")
+                run_report.withhold("db", "tok-abcdef")
+                run_report.node_start("db")
+                run_report.node_outcome("db", "failed", "build failed: + echo hunter2-s3cret tok-abcdef hunter2-s3cret on 1 node")
+                spec.expect_str(run_report.detail_of("db")).to_equal_str(
+                    "build failed: + echo [withheld] [withheld] [withheld] on 1 node",
+                    "every occurrence of a withheld value is replaced; a value under 4 characters (ON=1) is not registered")
+                run_report.node_note("app", "saw hunter2-s3cret and tok-abcdef")
+                spec.expect_str(run_report.detail_of("app")).to_equal_str("saw hunter2-s3cret and tok-abcdef",
+                    "values are withheld per node: app registered none, so the report must not pretend it scrubbed")
+                j = run_report.render_json()
+                spec.expect_int(string_contains(j, "hunter2-s3cret and")).to_equal(1)
+                spec.expect_int(string_contains(j, "echo hunter2")).to_equal(0)
+                run_report.begin("up")
+                run_report.declare("db", "container", "web")
+                run_report.node_note("db", "hunter2-s3cret")
+                spec.expect_str(run_report.detail_of("db")).to_equal_str("hunter2-s3cret",
+                    "a new run starts with nothing registered; the runner registers again")
+            }
+            spec.it("cuts a long reason to its head and tail, after withholding") callback {
+                run_report.begin("up")
+                run_report.declare("db", "container", "web")
+                run_report.withhold("db", "s3cret-in-the-middle")
+                chunk = "0123456789"
+                big = "HEAD-MARK "
+                i = 0
+                while i < 100 {
+                    big = "${big}${chunk}"
+                    if i == 50 {
+                        big = "${big} s3cret-in-the-middle "
+                    }
+                    i = i + 1
+                }
+                big = "${big} s3cret-in-the-middle TAIL-MARK"
+                run_report.node_outcome("db", "failed", big)
+                d = run_report.detail_of("db")
+                spec.expect_int(string_contains(d, "HEAD-MARK")).to_equal(1)
+                spec.expect_int(string_contains(d, "[withheld] TAIL-MARK")).to_equal(1,
+                    "the tail is where a build's error is; it is kept, scrubbed")
+                spec.expect_int(string_contains(d, "characters cut; the run printed the full text")).to_equal(1)
+                spec.expect_int(string_contains(d, "s3cret")).to_equal(0)
+                small = 0
+                if string_length(d) < 600 { small = 1 }
+                spec.expect_int(small).to_equal(1)
             }
             spec.it("keeps the FIRST outcome: a boot failure is not overwritten by the later timeout") callback {
                 run_report.begin("up")
@@ -157,8 +215,20 @@ main() {
                 path, sha, err = run_report.write()
                 spec.expect_str(err).to_equal_str("")
                 spec.expect_int(fs.exists(path)).to_equal(1)
+                mode_dir, _s1, _e1 = os.run_capture("stat", _argv2("%a", d), null)
+                mode_file, _s2, _e2 = os.run_capture("stat", _argv2("%a", path), null)
+                spec.expect_str(string_trim(mode_dir)).to_equal_str("700",
+                    "a report can quote engine output; other users of the host do not get to read it")
+                spec.expect_str(string_trim(mode_file)).to_equal_str("600")
                 spec.expect_int(string_length(sha)).to_equal(64,
                     "the hash is what the runner writes into the audit chain")
+                path2, _sha2, err2 = run_report.write()
+                spec.expect_str(err2).to_equal_str("")
+                differ = 1
+                if string_equals(path, path2) == 1 { differ = 0 }
+                spec.expect_int(differ).to_equal(1,
+                    "a second report in the same second gets its own file; the first is one the audit chain points at")
+                spec.expect_int(fs.exists(path)).to_equal(1)
                 j, jerr = run_report.read_last(1)
                 spec.expect_str(jerr).to_equal_str("")
                 spec.expect_int(string_contains(j, "\"outcome\":\"ok\"")).to_equal(1)

@@ -13,6 +13,9 @@
 #   - a node REFUSED at boot is "failed" with the refusal as its reason, the
 #     node that depends on it is "not-attempted", overall failed;
 #   - the teardown after it, and a plain down, report "stopped" (verified gone);
+#   - a build that prints a node's env() value and fails: the value is in what
+#     the run printed and NOT in the report; the reason is cut to size; the
+#     reports are readable by their owner only;
 #   - the audit chain carries each report's sha256, and still verifies.
 #
 # Needs podman and the test image present locally (AEO_SPEC_IMAGE, default
@@ -58,6 +61,26 @@ aeo_orchestration() {
 }
 AE
 }
+SECRET="s3cr3t-live-$$-do-not-keep"
+cat > leak.ae <<AE
+import compose (system, container)
+import compose (dockerfile, command, health, env)
+exports ( aeo_orchestration )
+aeo_orchestration() {
+    system("aeorunrepl") {
+        container("$N-leak") {
+            dockerfile(<<DOCKER
+FROM $IMG
+RUN echo TOKEN=$SECRET; seq 1 400; echo again $SECRET; exit 7
+DOCKER
+            )
+            env("API_TOKEN", "$SECRET")
+            command("sleep 600")
+            health("true")
+        }
+    }
+}
+AE
 compose good.ae aeorunrep  debug
 compose bad.ae  aeorunrepb debgu       # a typo: the node is refused at boot
 
@@ -123,14 +146,31 @@ want "$(cat "${UPR%.json}.txt")" "up failed in" "report: the text form says fail
 want "$(aeo report --json)" '"command":"down"' "the teardown of the partial tree wrote its own report, and it is the newest"
 [ "$(podman ps -aq --filter "name=^$N-" | wc -l)" -eq 0 ] && pass "the report matches the host: nothing was started" || fail "a refused run left a container"
 
-echo "### 5. the audit chain"
+echo "### 5. a failed build that prints a secret"
+OUT="$(aeo up leak.ae --no-supervisor)"; RC=$?
+[ "$RC" -ne 0 ] && pass "up: the failed build fails the run" || fail "up exited 0 with a failed build"
+want "$OUT" "TOKEN=$SECRET" "the build really printed the secret (the terminal shows it)"
+UPR="$(ls .aeo/reports/*-up.json | tail -1)"
+J="$(cat "$UPR")"
+want "$J" "\"name\":\"$N-leak\",\"system\":\"aeorunrepl\",\"kind\":\"container\",\"outcome\":\"failed\"" "report: the node is failed"
+want "$J" "image build failed" "report: the reason is the build failure"
+want "$J" "[withheld]" "report: the secret's place is marked"
+want "$J" "characters cut; the run printed the full text" "report: the long build output is cut"
+if grep -rq "$SECRET" .aeo/reports .aeo/audit.log; then fail "the secret is in a report or the audit log"; grep -rl "$SECRET" .aeo; else pass "the secret is in no report file and not in the audit log"; fi
+[ "$(stat -c %a .aeo/reports)" = "700" ] && pass "the reports directory is 0700" || fail "reports directory is $(stat -c %a .aeo/reports)"
+OPEN="$(find .aeo/reports -type f ! -perm 600 | wc -l)"
+[ "$OPEN" -eq 0 ] && pass "every report file is 0600" || fail "$OPEN report file(s) are not 0600"
+aeo down leak.ae --no-supervisor >/dev/null
+podman rmi -f "localhost/aeo-built/$N-leak:latest" >/dev/null 2>&1
+
+echo "### 6. the audit chain"
 AUD="$(aeo audit good.ae)"
 want "$AUD" "chain:   INTACT" "audit: the chain still verifies with the run-report entries in it"
 N_REP="$(ls .aeo/reports/*.json | grep -vc last.json)"
 N_AUD="$(grep -c 'run-report' .aeo/audit.log)"
 [ "$N_REP" -gt 0 ] && [ "$N_REP" -eq "$N_AUD" ] && pass "audit: one entry per report written ($N_REP)" || fail "audit: $N_AUD entries for $N_REP reports"
 
-echo "### 6. a report edited afterwards no longer matches the chain"
+echo "### 7. a report edited afterwards no longer matches the chain"
 LASTUP="$(ls .aeo/reports/*-up.json | tail -1)"
 sed -i 's/"outcome":"failed"/"outcome":"ok"/' "$LASTUP"
 EDITED="$(sha256sum "$LASTUP" | cut -d' ' -f1)"

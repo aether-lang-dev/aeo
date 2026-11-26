@@ -1525,6 +1525,10 @@ _report_begin(cmd: string) {
     while i < n {
         nm = compose.name_at(i)
         run_report.declare(nm, compose.get_kind(nm), compose.get_system(nm))
+        // Engine output can end up in a node's reason; these must not.
+        run_report.withhold_env(nm, compose.get_env(nm))
+        run_report.withhold(nm, _envc("AEO_TOKEN"))
+        run_report.withhold(nm, secrets.resolve(_envc("AEO_TOKEN")))
         i = i + 1
     }
 }
