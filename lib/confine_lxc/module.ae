@@ -37,11 +37,12 @@ import std.fs
 import std.string (string_length, string_split, string_array_size,
                    string_array_get, string_array_free, string_trim,
                    string_index_of, string_substring, string_contains,
-                   string_ends_with, string_from_int, bytes)
+                   string_ends_with, string_from_int, bytes,
+                   string_starts_with, string_equals)
 
 exports (
     render, lxc_policy_error, stock_error, stock_read, profile_path, profile_install,
-    start_section, rules_seen
+    start_section, rules_seen, drift
 )
 
 // The first word of a line (up to a space or tab), trimmed.
@@ -249,4 +250,50 @@ rules_seen(section: string, csv: string) -> string {
     }
     string_array_free(names)
     return missing
+}
+
+// drift — has a RUNNING lxc node lost the syscall policy it declares? Pure:
+// the caller gathers the facts (driver_lxc.seccomp_reported, the host's stock
+// profile, the node's profile file) and this decides. Returns (verdict, why):
+//   ("ok", "")         it runs under what `policy` renders over the stock now
+//   ("drift", why)     it does not: no filter, a denied rule not loaded, or
+//                      the profile it was started with is not today's render
+//   ("unknown", why)   it cannot be told (start log unreadable, stock profile
+//                      unreadable). NOT drift: calling it drift would recreate
+//                      the node on every pass under --converge. Not ok either.
+// `reported` "" means not running; that is the liveness check's finding, not
+// this one's, so it is "ok" here. An empty policy declares nothing: "ok".
+drift(policy: string, reported: string, stock: string, stock_err: string, on_disk: string, disk_err: string) -> (string, string) {
+    if string_length(policy) == 0 {
+        return "ok", ""
+    }
+    if string_length(reported) == 0 {
+        return "ok", ""
+    }
+    if string_starts_with(reported, "NOFILTER:") == 1 {
+        return "drift", "seccomp: declared deny=${policy}, but ${string_substring(reported, 9, string_length(reported))}"
+    }
+    if string_starts_with(reported, "MISSING:") == 1 {
+        return "drift", "seccomp: declared deny=${policy}, but the running container was started without: ${string_substring(reported, 8, string_length(reported))}"
+    }
+    if string_starts_with(reported, "UNREADABLE:") == 1 {
+        return "unknown", "seccomp: cannot tell what the running container loaded (${string_substring(reported, 11, string_length(reported))})"
+    }
+    if string_starts_with(reported, "OK:") == 0 {
+        return "unknown", "seccomp: unrecognised report from the lxc driver"
+    }
+    if string_length(stock_err) > 0 {
+        return "unknown", "seccomp: cannot re-render the profile to compare (${stock_err})"
+    }
+    want, rerr = render(stock, policy)
+    if rerr != "" {
+        return "drift", "seccomp: declared policy is not valid (${rerr})"
+    }
+    if string_length(disk_err) > 0 {
+        return "drift", "seccomp: the node's profile file is gone or unreadable (${disk_err})"
+    }
+    if string_equals(want, on_disk) == 0 {
+        return "drift", "seccomp: the node booted under a profile that is not what deny=${policy} renders over the host's stock profile now"
+    }
+    return "ok", ""
 }

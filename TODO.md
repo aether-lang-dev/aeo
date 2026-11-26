@@ -290,13 +290,25 @@ Found on the box (answers to the plan's open questions):
       keeps key order and number spelling, so that whitespace-stripping is
       enough, is exactly the measurement still owed; if it is not, compare the
       set of (action, names, errno) rules instead.
-- [ ] lxc drift in `aeo reconcile`: reconcile is container-only (lxc prints
-      "not yet supported"). Planned 2026-11-26 the container way: liveness via
-      driver_lxc.probe; drift = `driver_lxc.seccomp_reported` saying NOFILTER
-      or MISSING, or the profile file no longer equal to `confine_lxc.render`
-      over the stock file read at run time (never copied); alert, or down+up
-      under --converge; audited. Not landed: the edit to lib/aeo/runner.ae was
-      refused by a permission check in that session, so it was not made.
+- [~] lxc drift in `aeo reconcile` — LANDED 2026-11-26 from the Chromebook,
+      **NOT RUN against a real LXC** (this box has none). What exists:
+      - `confine_lxc.drift()` — the decision, pure: ok / drift / unknown from
+        what `driver_lxc.seccomp_reported` says, the host's stock profile and
+        the node's profile file. 9 spec cases in `test/spec_confine_lxc.ae`.
+        "unknown" (start log or stock profile unreadable) is neither drift nor
+        ok: the run report says `unchecked`, nothing is recreated.
+      - `_reconcile_lxc` in the runner: liveness via `driver_lxc.probe`, then
+        the above; alert, or down+up under --converge; audited; run report.
+        It compares liveness and the syscall policy ONLY — limits and network
+        are not compared for lxc, and the report's reason says so.
+      - Run here: the runner builds; on a host with no LXC an lxc node reports
+        `DRIFT: node is not running`, exit 1, report `drifted`.
+      - **Owed, on a box with LXC (ae-x64 or cachyos):** a node under its
+        profile is `coherent`; one restarted without `-s lxc.seccomp.profile`
+        is `drifted` (NOFILTER or MISSING) and --converge puts it back; a
+        changed profile file is `drifted`; an unreadable start log is
+        `unchecked`. Whether reconcile can read `/proc/<init>/status` and the
+        start log without sudo there is unmeasured.
 - [ ] strict() has no syscalls check (not needed for refusal: the boot gate is
       unconditional).
 - [ ] the cap-drop status row is not kind-aware: it reports "--cap-drop ALL"

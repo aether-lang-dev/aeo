@@ -10,7 +10,7 @@
 import std.spec
 import std.string (string_contains, string_index_of, string_length, string_split, string_array_size, string_array_get, string_array_free, string_trim, string_ends_with)
 import syscall_policy (denied_names)
-import confine_lxc (render, stock_read, profile_path, profile_install, rules_seen, start_section)
+import confine_lxc (render, stock_read, profile_path, profile_install, rules_seen, start_section, drift)
 import driver_lxc (start_argv_shared, death_log_path)
 import std.list
 
@@ -221,6 +221,59 @@ main() {
             spec.it("every denied name must have been processed in that start") callback {
                 spec.expect_str(rules_seen(start_section(log, 222), "namespace")).to_equal_str("")
                 spec.expect_str(rules_seen(start_section(log, 111), "namespace")).to_equal_str("setns")
+            }
+        }
+
+        spec.describe("drift: has a running node lost the policy it declares?") {
+            spec.it("a node under today's render of its policy has not drifted") callback {
+                good, _e = render(stock, "namespace")
+                v, why = drift("namespace", "OK:LXC loaded every denied rule", stock, "", good, "")
+                spec.expect_str(v).to_equal_str("ok")
+                spec.expect_str(why).to_equal_str("")
+            }
+            spec.it("no declared policy, or a node that is not running, is not this check's finding") callback {
+                v, _w = drift("", "NOFILTER:whatever", stock, "", "", "")
+                spec.expect_str(v).to_equal_str("ok", "nothing declared, nothing to lose")
+                v2, _w2 = drift("namespace", "", stock, "", "", "")
+                spec.expect_str(v2).to_equal_str("ok", "not running is the liveness check's drift, reported there")
+            }
+            spec.it("init holding no filter at all is drift") callback {
+                v, why = drift("namespace", "NOFILTER:init (pid 42) runs with no seccomp filter", stock, "", "", "")
+                spec.expect_str(v).to_equal_str("drift")
+                spec.expect_int(string_contains(why, "declared deny=namespace, but init (pid 42) runs with no seccomp filter")).to_equal(1)
+            }
+            spec.it("a start that did not load a denied rule is drift, and names it") callback {
+                v, why = drift("namespace", "MISSING:setns", stock, "", "", "")
+                spec.expect_str(v).to_equal_str("drift")
+                spec.expect_int(string_contains(why, "started without: setns")).to_equal(1)
+            }
+            spec.it("a start log that cannot be read is UNKNOWN: not drift, and not ok") callback {
+                v, why = drift("namespace", "UNREADABLE:LXC's start log /x: gone", stock, "", "", "")
+                spec.expect_str(v).to_equal_str("unknown",
+                    "calling it drift would recreate the node on every --converge pass; calling it ok would be a claim nobody checked")
+                spec.expect_int(string_contains(why, "cannot tell what the running container loaded")).to_equal(1)
+            }
+            spec.it("a stock profile that cannot be read is UNKNOWN too") callback {
+                v, _why = drift("namespace", "OK:fine", "", "cannot read the stock LXC seccomp profile", "x", "")
+                spec.expect_str(v).to_equal_str("unknown")
+            }
+            spec.it("a profile file that is not today's render is drift (the policy or the host's stock profile changed)") callback {
+                old, _e = render(stock, "namespace")
+                v, why = drift("namespace,mount", "OK:fine", stock, "", old, "")
+                spec.expect_str(v).to_equal_str("drift")
+                spec.expect_int(string_contains(why, "is not what deny=namespace,mount renders over the host's stock profile now")).to_equal(1)
+                newer = "2\ndenylist\nreboot errno 1\nkexec_load errno 1\n"
+                v2, _w2 = drift("namespace", "OK:fine", newer, "", old, "")
+                spec.expect_str(v2).to_equal_str("drift", "the distro added a denial since this node was started")
+            }
+            spec.it("a profile file that is gone is drift") callback {
+                v, why = drift("namespace", "OK:fine", stock, "", "", "No such file")
+                spec.expect_str(v).to_equal_str("drift")
+                spec.expect_int(string_contains(why, "gone or unreadable")).to_equal(1)
+            }
+            spec.it("an unrecognised report is UNKNOWN, never ok") callback {
+                v, _w = drift("namespace", "SOMETHING-NEW:x", stock, "", "", "")
+                spec.expect_str(v).to_equal_str("unknown")
             }
         }
     }

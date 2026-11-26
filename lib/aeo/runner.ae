@@ -18,6 +18,7 @@
 // AEO_CMD env (the front-door sets it): up (default) / down / status.
 
 import std.config
+import std.fs
 import std.string (string_length, string_substring, string_index_of, string_char_at, string_from_char, string_starts_with, string_equals)
 import std.list
 import driver_linux
@@ -3109,12 +3110,87 @@ _syscall_drift(nm: string) -> string {
     return ""
 }
 
+// _reconcile_lxc(nm, converge) — reconcile ONE lxc node. Compares two things:
+// is it running, and is it running under the syscall policy it declares
+// (lib/confine_lxc.drift decides, from what the driver reads back). Limits and
+// network are NOT compared for lxc — the report says so rather than calling
+// the node's whole envelope coherent. What cannot be told (an unreadable start
+// log) is "unchecked": said loudly, not counted as drift, never recreated.
+// Returns the number of drift/failure events (0 or 1).
+_reconcile_lxc(nm: string, converge: int) -> int {
+    k = "lxc"
+    if converge == 0 {
+        pod = compose.get_policy_on_drift(nm)
+        if pod == "converge" { converge = 1 }
+    }
+    alive = driver_lxc.probe(nm, compose.get_health(nm), "")
+    if alive == 0 {
+        println("aeo: [${nm}] DRIFT: node is not running (down or unhealthy)")
+        _ = audit.record(nm, k, "drift", "node not running")
+        if converge == 1 {
+            println("aeo: [${nm}] converge: restarting")
+            err = driver_up(nm, k)
+            if string_length(err) > 0 {
+                println("aeo: [${nm}] converge FAILED: ${_errtext(err)}")
+                _ = audit.record(nm, k, "converge-fail", _kept(nm, _errtext(err)))
+                run_report.node_outcome(nm, "failed", "was not running; the restart failed: ${_errtext(err)}")
+            } else {
+                _ = audit.record(nm, k, "converge", "restarted (was not running)")
+                run_report.node_outcome(nm, "converged", "was not running; restarted")
+            }
+        }
+        run_report.node_outcome(nm, "drifted", "not running (down or unhealthy)")
+        return 1
+    }
+    pol = compose.get_syscall_policy(nm)
+    scope = "running; limits and network are not compared for lxc"
+    if string_length(pol) == 0 {
+        run_report.node_outcome(nm, "coherent", "${scope}, and it declares no syscall policy")
+        return 0
+    }
+    rep = driver_lxc.seccomp_reported(nm, pol)
+    stock, serr = confine_lxc.stock_read(driver_lxc.seccomp_stock_path(nm))
+    disk, derr = fs.read(confine_lxc.profile_path(nm))
+    verdict, why = confine_lxc.drift(pol, rep, stock, serr, disk, derr)
+    if verdict == "ok" {
+        run_report.node_outcome(nm, "coherent", "${scope}; syscall policy deny=${pol} verified")
+        return 0
+    }
+    if verdict == "unknown" {
+        println("aeo: [${nm}] UNCHECKED: ${why}")
+        run_report.node_outcome(nm, "unchecked", why)
+        return 0
+    }
+    println("aeo: [${nm}] DRIFT: ${why}")
+    _ = audit.record(nm, k, "drift", why)
+    if converge == 1 {
+        // The profile is given to lxc-start, so it is put back the way a
+        // container's is: down, then up through the same refusing boot gate.
+        println("aeo: [${nm}] converge: recreating under the declared policy")
+        _ = driver_down(nm, k)
+        err = driver_up(nm, k)
+        if string_length(err) > 0 {
+            println("aeo: [${nm}] converge FAILED: ${_errtext(err)}")
+            _ = audit.record(nm, k, "converge-fail", _kept(nm, _errtext(err)))
+            run_report.node_outcome(nm, "failed", "${why}; the recreate failed: ${_errtext(err)}")
+        } else {
+            _ = audit.record(nm, k, "converge", "recreated under the declared policy (${why})")
+            run_report.node_outcome(nm, "converged", "recreated: ${why}")
+        }
+    }
+    run_report.node_outcome(nm, "drifted", why)
+    return 1
+}
+
 // _reconcile_node(nm, converge) — reconcile ONE container node. Returns the number
 // of drift/failure events observed (0 = coherent). Audits every event + action.
 _reconcile_node(nm: string, converge: int) -> int {
     k = compose.get_kind(nm)
+    if k == "lxc" {
+        return _reconcile_lxc(nm, converge)
+    }
     if k != "container" {
-        println("aeo: [${nm}] reconcile not yet supported for kind='${k}' (container only in v1)")
+        println("aeo: [${nm}] reconcile not yet supported for kind='${k}' (container and lxc only)")
         run_report.node_outcome(nm, "unchecked", "reconcile does not cover kind '${k}' yet")
         return 0
     }
