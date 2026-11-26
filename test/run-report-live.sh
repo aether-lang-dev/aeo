@@ -169,6 +169,11 @@ RC_OUT="$(aeo reconcile leak.ae --converge)"; RRC=$?
 want "$RC_OUT" "converge FAILED" "reconcile --converge: the same build fails again"
 want "$RC_OUT" "TOKEN=$SECRET" "reconcile: the terminal shows the build output, secret included"
 want "$(cat .aeo/audit.log)" '"event":"converge-fail"' "audit: the failed converge is recorded"
+J="$(aeo report --json)"
+want "$J" '"command":"reconcile","outcome":"failed"' "run report: the reconcile wrote one, and it is failed"
+want "$J" "\"name\":\"$N-leak\",\"system\":\"aeorunrepl\",\"kind\":\"container\",\"outcome\":\"failed\"" "run report: the node's converge failed"
+want "$J" "was not running; the restart failed" "run report: says what was tried"
+if grep -rq "$SECRET" .aeo/reports; then fail "the secret is in the reconcile report"; else pass "run report: the reconcile report does not hold the secret"; fi
 wantno "$(grep "$N-leak" .aeo/audit.log)" '"event":"converge","detail":"restarted' "audit: a converge that failed is not recorded as a restart"
 if grep -q "$SECRET" .aeo/audit.log; then fail "the secret is in the audit log after a failed converge"; else pass "audit: the converge-fail entry does not hold the secret"; fi
 aeo down leak.ae --no-supervisor >/dev/null

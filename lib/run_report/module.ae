@@ -21,6 +21,12 @@
 //          halted         signalled; this kind/window has no gone-check
 //          lingering      still present after its window
 //          failed         the down call errored and it was never verified gone
+//   reconcile:
+//          coherent       running, and its live envelope is what is declared
+//          drifted        not running, or out of its envelope; nothing was done
+//          converged      had drifted; restarted or recreated to its envelope
+//          failed         had drifted; the converge was attempted and failed
+//          unchecked      reconcile cannot compare this node (kind or engine)
 //
 // State lives in std.config (the actor that boots a node and the engine that
 // promotes it are different threads; AGENTS.md: never a module var). Files go
@@ -251,8 +257,12 @@ count_of(outcome: string) -> int {
 }
 
 // "ok" only when every node ended well: all "started" after an up; all
-// "stopped" or "halted" after a down. Anything else, or a node with no outcome
-// at all, is "failed" — a report never rounds up.
+// "stopped" or "halted" after a down; all "coherent" or "unchecked" after a
+// reconcile. Anything else, or a node with no outcome at all, is "failed" — a
+// report never rounds up. "converged" is NOT ok: the node had drifted, which
+// is the thing a reconcile exists to tell you (and `aeo reconcile` exits 1).
+// "unchecked", like "halted", is ok-but-unverified: it is counted in the
+// summary line so it cannot hide.
 overall() -> string {
     names = config.get("aeo.rr.names")
     if string_length(names) == 0 {
@@ -269,6 +279,8 @@ overall() -> string {
         if string_equals(o, "started") == 1 { good = 1 }
         if string_equals(o, "stopped") == 1 { good = 1 }
         if string_equals(o, "halted") == 1 { good = 1 }
+        if string_equals(o, "coherent") == 1 { good = 1 }
+        if string_equals(o, "unchecked") == 1 { good = 1 }
         if good == 0 {
             bad = bad + 1
         }
@@ -284,7 +296,7 @@ overall() -> string {
 fn _counts_json() -> string {
     q = string_from_char(34)
     out = ""
-    all = "started,failed,timeout,abandoned,not-attempted,stopped,halted,lingering"
+    all = "started,failed,timeout,abandoned,not-attempted,stopped,halted,lingering,coherent,drifted,converged,unchecked"
     parts = string_split(all, ",")
     n = string_array_size(parts)
     i = 0
@@ -394,7 +406,7 @@ render_text() -> string {
             i = i + 1
         }
         string_array_free(parts)
-        all = "started,failed,timeout,abandoned,not-attempted,stopped,halted,lingering"
+        all = "started,failed,timeout,abandoned,not-attempted,stopped,halted,lingering,coherent,drifted,converged,unchecked"
         ps = string_split(all, ",")
         m = string_array_size(ps)
         j = 0

@@ -38,7 +38,7 @@ aeo check    compose.ae      # run the composition's declared check() specs, NO 
 aeo smoke    compose.ae      # deploy + run smoke() specs, leave the tree STANDING
 aeo suite    compose.ae      # deploy + run suite() specs, then TEAR DOWN (the CI shape)
 aeo audit    compose.ae      # verify the hash-chained audit trail
-aeo report   [--json]        # what the last up/down here did, node by node: outcome, timings, reason
+aeo report   [--json]        # what the last up/down/reconcile here did, node by node: outcome, timings, reason
                              # (.aeo/reports/, newest AEO_REPORT_KEEP runs kept, default 200; `aeo audit` re-checks each file's hash)
 aeo cutover  compose.ae node  # zero-downtime blue-green: green up + confined + health-gated, alias-swap, retire blue
 aeo reconcile compose.ae      # one-shot drift check: live probes vs the composition (exit 1 on drift); --converge to fix

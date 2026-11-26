@@ -200,7 +200,7 @@ lib/seccomp_baseline/  DERIVED (containers/common) — the stock container sysca
 lib/rctl/ lib/pf/  FreeBSD confinement: rctl caps + pf network policy.
 lib/attest/        image attestation (verify-before-boot, 3 greppable states).
 lib/audit/         tamper-evident hash-chained audit trail.
-lib/run_report/    what one `aeo up`/`aeo down` DID, node by node (outcome from a
+lib/run_report/    what one `aeo up`/`down`/`reconcile` DID, node by node (outcome from a
                    closed set, call time, time to healthy/gone, reason). Written to
                    .aeo/reports/ after every run; `aeo report [--json]` prints the
                    newest. NOT the audit trail (that is security decisions) — but

@@ -205,6 +205,33 @@ main() {
             }
         }
 
+        spec.describe(fw, "a reconcile") {
+            spec.it("is ok only when nothing had drifted; a converge that worked is still not ok") callback {
+                run_report.begin("reconcile")
+                run_report.declare("db", "container", "web")
+                run_report.declare("box", "lxc", "web")
+                run_report.node_outcome("db", "coherent", "")
+                run_report.node_outcome("box", "unchecked", "reconcile does not cover kind 'lxc' yet")
+                spec.expect_str(run_report.overall()).to_equal_str("ok")
+                t = run_report.render_text()
+                spec.expect_int(string_contains(t, "1 coherent, 1 unchecked")).to_equal(1,
+                    "an unchecked node does not fail the run, but the summary line counts it")
+                run_report.begin("reconcile")
+                run_report.declare("db", "container", "web")
+                run_report.node_outcome("db", "converged", "recreated: memory: declared 64m, live none")
+                run_report.node_outcome("db", "drifted", "memory: declared 64m, live none")
+                spec.expect_str(run_report.outcome_of("db")).to_equal_str("converged",
+                    "first outcome wins: the converge result, not the drift recorded after it")
+                spec.expect_str(run_report.overall()).to_equal_str("failed",
+                    "the node HAD drifted; a reconcile exists to say so")
+                run_report.begin("reconcile")
+                run_report.declare("db", "container", "web")
+                run_report.node_outcome("db", "drifted", "not running")
+                spec.expect_str(run_report.overall()).to_equal_str("failed")
+                spec.expect_int(run_report.count_of("drifted")).to_equal(1)
+            }
+        }
+
         spec.describe(fw, "how many runs are kept") {
             spec.it("AEO_REPORT_KEEP is a plain number, and anything else is the default") callback {
                 _ = os.setenv("AEO_REPORT_KEEP", "")

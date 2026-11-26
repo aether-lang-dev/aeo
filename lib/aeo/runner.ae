@@ -3115,6 +3115,7 @@ _reconcile_node(nm: string, converge: int) -> int {
     k = compose.get_kind(nm)
     if k != "container" {
         println("aeo: [${nm}] reconcile not yet supported for kind='${k}' (container only in v1)")
+        run_report.node_outcome(nm, "unchecked", "reconcile does not cover kind '${k}' yet")
         return 0
     }
     // POLICY (item 5): a node's own policy{ on_drift("converge") } opts IT into
@@ -3138,16 +3139,20 @@ _reconcile_node(nm: string, converge: int) -> int {
             if string_length(err) > 0 {
                 println("aeo: [${nm}] converge FAILED: ${_errtext(err)}")
                 _ = audit.record(nm, k, "converge-fail", _kept(nm, _errtext(err)))
+                run_report.node_outcome(nm, "failed", "was not running; the restart failed: ${_errtext(err)}")
             } else {
                 _ = audit.record(nm, k, "converge", "restarted (was not running)")
+                run_report.node_outcome(nm, "converged", "was not running; restarted")
             }
         }
+        run_report.node_outcome(nm, "drifted", "not running (down or unhealthy)")
         return 1
     }
     // 2. PROPERTY DRIFT: diff the live envelope against the composition.
     actual = driver_linux.inspect_state(nm, eng)
     if string_length(actual) == 0 {
         // running per probe but not inspectable (a Windows/wsl engine, or a race).
+        run_report.node_outcome(nm, "unchecked", "running, but its engine gave nothing to compare")
         return 0
     }
     desired = _desired_line(nm)
@@ -3164,6 +3169,7 @@ _reconcile_node(nm: string, converge: int) -> int {
         }
     }
     if string_length(d) == 0 {
+        run_report.node_outcome(nm, "coherent", "")
         return 0
     }
     // A confined node OUT of its declared envelope is a security event.
@@ -3182,10 +3188,13 @@ _reconcile_node(nm: string, converge: int) -> int {
         if string_length(err) > 0 {
             println("aeo: [${nm}] converge FAILED: ${_errtext(err)}")
             _ = audit.record(nm, k, "converge-fail", _kept(nm, _errtext(err)))
+            run_report.node_outcome(nm, "failed", "${d}; the recreate failed: ${_errtext(err)}")
         } else {
             _ = audit.record(nm, k, "converge", "recreated to envelope (${d})")
+            run_report.node_outcome(nm, "converged", "recreated: ${d}")
         }
     }
+    run_report.node_outcome(nm, "drifted", d)
     return 1
 }
 
@@ -3201,10 +3210,18 @@ run_reconcile() {
     n = compose.count()
     i = 0
     events = 0
+    // A one-shot reconcile leaves a run report, like up and down. (`aeo watch`
+    // does not: a report every interval, forever, is noise — the audit trail
+    // has its drift events.) First outcome wins, so the "drifted" recorded
+    // after a converge attempt only lands when there was no attempt.
+    _report_begin("reconcile")
     while i < n {
+        run_report.node_start(compose.name_at(i))
         events = events + _reconcile_node(compose.name_at(i), converge)
         i = i + 1
     }
+    run_report.close_unreported("unchecked", "unchecked")
+    _report_end("reconcile")
     if events == 0 {
         println("aeo: reconcile — COHERENT (no drift)")
         exit(0)

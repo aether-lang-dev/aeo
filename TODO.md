@@ -535,7 +535,13 @@ report's sha256 in the audit chain (event `run-report`).
   gone itself and reports what it saw. Live: 8 assertions against a real
   `aeo-supervisord` on loopback — one box, as above. A node the supervisor
   held that the composition no longer declares is not in the report.
-- [ ] `aeo reconcile` / `watch` / `restart` / `cutover` write no report.
+- [x] `aeo reconcile` writes a report (2026-11-26): coherent / drifted /
+  converged / failed / unchecked per node. A converge that worked is still not
+  "ok" (the node had drifted; reconcile exits 1 too). Live: coherent, drifted
+  and converged in `test/syscall-policy-live.sh`, failed in
+  `test/run-report-live.sh` — one box, as above. `unchecked` is spec-only.
+- [ ] `aeo watch` / `restart` / `cutover` write no report (watch on purpose: a
+  report every interval is noise; its drift events are in the audit trail).
 - [x] Pruning (2026-11-26): each write keeps the newest `AEO_REPORT_KEEP` runs
   (default 200; 0 keeps all; anything not a plain number is the default).
   Only files aeo named are removed; the audit chain keeps a pruned report's
