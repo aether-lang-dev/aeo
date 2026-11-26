@@ -16,6 +16,9 @@
 #   - a build that prints a node's env() value and fails: the value is in what
 #     the run printed and NOT in the report; the reason is cut to size; the
 #     reports are readable by their owner only;
+#   - a node that boots and never becomes healthy is "timeout", its dependent
+#     "not-attempted"; a bwrap tree (not a container) is "started", then
+#     "halted" on the way down (signalled, no gone-check for that kind);
 #   - a SUPERVISED down (the default path, through a real aeo-supervisord)
 #     writes a report from what the runner itself verified gone;
 #   - the audit chain carries each report's sha256, and still verifies.
@@ -79,6 +82,49 @@ DOCKER
             env("API_TOKEN", "$SECRET")
             command("sleep 600")
             health("true")
+        }
+    }
+}
+AE
+cat > bw.ae <<AE
+import compose (system, bwrap)
+import compose (command, health, depends)
+exports ( aeo_orchestration )
+aeo_orchestration() {
+    system("aeorunrepw") {
+        bwrap("$N-bw-db") {
+            command("sleep 613")
+            health("true")
+        }
+        bwrap("$N-bw-app") {
+            command("sleep 613")
+            health("true")
+            depends("$N-bw-db")
+        }
+    }
+}
+AE
+cat > slow.ae <<AE
+import compose (system, container)
+import compose (image, command, health, depends, health_retry, every, up_within, down_within)
+exports ( aeo_orchestration )
+aeo_orchestration() {
+    system("aeorunreps") {
+        health_retry() {
+            every(250ms)
+            up_within(3s)
+            down_within(5s)
+        }
+        container("$N-slow") {
+            image("$IMG")
+            command("sleep 600")
+            health("false")
+        }
+        container("$N-after") {
+            image("$IMG")
+            command("sleep 600")
+            health("true")
+            depends("$N-slow")
         }
     }
 }
@@ -222,7 +268,39 @@ else
     tail -5 "$WORK/sup-build.log"; fail "aeo-supervisord failed to build"
 fi
 
-echo "### 9. pruning, and a tampered chain"
+echo "### 9. a node that boots and never becomes healthy"
+OUT="$(aeo up slow.ae --no-supervisor)"; RC=$?
+[ "$RC" -ne 0 ] && pass "up: fails the run" || fail "up exited 0 with an unhealthy node"
+UPR="$(ls .aeo/reports/*-up.json | tail -1)"
+J="$(cat "$UPR")"
+want "$J" "\"name\":\"$N-slow\",\"system\":\"aeorunreps\",\"kind\":\"container\",\"outcome\":\"timeout\"" "report: the node is timeout, not failed (its boot call worked)"
+wantno "$J" "\"outcome\":\"timeout\",\"call_ms\":null" "report: a timed-out node has a call time"
+want "$J" "not healthy inside its window" "report: says why"
+want "$J" "\"name\":\"$N-after\",\"system\":\"aeorunreps\",\"kind\":\"container\",\"outcome\":\"not-attempted\"" "report: its dependent was never attempted"
+[ "$(podman ps -aq --filter "name=^$N-" | wc -l)" -eq 0 ] && pass "the partial tree was torn down" || fail "containers left after a timed-out up"
+
+echo "### 10. a kind that is not a container (bwrap)"
+if command -v bwrap >/dev/null 2>&1 && bwrap --ro-bind / / true 2>/dev/null; then
+    OUT="$(aeo up bw.ae --no-supervisor)"
+    want "$OUT" "run report: up ok" "bwrap up: writes a report"
+    J="$(aeo report --json)"
+    want "$J" "\"name\":\"$N-bw-db\",\"system\":\"aeorunrepw\",\"kind\":\"bwrap\",\"outcome\":\"started\"" "report: a bwrap node is started"
+    want "$J" '"counts":{"started":2}' "report: both bwrap nodes started"
+    OUT="$(aeo down bw.ae --no-supervisor)"
+    J="$(aeo report --json)"
+    want "$J" '"command":"down","outcome":"ok"' "bwrap down: writes a report, ok"
+    wantno "$J" '"outcome":"lingering"' "report: no bwrap node lingers"
+    want "$J" '"counts":{"halted":2}' "report: bwrap nodes are halted (signalled; this kind has no gone-check), not claimed stopped"
+    # "halted" promises a signal, not absence — so give the signal a moment.
+    # Matched on the process NAME (comm), not the whole command line: a shell
+    # that merely mentions these words must not count as a sandbox.
+    i=0; while [ $i -lt 20 ] && pgrep -x bwrap -a | grep -q "sleep 613"; do sleep 0.25; i=$((i + 1)); done
+    if pgrep -x bwrap -a | grep -q "sleep 613"; then fail "a bwrap sandbox is still running 5s after down"; else pass "the host agrees: no sandbox is left"; fi
+else
+    echo "SKIP: bwrap is not usable on this host — the bwrap section was not exercised"
+fi
+
+echo "### 11. pruning, and a tampered chain"
 OUT="$(AEO_REPORT_KEEP=2 AEO_HOME="$ROOT" "$WORK/aeo" down good.ae --no-supervisor 2>&1)"
 LEFT="$(ls .aeo/reports/*.json | grep -vc last.json)"
 [ "$LEFT" -eq 2 ] && pass "AEO_REPORT_KEEP=2 leaves the two newest runs" || fail "$LEFT reports left, wanted 2"

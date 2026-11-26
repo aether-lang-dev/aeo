@@ -540,6 +540,13 @@ report's sha256 in the audit chain (event `run-report`).
   "ok" (the node had drifted; reconcile exits 1 too). Live: coherent, drifted
   and converged in `test/syscall-policy-live.sh`, failed in
   `test/run-report-live.sh` — one box, as above. `unchecked` is spec-only.
+- [x] Live for the first time (2026-11-26, same one box): `timeout` (a node
+  that boots and is never healthy; its dependent `not-attempted`), and a
+  non-container kind — a bwrap tree is `started`, then `halted` on the way down.
+- [ ] `abandoned` and `lingering` are still spec-only. (A "sandbox still
+  running after down" seen while writing the bwrap check was the check
+  matching the shell that ran it, not a sandbox; it now matches by process
+  name.)
 - [ ] `aeo watch` / `restart` / `cutover` write no report (watch on purpose: a
   report every interval is noise; its drift events are in the audit trail).
 - [x] Pruning (2026-11-26): each write keeps the newest `AEO_REPORT_KEEP` runs
