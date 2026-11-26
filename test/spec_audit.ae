@@ -4,10 +4,10 @@
 // sha256sum + tamper detection) is proven on the box; this pins the pure shape.
 
 import std.spec
-import audit (line_for, _sha, _jq, record, verify)
+import audit (line_for, _sha, _jq, record, verify, reports)
 import std.os
 import std.fs
-import std.string (string_length, string_contains, string_index_of, string_substring, string_from_char, string_char_at)
+import std.string (string_length, string_contains, string_index_of, string_substring, string_from_char, string_char_at, bytes)
 
 main() {
     fw = spec.init()
@@ -57,6 +57,35 @@ main() {
                 "engine output is multi-line; an entry that spilled over several lines broke the chain for everything after it")
             body, _rerr = fs.read(p)
             spec.expect_int(_count(body, nl)).to_equal(2, "two records, two lines")
+        }
+
+        spec.it("reports() tells a matching report from a changed one and a missing one") callback {
+            p = "/tmp/aeo-spec-audit-${os.getenv("USER")}.log"
+            a = "/tmp/aeo-spec-audit-${os.getenv("USER")}-a.json"
+            b = "/tmp/aeo-spec-audit-${os.getenv("USER")}-b.json"
+            _ = fs.remove_tree(p)
+            _ = os.setenv("AEO_AUDIT", p)
+            _ = fs.write_atomic(a, bytes("{report a}"))
+            _ = fs.write_atomic(b, bytes("{report b}"))
+            ha = _sha("{report a}")
+            hb = _sha("{report b}")
+            _ = record("web", "system", "run-report", "up ok sha256:${ha} ${a}")
+            _ = record("db", "container", "confine", "sha256:not-a-report-entry /etc/passwd")
+            _ = record("web", "system", "run-report", "down ok sha256:${hb} ${b}")
+            _ = record("web", "system", "run-report", "up failed sha256:${hb} /tmp/aeo-spec-audit-never-existed.json")
+            m, g, ch = reports(p)
+            spec.expect_int(m).to_equal(2)
+            spec.expect_int(g).to_equal(1, "a report that is gone is counted, not called changed")
+            spec.expect_str(ch).to_equal_str("")
+            _ = fs.write_atomic(b, bytes("{report b, edited}"))
+            m2, g2, ch2 = reports(p)
+            spec.expect_int(m2).to_equal(1)
+            spec.expect_int(g2).to_equal(1)
+            spec.expect_str(ch2).to_equal_str(b,
+                "the chain proves the entry; this proves the file is still what the entry hashed")
+            _ = fs.remove_tree(a)
+            _ = fs.remove_tree(b)
+            _ = fs.remove_tree(p)
         }
 
         spec.it("a detail cannot pass itself off as the chain tail") callback {

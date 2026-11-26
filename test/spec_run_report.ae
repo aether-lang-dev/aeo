@@ -5,7 +5,7 @@
 import std.spec
 import std.os
 import std.fs
-import std.string (string_contains, string_length, string_trim, string_equals)
+import std.string (bytes, string_contains, string_length, string_trim, string_equals)
 import std.list
 import run_report
 import scrub
@@ -202,6 +202,48 @@ main() {
                 run_report.declare("only", "container", "s")
                 spec.expect_int(string_contains(run_report.render_json(), "\"name\":\"app\"")).to_equal(0)
                 spec.expect_str(run_report.outcome_of("db")).to_equal_str("")
+            }
+        }
+
+        spec.describe(fw, "how many runs are kept") {
+            spec.it("AEO_REPORT_KEEP is a plain number, and anything else is the default") callback {
+                _ = os.setenv("AEO_REPORT_KEEP", "")
+                spec.expect_int(run_report.keep()).to_equal(200)
+                _ = os.setenv("AEO_REPORT_KEEP", "7")
+                spec.expect_int(run_report.keep()).to_equal(7)
+                _ = os.setenv("AEO_REPORT_KEEP", "0")
+                spec.expect_int(run_report.keep()).to_equal(0, "0 keeps everything")
+                _ = os.setenv("AEO_REPORT_KEEP", "-1")
+                spec.expect_int(run_report.keep()).to_equal(200,
+                    "a typo must not become 'delete everything' or 'keep everything'")
+                _ = os.setenv("AEO_REPORT_KEEP", "2 0")
+                spec.expect_int(run_report.keep()).to_equal(200)
+                _ = os.setenv("AEO_REPORT_KEEP", "")
+            }
+            spec.it("prune removes the oldest runs, both files, and nothing else") callback {
+                d = "/tmp/aeo-spec-run-report-prune-${os.getpid()}"
+                _ = fs.remove_tree(d)
+                _ = fs.mkdir_p(d)
+                _ = os.setenv("AEO_REPORT_DIR", d)
+                _ = fs.write_atomic("${d}/20260101T000001Z-up.json", bytes("a"))
+                _ = fs.write_atomic("${d}/20260101T000001Z-up.txt", bytes("a"))
+                _ = fs.write_atomic("${d}/20260101T000002Z-down.json", bytes("b"))
+                _ = fs.write_atomic("${d}/20260101T000002Z-down.txt", bytes("b"))
+                _ = fs.write_atomic("${d}/20260101T000003Z-up.json", bytes("c"))
+                _ = fs.write_atomic("${d}/20260101T000003Z-up.txt", bytes("c"))
+                _ = fs.write_atomic("${d}/last.json", bytes("c"))
+                _ = fs.write_atomic("${d}/notes.json", bytes("mine"))
+                run_report.prune(0)
+                spec.expect_int(fs.exists("${d}/20260101T000001Z-up.json")).to_equal(1, "0 removes nothing")
+                run_report.prune(2)
+                spec.expect_int(fs.exists("${d}/20260101T000001Z-up.json")).to_equal(0)
+                spec.expect_int(fs.exists("${d}/20260101T000001Z-up.txt")).to_equal(0)
+                spec.expect_int(fs.exists("${d}/20260101T000002Z-down.json")).to_equal(1)
+                spec.expect_int(fs.exists("${d}/20260101T000003Z-up.txt")).to_equal(1)
+                spec.expect_int(fs.exists("${d}/last.json")).to_equal(1)
+                spec.expect_int(fs.exists("${d}/notes.json")).to_equal(1,
+                    "a file aeo did not name is not aeo's to delete")
+                _ = fs.remove_tree(d)
             }
         }
 

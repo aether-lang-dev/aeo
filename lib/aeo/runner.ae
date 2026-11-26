@@ -2979,11 +2979,38 @@ run_audit() {
     cnt = _count_lines(p)
     println("  entries: ${cnt}")
     v = audit.verify(p)
-    if v == "" {
-        println("  chain:   INTACT (tamper-evident hash chain verified)")
-    } else {
+    if v != "" {
         println("  chain:   ${v}")
+        // The entries cannot be trusted, so the reports are not checked
+        // against them. A verification that failed must not exit 0.
+        exit(1)
     }
+    println("  chain:   INTACT (tamper-evident hash chain verified)")
+    // Each run-report entry carries its report's sha256: check the files.
+    matching, gone, changed = audit.reports(p)
+    if matching + gone > 0 {
+        println("  reports: ${string_from_int(matching)} match their entry, ${string_from_int(gone)} no longer on disk")
+    }
+    if string_length(changed) > 0 {
+        println("  reports: CHANGED since they were recorded:")
+        println("${_indent_lines(changed)}")
+        exit(1)
+    }
+}
+_indent_lines(s: string) -> string {
+    out = "    "
+    n = string_length(s)
+    i = 0
+    while i < n {
+        c = string_char_at(s, i)
+        if c == 10 {
+            out = "${out}${string_from_char(10)}    "
+        } else {
+            out = "${out}${string_from_char(c)}"
+        }
+        i = i + 1
+    }
+    return out
 }
 // ---- reconcile: give aeo a life between up and down (Formae-envy item 1) ----
 //

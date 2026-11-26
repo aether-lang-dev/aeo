@@ -523,7 +523,6 @@ report's sha256 in the audit chain (event `run-report`).
 - [ ] Other audit details are built by aeo from declared values (flags, paths,
   pins) and were read, not tested, for secrets: `confine` records the engine
   flags, and a secret passed as a flag value would be kept.
-- [ ] `aeo reconcile` still exits 0 when a converge fails (it prints the count).
 - [ ] Only `container` nodes have been through it live. The hooks are
   kind-agnostic (they sit in the actor and the two level loops), but no lxc /
   kvm / jail / bhyve / proxmox run has produced a report yet.
@@ -533,11 +532,21 @@ report's sha256 in the audit chain (event `run-report`).
   drivers are idempotent and do not say which it was).
 - [ ] `aeo reconcile` / `watch` / `restart` / `cutover` write no report. A
   supervised `aeo down` (released by the supervisor) writes none either.
-- [ ] Reports accumulate; nothing prunes `.aeo/reports/`.
+- [x] Pruning (2026-11-26): each write keeps the newest `AEO_REPORT_KEEP` runs
+  (default 200; 0 keeps all; anything not a plain number is the default).
+  Only files aeo named are removed; the audit chain keeps a pruned report's
+  entry. The shell pipeline it uses has run on Linux only (not FreeBSD/macOS).
 - [ ] No sink (HTTP, syslog) — files only. Agent-dispatched children appear as
   their parent node's outcome, not as rows of their own.
-- [ ] `aeo audit` verifies the chain but does not re-hash the report files
-  against their `run-report` entries; that check is by hand today.
+- [x] `aeo audit` re-hashes every report against its `run-report` entry
+  (2026-11-26): "N match their entry, M no longer on disk", and names any that
+  CHANGED. **`aeo audit` now exits 1** for a broken chain or a changed report
+  (it used to print the verdict and exit 0). Paths are as recorded, so it must
+  be run from the directory the runs were made in. Spec 8 cases; live script
+  60 assertions — one box, as above.
+- [x] Checked, not changed: `aeo reconcile` already exits 1 when a converge
+  fails (an earlier note here said 0; that was a misread pipeline status). The
+  live script now asserts it.
 
 ### Strands-inspired honesty track
 This section is the record for the aeo track (self-contained — the original

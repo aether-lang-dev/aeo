@@ -31,6 +31,7 @@ import std.config
 import std.fs
 import std.os
 import std.cryptography
+import std.list
 import scrub
 import std.string (bytes, string_length, string_char_at, string_from_char,
                    string_equals, string_split, string_array_size,
@@ -41,7 +42,7 @@ exports (
     begin, declare, node_start, node_booted, node_outcome, node_note,
     has_outcome, outcome_of, close_unreported, overall, count_of,
     render_json, render_text, dir, write, read_last, secs, jq,
-    detail_of
+    detail_of, keep, prune
 )
 
 fn _k(nm: string, field: string) -> string {
@@ -498,11 +499,54 @@ write() -> (string, string, string) {
     if e4 != "" {
         return "", "", "cannot write ${d}/last.txt (${e4})"
     }
+    prune(keep())
     h, herr = cryptography.sha256_hex(bytes(json))
     if herr != "" {
         return jp, "", ""
     }
     return jp, h, ""
+}
+
+// How many runs' reports to keep: AEO_REPORT_KEEP, default 200. 0 keeps all.
+// Anything that is not a plain number means the default — a typo must not
+// turn into "delete everything" or "keep everything".
+keep() -> int {
+    v = os.getenv("AEO_REPORT_KEEP")
+    n = string_length(v)
+    if n == 0 {
+        return 200
+    }
+    if n > 6 {
+        return 200
+    }
+    i = 0
+    total = 0
+    while i < n {
+        c = string_char_at(v, i)
+        if c < 48 { return 200 }
+        if c > 57 { return 200 }
+        total = total * 10 + (c - 48)
+        i = i + 1
+    }
+    return total
+}
+
+// Remove the oldest runs' reports so at most `k` remain (0: remove none).
+// Only files this module named (<stamp>-<cmd>.json and its .txt) are touched;
+// last.* stay. The audit chain keeps each removed report's entry, outcome
+// word and hash — `aeo audit` counts it as "no longer on disk".
+prune(k: int) {
+    if k <= 0 {
+        return
+    }
+    av = list_new()
+    list_add(av, "-c")
+    list_add(av, "cd \"$1\" || exit 0; ls -1 | grep -E '^[0-9]{8}T[0-9]{6}Z-.*[.]json$' | sort | awk -v k=$2 '{a[NR]=$0} END{for(i=1;i<=NR-k;i++)print a[i]}' | while read f; do b=$(basename \"$f\" .json); rm -f \"$f\" \"$b.txt\"; done")
+    list_add(av, "sh")
+    list_add(av, dir())
+    list_add(av, string_from_int(k))
+    _o, _s, _e = os.run_capture("/bin/sh", av, null)
+    list_free(av)
 }
 
 // The newest report: its JSON (as_json 1) or its text. (content, err).

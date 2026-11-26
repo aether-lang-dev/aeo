@@ -162,7 +162,8 @@ if grep -rq "$SECRET" .aeo/reports .aeo/audit.log; then fail "the secret is in a
 OPEN="$(find .aeo/reports -type f ! -perm 600 | wc -l)"
 [ "$OPEN" -eq 0 ] && pass "every report file is 0600" || fail "$OPEN report file(s) are not 0600"
 [ "$(stat -c %a .aeo/audit.log)" = "600" ] && pass "the audit log is 0600" || fail "audit log is $(stat -c %a .aeo/audit.log)"
-RC_OUT="$(aeo reconcile leak.ae --converge)"
+RC_OUT="$(aeo reconcile leak.ae --converge)"; RRC=$?
+[ "$RRC" -ne 0 ] && pass "reconcile: a failed converge exits non-zero ($RRC)" || fail "reconcile exited 0 with a failed converge"
 want "$RC_OUT" "converge FAILED" "reconcile --converge: the same build fails again"
 want "$RC_OUT" "TOKEN=$SECRET" "reconcile: the terminal shows the build output, secret included"
 want "$(cat .aeo/audit.log)" '"event":"converge-fail"' "audit: the failed converge is recorded"
@@ -172,10 +173,12 @@ aeo down leak.ae --no-supervisor >/dev/null
 podman rmi -f "localhost/aeo-built/$N-leak:latest" >/dev/null 2>&1
 
 echo "### 6. the audit chain"
-AUD="$(aeo audit good.ae)"
+AUD="$(aeo audit good.ae)"; ARC=$?
 want "$AUD" "chain:   INTACT" "audit: the chain still verifies with the run-report entries in it"
+[ "$ARC" -eq 0 ] && pass "audit: exits 0 when everything verifies" || fail "audit exited $ARC on an intact chain"
 N_REP="$(ls .aeo/reports/*.json | grep -vc last.json)"
 N_AUD="$(grep -c 'run-report' .aeo/audit.log)"
+want "$AUD" "reports: $N_REP match their entry, 0 no longer on disk" "audit: every report file still hashes to what its entry recorded"
 [ "$N_REP" -gt 0 ] && [ "$N_REP" -eq "$N_AUD" ] && pass "audit: one entry per report written ($N_REP)" || fail "audit: $N_AUD entries for $N_REP reports"
 
 echo "### 7. a report edited afterwards no longer matches the chain"
@@ -183,6 +186,26 @@ LASTUP="$(ls .aeo/reports/*-up.json | tail -1)"
 sed -i 's/"outcome":"failed"/"outcome":"ok"/' "$LASTUP"
 EDITED="$(sha256sum "$LASTUP" | cut -d' ' -f1)"
 wantno "$(cat .aeo/audit.log)" "sha256:$EDITED" "an edited report's hash is not the one the chain recorded"
+AUD="$(aeo audit good.ae)"; ARC=$?
+want "$AUD" "reports: CHANGED since they were recorded:" "audit: says a report was changed"
+want "$AUD" "$LASTUP" "audit: names the changed report"
+[ "$ARC" -ne 0 ] && pass "audit: exits non-zero for a changed report ($ARC)" || fail "audit exited 0 with a changed report"
+
+echo "### 8. pruning, and a tampered chain"
+OUT="$(AEO_REPORT_KEEP=2 AEO_HOME="$ROOT" "$WORK/aeo" down good.ae --no-supervisor 2>&1)"
+LEFT="$(ls .aeo/reports/*.json | grep -vc last.json)"
+[ "$LEFT" -eq 2 ] && pass "AEO_REPORT_KEEP=2 leaves the two newest runs" || fail "$LEFT reports left, wanted 2"
+[ -f .aeo/reports/last.json ] && pass "pruning leaves last.json" || fail "last.json was pruned"
+[ "$(ls .aeo/reports/*.txt | grep -vc last.txt)" -eq 2 ] && pass "each pruned report's text form went with it" || fail "text reports left behind"
+AUD="$(aeo audit good.ae)"; ARC=$?
+want "$AUD" "2 match their entry" "audit: the reports that remain still match"
+wantno "$AUD" "CHANGED" "audit: a pruned report is not called changed (the edited one was among those pruned)"
+want "$AUD" "no longer on disk" "audit: pruned reports are counted, not hidden"
+[ "$ARC" -eq 0 ] && pass "audit: pruned reports do not fail verification" || fail "audit exited $ARC after pruning"
+sed -i '1s/"event":"syscall-policy"/"event":"syscall-polic1"/' .aeo/audit.log
+AUD="$(aeo audit good.ae)"; ARC=$?
+want "$AUD" "CHAIN BROKEN" "audit: an edited log is caught"
+[ "$ARC" -ne 0 ] && pass "audit: exits non-zero for a broken chain ($ARC)" || fail "audit exited 0 with a broken chain"
 
 echo
 if [ "$fails" -eq 0 ]; then

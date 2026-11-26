@@ -206,7 +206,9 @@ lib/run_report/    what one `aeo up`/`aeo down` DID, node by node (outcome from 
                    newest. NOT the audit trail (that is security decisions) — but
                    each report's sha256 is recorded in it. A report never rounds
                    up: anything but all-started / all-stopped is "failed".
-                   The files are 0600 in a 0700 dir.
+                   The files are 0600 in a 0700 dir; the newest AEO_REPORT_KEEP
+                   runs are kept (200); `aeo audit` re-hashes each against its
+                   entry and EXITS 1 on a broken chain or a changed report.
 lib/scrub/         driver error text QUOTES ENGINE OUTPUT (a failed build prints
                    anything). Before such text goes into a FILE — a run report or
                    an audit entry — scrub.clean(nm, text) replaces the node's
