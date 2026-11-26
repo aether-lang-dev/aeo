@@ -3316,6 +3316,15 @@ run_reconcile() {
     run_report.close_unreported("unchecked", "unchecked")
     _report_end("reconcile")
     if events == 0 {
+        // "COHERENT" is a claim about every node. A node reconcile could not
+        // check (an unreadable start log, a kind it does not cover) is not
+        // drift and does not fail the run, but the summary must not speak
+        // for it.
+        unch = run_report.count_of("unchecked")
+        if unch > 0 {
+            println("aeo: reconcile — no drift FOUND, but ${string_from_int(unch)} node(s) could NOT be checked (see `aeo report`)")
+            exit(0)
+        }
         println("aeo: reconcile — COHERENT (no drift)")
         exit(0)
     }

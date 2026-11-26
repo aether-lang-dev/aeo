@@ -286,6 +286,11 @@ if command -v bwrap >/dev/null 2>&1 && bwrap --ro-bind / / true 2>/dev/null; the
     J="$(aeo report --json)"
     want "$J" "\"name\":\"$N-bw-db\",\"system\":\"aeorunrepw\",\"kind\":\"bwrap\",\"outcome\":\"started\"" "report: a bwrap node is started"
     want "$J" '"counts":{"started":2}' "report: both bwrap nodes started"
+    OUT="$(aeo reconcile bw.ae)"; RRC=$?
+    want "$OUT" "no drift FOUND, but 2 node(s) could NOT be checked" "reconcile: nodes of a kind it does not cover are not called coherent"
+    wantno "$OUT" "COHERENT" "reconcile: the summary does not say COHERENT for them"
+    [ "$RRC" -eq 0 ] && pass "reconcile: unchecked nodes do not fail the run" || fail "reconcile exited $RRC for unchecked nodes"
+    want "$(aeo report --json)" '"counts":{"unchecked":2}' "report: both are unchecked"
     OUT="$(aeo down bw.ae --no-supervisor)"
     J="$(aeo report --json)"
     want "$J" '"command":"down","outcome":"ok"' "bwrap down: writes a report, ok"
