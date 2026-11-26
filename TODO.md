@@ -129,6 +129,12 @@ since no box had debian:trixie):
   network configs its containernetworking-plugins 0.9.1 reject, so no container
   starts on ANY user network (`podman network create x; podman run --network x
   alpine true` fails the same way). The 14 skips: 10 debian:trixie absent, 4 PVE.
+  **Host fixed 2026-11-26:** CNI plugins v1.6.2 installed in /opt/cni/bin (Ubuntu's
+  package and /usr/lib/cni untouched, dnsname copied across) and
+  `cni_plugin_dirs = ["/opt/cni/bin", "/usr/lib/cni"]` in the user's
+  ~/.config/containers/containers.conf. Then, at 8b365c3 on ae 0.946.0: full suite
+  **430 passing / 0 failing / 14 skipped**, exit 0 (spec_running_nodes and
+  spec_driver_loadbalancer_live 11 passing now run); the 14 skips as above.
 - *cachyos*: CachyOS, kernel 7.3.5-2-cachyos, x86_64, podman 6.2.0 + crun 1.31,
   libseccomp 2.6.0. `spec_syscall_policy_live` 10 passing. Full suite 405 / 0 / 27
   (13 lxc absent, 10 debian:trixie absent, 4 PVE). **docker is NOT proven**:
@@ -253,6 +259,8 @@ Found on the box (answers to the plan's open questions):
         exit 127), the same podman 3.4.4 user-network failure as the run-spec
         failures above. Not aeo. The 13 that pass are the ones that need no
         aeo-started container (the swapped-in container, the typo, bwrap).
+        After the host's CNI fix (2026-11-26, newer CNI plugins, see the
+        run-spec note above), at 8b365c3: **20 of 20 passed** on ae-x64 too.
       - **Fixed on the way:** "aeo up brings the node up" PASSED on ae-x64
         while the node failed: it matched `[N] up` as a substring, which
         `[N] up failed:` contains. It now wants the whole line `aeo: [N] up`;
