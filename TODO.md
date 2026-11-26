@@ -163,6 +163,22 @@ since no box had debian:trixie):
   127.0.0.1; the Landlock live spec expected the pid's comm to be `sh`, but
   bash-as-sh execs the last command (`sleep`): either is the workload.
 
+**Agent confinement and run reports, live, Aether 0.946.0, 2026-11-26** (agent
+aeo-lxcdrift; `test/agent-confine-live.sh` now 29 assertions, `test/run-report-live.sh`;
+agents built with `tools/build-agent.sh`; own lab dirs and AETHER_CACHE_DIR):
+- *ae-x64* (Ubuntu 22.04.5, kernel 6.8.0-149-generic, x86_64, podman 3.4.4):
+  agent-confine-live 29 passed / 0 failed; run-report-live 78 PASS / 0 FAIL
+  (AEO_SPEC_IMAGE=ubuntu:22.04, no debian:trixie there); `sh test/run-spec.sh`
+  448 passing / 0 failing / 14 skipped (10 debian:trixie absent, 4 PVE).
+- *cachyos* (kernel 7.3.5-2-cachyos, x86_64, podman 6.2.0): agent-confine-live
+  29 / 0; run-report-live 85 PASS / 0 FAIL (AEO_SPEC_IMAGE=debian:stable-slim);
+  run-spec 428 passing / 0 failing / 34 skipped (lxc absent, trixie absent, PVE).
+- *aether-linux* (Mac podman container, arm64 Ubuntu 22.04, kernel
+  7.1.10-200.fc44.aarch64; Aether 0.946.0 BUILT FROM THE TAG, there is no
+  linux-arm64 0.946.0 release download): agent-confine-live 29 / 0;
+  run-report-live and lxc-drift-live SKIP (no podman, no lxc in the container).
+  Not run: run-report-live on the podman machine itself.
+
 **LXC (`lib/confine_lxc`), proven live on ONE box, 2026-11-25:** ae-x64 above,
 LXC 5.0.0 (`lxc-utils` 1:5.0.0~git2209-g5a7b9ce67-0ubuntu1.1, apt-installed for
 this; the `lxc` command there is the LXD 5.0.11 snap client, not used),
@@ -290,25 +306,52 @@ Found on the box (answers to the plan's open questions):
       keeps key order and number spelling, so that whitespace-stripping is
       enough, is exactly the measurement still owed; if it is not, compare the
       set of (action, names, errno) rules instead.
-- [~] lxc drift in `aeo reconcile` — LANDED 2026-11-26 from the Chromebook,
-      **NOT RUN against a real LXC** (this box has none). What exists:
-      - `confine_lxc.drift()` — the decision, pure: ok / drift / unknown from
-        what `driver_lxc.seccomp_reported` says, the host's stock profile and
-        the node's profile file. 9 spec cases in `test/spec_confine_lxc.ae`.
-        "unknown" (start log or stock profile unreadable) is neither drift nor
-        ok: the run report says `unchecked`, nothing is recreated.
-      - `_reconcile_lxc` in the runner: liveness via `driver_lxc.probe`, then
-        the above; alert, or down+up under --converge; audited; run report.
-        It compares liveness and the syscall policy ONLY — limits and network
-        are not compared for lxc, and the report's reason says so.
-      - Run here: the runner builds; on a host with no LXC an lxc node reports
-        `DRIFT: node is not running`, exit 1, report `drifted`.
-      - **Owed, on a box with LXC (ae-x64 or cachyos):** a node under its
-        profile is `coherent`; one restarted without `-s lxc.seccomp.profile`
-        is `drifted` (NOFILTER or MISSING) and --converge puts it back; a
-        changed profile file is `drifted`; an unreadable start log is
-        `unchecked`. Whether reconcile can read `/proc/<init>/status` and the
-        start log without sudo there is unmeasured.
+- [x] lxc drift in `aeo reconcile` — landed 2026-11-26 from the Chromebook,
+      **RUN LIVE on a real LXC 2026-11-26** (agent aeo-lxcdrift): `test/lxc-drift-live.sh`,
+      34 assertions, all passing, repeatable, own node `aeo-lxcdrift` + own log dir,
+      removes everything; SKIPs (exit 0) without lxc-utils or `sudo -n`.
+      - What exists: `confine_lxc.drift()` (pure: ok / drift / unknown; 10 spec
+        cases in `test/spec_confine_lxc.ae`) and `_reconcile_lxc` in the runner
+        (liveness via `driver_lxc.probe`, then drift; alert, or down+up under
+        --converge; audited; run report). It compares liveness and the syscall
+        policy ONLY — limits and network are not compared for lxc.
+      - **Box:** ae-x64 (Ubuntu 22.04.5, kernel 6.8.0-149-generic, x86_64),
+        LXC 5.0.0 (lxc-utils 1:5.0.0~git2209-g5a7b9ce67-0ubuntu1.1), rootful,
+        alpine:3.21, ae 0.946.0, 2026-11-26. cachyos has no LXC (script SKIPs
+        there and on the Mac's aether-linux container; not installed).
+      - [x] case 1: up under `deny_syscalls("namespace")` -> `aeo reconcile`
+            COHERENT, exit 0, `aeo report` `coherent` ("syscall policy
+            deny=namespace verified"); unshare refused inside.
+      - [x] case 2: restarted by hand with the same start log but no `-s
+            lxc.seccomp.profile` -> DRIFT (MISSING: "started without:
+            unshare,setns"), exit 1, report `drifted`, nothing changed without
+            --converge; `--converge` recreated it (new init pid, unshare refused
+            again, report `converged`); a second reconcile COHERENT; drift in
+            the audit chain. NOFILTER was not what this came out as: the stock
+            profile is still loaded, so init has a filter (Seccomp:2).
+      - [x] case 2b (FOUND, FIXED): restarted by hand the usual way, `lxc-start
+            -n NAME -d` with no `-o`, so nothing in aeo's start log records the
+            init. That was reported UNCHECKED and --converge left the unconfined
+            node running. aeo's lxc-start always logs, so an init absent from a
+            READABLE log was started by something else: now DRIFT
+            ("... is not in LXC's start log ...", driver_lxc `UNRECORDED:`),
+            converge restores it. Spec failed first (got 'unknown'), then fix.
+      - [x] case 3: `~/.aeo/seccomp/<node>.lxc` edited by hand -> DRIFT, "the
+            node booted under a profile that is not what deny=namespace renders
+            over the host's stock profile now", exit 1; converge re-renders it.
+      - [x] case 4: start log chmod 000 -> UNCHECKED, not drift, exit 0, report
+            `unchecked`; same init pid after `--converge`: nothing recreated.
+      - [x] **Sudo finding:** reconcile reads `/proc/<init>/status` and the
+            start log as its own user, NO sudo needed, on ae-x64 (only the
+            `lxc-*` calls use the sudo grant). Case 1 comes out `coherent`, not
+            `unchecked`. This relies on aeo creating the log first
+            (`_log_prepare`); a log LXC made itself would be root 0640.
+      - Left alone, for Paul: an UNCHECKED node still ends the run with
+        "reconcile — COHERENT (no drift)" and a report `ok`; exit 0 as the brief
+        wants, but the last line reads stronger than the node line above it.
+      - Also seen: when stdout of the script is a plain FILE (not a pipe),
+        something in the lxc/sudo path leaves that file root-owned 0700
+        (`sh test/lxc-drift-live.sh > out`). Pipe through `tee` instead.
 - [ ] strict() has no syscalls check (not needed for refusal: the boot gate is
       unconditional).
 - [ ] the cap-drop status row is not kind-aware: it reports "--cap-drop ALL"
