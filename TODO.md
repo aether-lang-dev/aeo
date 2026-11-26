@@ -240,10 +240,55 @@ Found on the box (answers to the plan's open questions):
       when the policy does). Prints SKIP and exits 0 without podman/the image.
 - [ ] that script is not run by `test/run-spec.sh`; run it by hand (like
       security-posture.sh).
+- [x] **Run by hand at the pin, Aether 0.946.0, 2026-11-26** (own lab dirs,
+      `AEO_SPEC_IMAGE=docker.io/library/ubuntu:22.04`, no debian:trixie on
+      either box):
+      - *cachyos*: kernel 7.3.5-2-cachyos, x86_64, podman 6.2.0 + crun 1.31,
+        libseccomp 2.6.0: **20 of 20 passed**, all five parts (verified
+        status, swap detected, alert-only, converge, profile mismatch, fail
+        closed).
+      - *ae-x64*: Ubuntu 22.04.5, kernel 6.8.0-149-generic, x86_64, podman
+        3.4.4 + crun 0.17: **7 of 20 failed**, all from one host defect: the
+        node never starts (`CNI network "aeo-aeosyspol" not found`, podman run
+        exit 127), the same podman 3.4.4 user-network failure as the run-spec
+        failures above. Not aeo. The 13 that pass are the ones that need no
+        aeo-started container (the swapped-in container, the typo, bwrap).
+      - **Fixed on the way:** "aeo up brings the node up" PASSED on ae-x64
+        while the node failed: it matched `[N] up` as a substring, which
+        `[N] up failed:` contains. It now wants the whole line `aeo: [N] up`;
+        re-run, it fails there (7 failures, was 6) and passes on cachyos.
 - [ ] docker: it reports the profile inline, not by path. Drift detection
       deliberately does NOT flag that (it would recreate the node every pass
       under --converge); status says "not by aeo's path". Untested — measure
       what docker reports on cachyos and make it comparable.
+      **Measured 2026-11-26: there is no docker to measure.** cachyos (kernel
+      7.3.5-2-cachyos, podman 6.2.0 + crun 1.31, libseccomp 2.6.0):
+      `/usr/bin/docker` is the `podman-docker` 6.2.0 package (`docker version`
+      prints "Emulate Docker CLI using podman" and a Podman Engine client),
+      `/var/run/docker.sock` is a symlink to `/run/podman/podman.sock`, the
+      `docker` package is not installed and `docker.service` is inactive.
+      ae-x64 has no docker binary at all; ghostbsd cannot run one. So
+      `docker inspect` there is podman's inspect: it reports aeo's PATH, which
+      the podman path above already handles. Nothing about a real daemon's
+      HostConfig.SecurityOpt was observed. Getting one means installing docker
+      on cachyos (it conflicts with podman-docker) or pulling a `docker:dind`
+      image into podman: Paul's call, not done.
+      *Proposed comparison, to measure once a daemon exists:* do not compare
+      docker's re-serialised JSON with aeo's text. At boot, keep the sha256 of
+      the profile aeo rendered beside it (`~/.aeo/seccomp/<node>.json.sha256`)
+      and, at reconcile, canonicalise what `docker inspect` reports (strip the
+      `seccomp=` prefix, remove JSON whitespace outside strings) and the
+      re-rendered profile the same way, then compare those two. Whether docker
+      keeps key order and number spelling, so that whitespace-stripping is
+      enough, is exactly the measurement still owed; if it is not, compare the
+      set of (action, names, errno) rules instead.
+- [ ] lxc drift in `aeo reconcile`: reconcile is container-only (lxc prints
+      "not yet supported"). Planned 2026-11-26 the container way: liveness via
+      driver_lxc.probe; drift = `driver_lxc.seccomp_reported` saying NOFILTER
+      or MISSING, or the profile file no longer equal to `confine_lxc.render`
+      over the stock file read at run time (never copied); alert, or down+up
+      under --converge; audited. Not landed: the edit to lib/aeo/runner.ae was
+      refused by a permission check in that session, so it was not made.
 - [ ] strict() has no syscalls check (not needed for refusal: the boot gate is
       unconditional).
 - [ ] the cap-drop status row is not kind-aware: it reports "--cap-drop ALL"

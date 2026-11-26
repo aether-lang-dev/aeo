@@ -78,7 +78,10 @@ podman rm -f "$N" >/dev/null 2>&1
 
 echo "### 1. a node boots under its profile, and status verifies it"
 OUT="$(aeo up ok.ae)"
-want "$OUT" "[$N] up" "aeo up brings the node up"
+# The whole line: a substring match on "[$N] up" also matches "[$N] up failed:"
+# (seen on ae-x64, where podman 3.4.4 cannot start a container on a user network).
+if printf '%s\n' "$OUT" | grep -qFx "aeo: [$N] up"; then pass "aeo up brings the node up"
+else fail "aeo up brings the node up"; printf '%s\n' "$OUT" | grep -F "[$N]" | head -3 | sed 's/^/  got:    /'; fi
 ST="$(aeo status ok.ae)"
 want "$ST" "verified=engine reports seccomp=$PROFILE" "status: the engine reports the profile aeo wrote"
 wantno "$ST" "!syscalls" "status: the syscalls row is not flagged"
