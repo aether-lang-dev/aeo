@@ -49,6 +49,7 @@ import transport_http (post_path, probe_health)
 import attest
 import audit
 import run_report
+import scrub
 import secrets
 import std.intarr
 import resource (set_state, get_state, STATE_DOWN, STATE_BOOTING, STATE_UP, STATE_FAILED)
@@ -95,7 +96,7 @@ actor Resource {
             err = driver_up(nm, kind)
             if err != "" {
                 println("aeo: [${nm}] up failed: ${err}")
-                run_report.node_outcome(nm, "failed", _strip_err(err))
+                run_report.node_outcome(nm, "failed", _errtext(err))
                 set_state(nm, STATE_FAILED())
             } else {
                 run_report.node_booted(nm)
@@ -110,7 +111,7 @@ actor Resource {
             err = driver_down(nm, kind)
             if err != "" {
                 println("aeo: [${nm}] down failed: ${err}")
-                run_report.node_note(nm, _strip_err(err))
+                run_report.node_note(nm, _errtext(err))
             } else {
                 run_report.node_booted(nm)
             }
@@ -1505,6 +1506,16 @@ string_starts_err(s: string) -> int {
 _strip_err(s: string) -> string {
     return string_substring(s, 4, string_length(s))
 }
+// driver_up / driver_down return "" or the error TEXT, unprefixed (the "ERR:"
+// sentinel is for helpers that return a value-or-error in one string). This
+// takes either form, so a caller cannot chop four characters off a real
+// message or mistake a failure for success by testing for the prefix.
+_errtext(s: string) -> string {
+    if string_starts_err(s) == 1 {
+        return _strip_err(s)
+    }
+    return s
+}
 
 // ---- bring-up engine ----
 // Dependency-ordered, liveness-gated. Spawns one actor per declared
@@ -1518,6 +1529,23 @@ _strip_err(s: string) -> string {
 // outcomes into it. A report that cannot be written is said so and does NOT
 // fail the run (the nodes are what they are); its hash goes into the audit
 // chain so a report edited later no longer matches.
+// What must not be written to a file about node `nm`: its env() values and
+// the agent token. Once per node per process. Per-host tokens register
+// themselves where they are resolved (_agent_token).
+_scrub_register(nm: string) {
+    if string_length(config.get("aeo.scrub.done.${nm}")) > 0 {
+        return
+    }
+    config.put("aeo.scrub.done.${nm}", "1")
+    scrub.env(nm, compose.get_env(nm))
+    scrub.everywhere(_envc("AEO_TOKEN"))
+    scrub.everywhere(secrets.resolve(_envc("AEO_TOKEN")))
+}
+// Driver error text in the form the audit log may keep.
+_kept(nm: string, text: string) -> string {
+    _scrub_register(nm)
+    return scrub.clean(nm, text)
+}
 _report_begin(cmd: string) {
     run_report.begin(cmd)
     n = compose.count()
@@ -1525,10 +1553,7 @@ _report_begin(cmd: string) {
     while i < n {
         nm = compose.name_at(i)
         run_report.declare(nm, compose.get_kind(nm), compose.get_system(nm))
-        // Engine output can end up in a node's reason; these must not.
-        run_report.withhold_env(nm, compose.get_env(nm))
-        run_report.withhold(nm, _envc("AEO_TOKEN"))
-        run_report.withhold(nm, secrets.resolve(_envc("AEO_TOKEN")))
+        _scrub_register(nm)
         i = i + 1
     }
 }
@@ -1744,12 +1769,12 @@ _preload_netpolicy(nm: string, k: string) -> string {
     }
     config.put("aeo.run.npapplied.${nm}", "no (pf load failed: ${_oneline(err)})")
     if compose.get_strict(compose.get_system(nm)) == 1 {
-        _ = audit.record(nm, k, "strict-refuse", "netpolicy: pf anchor not enforced: ${_oneline(err)}")
+        _ = audit.record(nm, k, "strict-refuse", _kept(nm, "netpolicy: pf anchor not enforced: ${_oneline(err)}"))
         _dd = driver_down(nm, k)
         _fl = pf.flush(nm)
         return "aeo: [${nm}] STRICT REFUSED — declared netpolicy could not be enforced (${err}). A strict() system does not run a node unfiltered: it is torn down / not started."
     }
-    _ = audit.record(nm, k, "netpolicy-not-enforced", _oneline(err))
+    _ = audit.record(nm, k, "netpolicy-not-enforced", _kept(nm, _oneline(err)))
     println("aeo: [${nm}] WARNING pf policy NOT enforced: ${err}")
     return ""
 }
@@ -3054,9 +3079,9 @@ _reconcile_node(nm: string, converge: int) -> int {
         if converge == 1 {
             println("aeo: [${nm}] converge: restarting")
             err = driver_up(nm, k)
-            if string_starts_err(err) == 1 {
-                println("aeo: [${nm}] converge FAILED: ${_strip_err(err)}")
-                _ = audit.record(nm, k, "converge-fail", _strip_err(err))
+            if string_length(err) > 0 {
+                println("aeo: [${nm}] converge FAILED: ${_errtext(err)}")
+                _ = audit.record(nm, k, "converge-fail", _kept(nm, _errtext(err)))
             } else {
                 _ = audit.record(nm, k, "converge", "restarted (was not running)")
             }
@@ -3098,9 +3123,9 @@ _reconcile_node(nm: string, converge: int) -> int {
         println("aeo: [${nm}] converge: recreating to the declared envelope")
         _ = driver_down(nm, k)
         err = driver_up(nm, k)
-        if string_starts_err(err) == 1 {
-            println("aeo: [${nm}] converge FAILED: ${_strip_err(err)}")
-            _ = audit.record(nm, k, "converge-fail", _strip_err(err))
+        if string_length(err) > 0 {
+            println("aeo: [${nm}] converge FAILED: ${_errtext(err)}")
+            _ = audit.record(nm, k, "converge-fail", _kept(nm, _errtext(err)))
         } else {
             _ = audit.record(nm, k, "converge", "recreated to envelope (${d})")
         }
@@ -3782,7 +3807,10 @@ _agent_path_on() -> int {
 _agent_token(host: string) -> string {
     v = _envc(_envkey("AEO_TOKEN_", host))
     if string_length(v) > 0 {
-        return secrets.resolve(v)
+        tok = secrets.resolve(v)
+        scrub.everywhere(v)
+        scrub.everywhere(tok)
+        return tok
     }
     return secrets.resolve(_envc("AEO_TOKEN"))
 }

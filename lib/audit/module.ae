@@ -23,7 +23,7 @@
 
 import std.os (run_capture, getenv)
 import std.list
-import std.string (string_length, string_index_of, string_substring, string_contains, string_char_at, string_from_char)
+import std.string (string_length, string_index_of, string_index_of_from, string_substring, string_contains, string_char_at, string_from_char)
 
 exports ( record, verify, path, line_for, _sha, _chomp, _jq )
 
@@ -47,7 +47,10 @@ record(node: string, kind: string, event: string, detail: string) -> string {
     line = "${payload} prev=${prev} hash=${h}"
     // append (create the dir + file). One sh so a failed mkdir/append surfaces.
     esc = _shq(line)
-    cmd = "mkdir -p $(dirname ${_shq(p)}) && printf '%s\\n' ${esc} >> ${_shq(p)}"
+    // 0600: the log names images, paths and refusal reasons; other users of
+    // the host have no business reading it. chmod covers a log created 0644
+    // by an older aeo.
+    cmd = "mkdir -p $(dirname ${_shq(p)}) && (umask 077; printf '%s\\n' ${esc} >> ${_shq(p)}) && chmod 600 ${_shq(p)}"
     out = _sh(cmd)
     return out
 }
@@ -115,22 +118,48 @@ _last_hash(p: string) -> string {
     return h
 }
 
-// the payload portion of a line (everything before " prev=").
+// Where a line's chain tail (" prev=<h> hash=<h>") starts: the LAST " prev=".
+// Not the first — a detail may itself contain " prev=" (engine output, or
+// someone trying to end the payload early), and neither chain value can hold
+// a space, so the last one is always the real one. -1 if there is none.
+_tail_at(line: string) -> int {
+    at = -1
+    from = 0
+    more = 1
+    while more == 1 {
+        c = string_index_of_from(line, " prev=", from)
+        if c < 0 {
+            more = 0
+        } else {
+            at = c
+            from = c + 1
+        }
+    }
+    return at
+}
+
+// the payload portion of a line (everything before its chain tail).
 _strip_chain(line: string) -> string {
-    c = string_index_of(line, " prev=")
+    c = _tail_at(line)
     if c < 0 {
         return line
     }
     return string_substring(line, 0, c)
 }
 
-// value of a "key=VALUE" token, to end-of-line or next space. "" if absent.
+// value of a "key=VALUE" token in the line's CHAIN TAIL, to end-of-line or
+// next space. "" if absent. Never read from the payload.
 _field(line: string, key: string) -> string {
-    idx = string_index_of(line, key)
+    c = _tail_at(line)
+    if c < 0 {
+        return ""
+    }
+    tail = string_substring(line, c, string_length(line))
+    idx = string_index_of(tail, key)
     if idx < 0 {
         return ""
     }
-    rest = string_substring(line, idx + string_length(key), string_length(line))
+    rest = string_substring(tail, idx + string_length(key), string_length(tail))
     sp = string_index_of(rest, " ")
     if sp < 0 {
         return rest
@@ -191,7 +220,18 @@ _jq(s: string) -> string {
             if c == 92 {
                 out = "${out}${string_from_char(92)}${string_from_char(92)}"
             } else {
-                out = "${out}${string_from_char(c)}"
+                // ONE ENTRY IS ONE LINE. A raw newline in a detail (engine
+                // output) would split the entry and break the chain for
+                // every entry after it.
+                if c == 10 {
+                    out = "${out}${string_from_char(92)}n"
+                } else {
+                    if c < 32 {
+                        out = "${out} "
+                    } else {
+                        out = "${out}${string_from_char(c)}"
+                    }
+                }
             }
         }
         i = i + 1

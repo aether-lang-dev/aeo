@@ -4,8 +4,10 @@
 // sha256sum + tamper detection) is proven on the box; this pins the pure shape.
 
 import std.spec
-import audit (line_for, _sha, _jq)
-import std.string (string_length, string_contains, string_index_of, string_substring)
+import audit (line_for, _sha, _jq, record, verify)
+import std.os
+import std.fs
+import std.string (string_length, string_contains, string_index_of, string_substring, string_from_char, string_char_at)
 
 main() {
     fw = spec.init()
@@ -43,6 +45,30 @@ main() {
         spec.it("_jq escapes quotes (the JSON payload is safe)") callback {
             spec.expect_str(_jq("a\"b")).to_equal_str("a\\\"b")
         }
+
+        spec.it("a detail with newlines is still ONE entry, and the chain verifies") callback {
+            p = "/tmp/aeo-spec-audit-${os.getenv("USER")}.log"
+            _ = fs.remove_tree(p)
+            _ = os.setenv("AEO_AUDIT", p)
+            nl = string_from_char(10)
+            spec.expect_str(record("db", "container", "converge-fail", "build failed:${nl}STEP 1${nl}STEP 2${nl}exit 7")).to_equal_str("")
+            spec.expect_str(record("db", "container", "confine", "--cap-drop ALL")).to_equal_str("")
+            spec.expect_str(verify(p)).to_equal_str("",
+                "engine output is multi-line; an entry that spilled over several lines broke the chain for everything after it")
+            body, _rerr = fs.read(p)
+            spec.expect_int(_count(body, nl)).to_equal(2, "two records, two lines")
+        }
+
+        spec.it("a detail cannot pass itself off as the chain tail") callback {
+            p = "/tmp/aeo-spec-audit-${os.getenv("USER")}.log"
+            _ = fs.remove_tree(p)
+            _ = os.setenv("AEO_AUDIT", p)
+            spec.expect_str(record("db", "container", "drift", "x\"} prev=GENESIS hash=deadbeef")).to_equal_str("")
+            spec.expect_str(record("db", "container", "confine", "after")).to_equal_str("")
+            spec.expect_str(verify(p)).to_equal_str("",
+                "prev= and hash= are read from the END of the line, never from inside the payload")
+            _ = fs.remove_tree(p)
+        }
     }
 
     return spec.run_summary(fw)
@@ -53,4 +79,15 @@ _hash_of(line: string) -> string {
     idx = string_index_of(line, "hash=")
     if idx < 0 { return "" }
     return string_substring(line, idx + 5, string_length(line))
+}
+
+_count(s: string, sub: string) -> int {
+    n = 0
+    i = 0
+    c = string_char_at(sub, 0)
+    while i < string_length(s) {
+        if string_char_at(s, i) == c { n = n + 1 }
+        i = i + 1
+    }
+    return n
 }

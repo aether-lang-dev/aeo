@@ -497,13 +497,33 @@ report's sha256 in the audit chain (event `run-report`).
   overwrite the first, which the audit chain already pointed at). Spec now 13
   cases; live script 37 assertions, incl. a build that prints an `env()` value
   and fails — same one box.
-- [ ] The withholding only knows values it was told: `env()` and `AEO_TOKEN`.
-  A secret that reaches engine output another way (baked into an image, fetched
-  during a build, a per-host `AEO_TOKEN_<host>`) is NOT caught, and values under
-  4 characters are not registered. The terminal still prints the full text.
-- [ ] `.aeo/audit.log` is still written with the default umask (0644 here). It
-  holds decisions, not engine output, but nobody has checked every `detail`
-  that goes into it for the same problem.
+- [x] **The audit log gets the same treatment (2026-11-26).** Scrubbing moved to
+  its own module, `lib/scrub`, used by run reports AND by the audit entries that
+  carry driver text (`converge-fail`, the two netpolicy ones). Per-host
+  `AEO_TOKEN_<host>` values register themselves where they are resolved. The
+  log is written 0600 (and an older 0644 log is tightened on the next entry).
+  Three older bugs turned up on the way, all fixed:
+  - **a failed `reconcile --converge` was recorded as a success** (`converge`:
+    "restarted"). The check looked for an `ERR:` prefix that `driver_up` never
+    returns, so `converge-fail` had never once been written;
+  - **a detail with a newline broke the audit chain** for every later entry
+    (one entry spilled over several lines). `_jq` now writes `\n`;
+  - **`prev=`/`hash=` were read from the first match in a line**, so a detail
+    containing ` prev=` broke (or could steer) verification. They are read from
+    the end of the line now.
+  Also: run-report reasons had lost their first four characters (same `ERR:`
+  mix-up, mine, from the first run-report commit).
+  Proven: `test/spec_audit.ae` 7 cases, `test/run-report-live.sh` 45
+  assertions incl. a failed converge whose build prints an `env()` value —
+  one box, as above.
+- [ ] The withholding only knows values it was told: `env()` and the agent
+  tokens. A secret that reaches engine output another way (baked into an image,
+  fetched during a build) is NOT caught, and values under 4 characters are not
+  registered. The terminal still prints the full text.
+- [ ] Other audit details are built by aeo from declared values (flags, paths,
+  pins) and were read, not tested, for secrets: `confine` records the engine
+  flags, and a secret passed as a flag value would be kept.
+- [ ] `aeo reconcile` still exits 0 when a converge fails (it prints the count).
 - [ ] Only `container` nodes have been through it live. The hooks are
   kind-agnostic (they sit in the actor and the two level loops), but no lxc /
   kvm / jail / bhyve / proxmox run has produced a report yet.

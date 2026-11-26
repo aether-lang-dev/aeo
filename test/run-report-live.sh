@@ -140,6 +140,7 @@ J="$(cat "$UPR")"
 want "$J" '"command":"up","outcome":"failed"' "report: overall failed"
 want "$J" "\"name\":\"$N-db\",\"system\":\"aeorunrepb\",\"kind\":\"container\",\"outcome\":\"failed\"" "report: the refused node is failed"
 want "$J" "debgu" "report: its reason names the bad policy token"
+want "$J" '"detail":"aeo: ' "report: the reason is the driver's whole message, from its first character"
 want "$J" "\"name\":\"$N-app\",\"system\":\"aeorunrepb\",\"kind\":\"container\",\"outcome\":\"not-attempted\",\"call_ms\":null,\"done_ms\":null" "report: the dependent was never attempted, and has no times"
 want "$J" '"counts":{"failed":1,"not-attempted":1}' "report: counts"
 want "$(cat "${UPR%.json}.txt")" "up failed in" "report: the text form says failed"
@@ -160,6 +161,13 @@ if grep -rq "$SECRET" .aeo/reports .aeo/audit.log; then fail "the secret is in a
 [ "$(stat -c %a .aeo/reports)" = "700" ] && pass "the reports directory is 0700" || fail "reports directory is $(stat -c %a .aeo/reports)"
 OPEN="$(find .aeo/reports -type f ! -perm 600 | wc -l)"
 [ "$OPEN" -eq 0 ] && pass "every report file is 0600" || fail "$OPEN report file(s) are not 0600"
+[ "$(stat -c %a .aeo/audit.log)" = "600" ] && pass "the audit log is 0600" || fail "audit log is $(stat -c %a .aeo/audit.log)"
+RC_OUT="$(aeo reconcile leak.ae --converge)"
+want "$RC_OUT" "converge FAILED" "reconcile --converge: the same build fails again"
+want "$RC_OUT" "TOKEN=$SECRET" "reconcile: the terminal shows the build output, secret included"
+want "$(cat .aeo/audit.log)" '"event":"converge-fail"' "audit: the failed converge is recorded"
+wantno "$(grep "$N-leak" .aeo/audit.log)" '"event":"converge","detail":"restarted' "audit: a converge that failed is not recorded as a restart"
+if grep -q "$SECRET" .aeo/audit.log; then fail "the secret is in the audit log after a failed converge"; else pass "audit: the converge-fail entry does not hold the secret"; fi
 aeo down leak.ae --no-supervisor >/dev/null
 podman rmi -f "localhost/aeo-built/$N-leak:latest" >/dev/null 2>&1
 

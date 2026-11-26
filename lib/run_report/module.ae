@@ -31,16 +31,17 @@ import std.config
 import std.fs
 import std.os
 import std.cryptography
+import scrub
 import std.string (bytes, string_length, string_char_at, string_from_char,
                    string_equals, string_split, string_array_size,
                    string_array_get, string_array_free, string_substring,
-                   string_from_int, to_long, string_replace_all, string_index_of)
+                   string_from_int, to_long)
 
 exports (
     begin, declare, node_start, node_booted, node_outcome, node_note,
     has_outcome, outcome_of, close_unreported, overall, count_of,
     render_json, render_text, dir, write, read_last, secs, jq,
-    withhold, withhold_env, detail_of
+    detail_of
 )
 
 fn _k(nm: string, field: string) -> string {
@@ -125,7 +126,6 @@ begin(cmd: string) {
             config.put(_k(nm, "ready_ms"), "")
             config.put(_k(nm, "outcome"), "")
             config.put(_k(nm, "detail"), "")
-            config.put(_k(nm, "hide"), "")
             i = i + 1
         }
         string_array_free(parts)
@@ -147,80 +147,10 @@ declare(nm: string, kind: string, system: string) {
     }
     config.put(_k(nm, "kind"), kind)
     config.put(_k(nm, "system"), system)
-    config.put(_k(nm, "hide"), "")
 }
 
-// ---- keeping secrets out of a report ----
-// A node's reason is whatever its driver said, and a driver quotes its engine:
-// a failed `podman run`, or the whole output of a failed image build. A report
-// is a FILE that outlives the terminal, so before a reason is kept:
-//   1. every value registered with withhold() for that node is replaced by
-//      "[withheld]" (the runner registers the node's env() values and the
-//      agent token);
-//   2. it is cut to its first 200 and last 300 characters.
-// The cut is for size, not secrecy — only (1) is the protection, and it only
-// knows the values it was told. A secret that reaches engine output some other
-// way (baked into an image, fetched at build time) is NOT caught. Values under
-// 4 characters are not registered: replacing "1" or "no" everywhere would
-// wreck the reason and protect nothing.
-fn _sep() -> string {
-    return string_from_char(31)
-}
-
-withhold(nm: string, value: string) {
-    if string_length(value) < 4 {
-        return
-    }
-    prev = config.get(_k(nm, "hide"))
-    if string_length(prev) == 0 {
-        config.put(_k(nm, "hide"), value)
-    } else {
-        config.put(_k(nm, "hide"), "${prev}${_sep()}${value}")
-    }
-}
-
-// env_csv is compose's "K=V,K=V". The VALUE of each pair is withheld.
-withhold_env(nm: string, env_csv: string) {
-    if string_length(env_csv) == 0 {
-        return
-    }
-    parts = string_split(env_csv, ",")
-    n = string_array_size(parts)
-    i = 0
-    while i < n {
-        one = string_array_get(parts, i)
-        eq = string_index_of(one, "=")
-        if eq >= 0 {
-            withhold(nm, string_substring(one, eq + 1, string_length(one)))
-        }
-        i = i + 1
-    }
-    string_array_free(parts)
-}
-
-fn _clean(nm: string, detail: string) -> string {
-    out = detail
-    held = config.get(_k(nm, "hide"))
-    if string_length(held) > 0 {
-        parts = string_split(held, _sep())
-        n = string_array_size(parts)
-        i = 0
-        while i < n {
-            out = string_replace_all(out, string_array_get(parts, i), "[withheld]")
-            i = i + 1
-        }
-        string_array_free(parts)
-    }
-    total = string_length(out)
-    if total > 600 {
-        first = string_substring(out, 0, 200)
-        last = string_substring(out, total - 300, total)
-        cut = string_from_int(total - 500)
-        out = "${first} [... ${cut} characters cut; the run printed the full text ...] ${last}"
-    }
-    return out
-}
-
+// A reason quotes engine output, so it goes through lib/scrub before it is
+// kept: the node's registered values are withheld and the text cut to size.
 detail_of(nm: string) -> string {
     return config.get(_k(nm, "detail"))
 }
@@ -238,7 +168,7 @@ node_booted(nm: string) {
 // A reason that is not (yet) an outcome: a down call that errored may still be
 // verified gone.
 node_note(nm: string, detail: string) {
-    config.put(_k(nm, "detail"), _clean(nm, detail))
+    config.put(_k(nm, "detail"), scrub.clean(nm, detail))
 }
 
 // The node's final outcome. FIRST ONE WINS: a node that failed its boot call
@@ -251,7 +181,7 @@ node_outcome(nm: string, outcome: string, detail: string) {
     config.put(_k(nm, "outcome"), outcome)
     config.put(_k(nm, "ready_ms"), _since(config.get(_k(nm, "t0"))))
     if string_length(detail) > 0 {
-        config.put(_k(nm, "detail"), _clean(nm, detail))
+        config.put(_k(nm, "detail"), scrub.clean(nm, detail))
     }
 }
 

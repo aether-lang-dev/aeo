@@ -206,10 +206,14 @@ lib/run_report/    what one `aeo up`/`aeo down` DID, node by node (outcome from 
                    newest. NOT the audit trail (that is security decisions) — but
                    each report's sha256 is recorded in it. A report never rounds
                    up: anything but all-started / all-stopped is "failed".
-                   A reason QUOTES ENGINE OUTPUT, so it is scrubbed of the node's
-                   env() values + the agent token and cut to size before it is
-                   kept; the files are 0600 in a 0700 dir. Any new route by
-                   which a secret reaches a node must call withhold().
+                   The files are 0600 in a 0700 dir.
+lib/scrub/         driver error text QUOTES ENGINE OUTPUT (a failed build prints
+                   anything). Before such text goes into a FILE — a run report or
+                   an audit entry — scrub.clean(nm, text) replaces the node's
+                   env() values and the agent tokens with "[withheld]" and cuts
+                   it to size. Any new route by which a secret reaches a node
+                   must register it (scrub.value / scrub.everywhere), and any
+                   new audit entry carrying driver text goes through _kept().
 lib/secrets/       SEALED values (aeo1 envelope): ciphertext in state/env/logs,
                    plaintext only at the use boundary via resolve(), fail-closed.
                    `aeo secrets keygen|seal|unseal`. NB `seal` is RESERVED —
@@ -530,6 +534,9 @@ Don't over-engineer this into an in-process binding.
   are PURE declarations; `aeo <phase> <file>` executes them, and verification is
   declared via `check()`/`smoke()`/`suite()` naming external specs (like aeb's
   `.build.ae`). (This replaced the old all-in-one AEO_MODE scaffold.)
+- Don't test `driver_up`'s result for an `ERR:` prefix → it returns "" or the
+  bare error text. Test `string_length(err) > 0`; print with `_errtext(err)`.
+  (The prefix test recorded every failed converge as a success.)
 - Don't overclaim "live" → keep the proven-vs-modeled discipline; say which box,
   which date, what was actually run.
 

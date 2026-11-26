@@ -1,0 +1,129 @@
+// lib/scrub — keeping a node's secrets out of what aeo WRITES DOWN.
+//
+// A driver's error quotes its engine: a failed `podman run`, or the whole
+// output of a failed image build. That text is fine on a terminal and not fine
+// in a file that outlives it — a run report (lib/run_report) or the audit log
+// (lib/audit). Before such text is kept, clean() does two things:
+//   1. every value registered for that node (value / env), or for every node
+//      (everywhere), is replaced by "[withheld]";
+//   2. the text is cut to its first 200 and last 300 characters.
+// The cut is for size, not secrecy — only (1) is the protection, and it only
+// knows the values it was told. A secret that reaches engine output some other
+// way (baked into an image, fetched during a build) is NOT caught. Values
+// under 4 characters are not registered: replacing "1" or "no" everywhere
+// would wreck the text and protect nothing.
+//
+// State is std.config (process-global), per the repo rule. Registering the
+// same value twice is harmless.
+
+import std.config
+import std.string (string_length, string_from_char, string_split,
+                   string_array_size, string_array_get, string_array_free,
+                   string_substring, string_from_int, string_replace_all,
+                   string_index_of)
+
+exports ( value, env, everywhere, clean, reset )
+
+fn _sep() -> string {
+    return string_from_char(31)
+}
+
+fn _key(nm: string) -> string {
+    return "aeo.scrub.v.${nm}"
+}
+
+fn _add(key: string, v: string) {
+    if string_length(v) < 4 {
+        return
+    }
+    prev = config.get(key)
+    if string_length(prev) == 0 {
+        config.put(key, v)
+    } else {
+        config.put(key, "${prev}${_sep()}${v}")
+    }
+}
+
+// Withhold `v` from text kept about node `nm`.
+value(nm: string, v: string) {
+    if string_length(config.get(_key(nm))) == 0 {
+        names = config.get("aeo.scrub.names")
+        if string_length(names) == 0 {
+            config.put("aeo.scrub.names", nm)
+        } else {
+            config.put("aeo.scrub.names", "${names}${_sep()}${nm}")
+        }
+    }
+    _add(_key(nm), v)
+}
+
+// env_csv is compose's "K=V,K=V". The VALUE of each pair is withheld.
+env(nm: string, env_csv: string) {
+    if string_length(env_csv) == 0 {
+        return
+    }
+    parts = string_split(env_csv, ",")
+    n = string_array_size(parts)
+    i = 0
+    while i < n {
+        one = string_array_get(parts, i)
+        eq = string_index_of(one, "=")
+        if eq >= 0 {
+            value(nm, string_substring(one, eq + 1, string_length(one)))
+        }
+        i = i + 1
+    }
+    string_array_free(parts)
+}
+
+// Withhold `v` from text kept about ANY node (a token the runner holds).
+everywhere(v: string) {
+    _add("aeo.scrub.all", v)
+}
+
+fn _replace(text: string, held: string) -> string {
+    out = text
+    if string_length(held) == 0 {
+        return out
+    }
+    parts = string_split(held, _sep())
+    n = string_array_size(parts)
+    i = 0
+    while i < n {
+        out = string_replace_all(out, string_array_get(parts, i), "[withheld]")
+        i = i + 1
+    }
+    string_array_free(parts)
+    return out
+}
+
+// The form of `text` that may be written to a file about node `nm`.
+clean(nm: string, text: string) -> string {
+    out = _replace(text, config.get(_key(nm)))
+    out = _replace(out, config.get("aeo.scrub.all"))
+    total = string_length(out)
+    if total > 600 {
+        first = string_substring(out, 0, 200)
+        last = string_substring(out, total - 300, total)
+        cut = string_from_int(total - 500)
+        out = "${first} [... ${cut} characters cut; the run printed the full text ...] ${last}"
+    }
+    return out
+}
+
+// Forget everything registered (specs).
+reset() {
+    names = config.get("aeo.scrub.names")
+    if string_length(names) > 0 {
+        parts = string_split(names, _sep())
+        n = string_array_size(parts)
+        i = 0
+        while i < n {
+            config.put(_key(string_array_get(parts, i)), "")
+            i = i + 1
+        }
+        string_array_free(parts)
+    }
+    config.put("aeo.scrub.names", "")
+    config.put("aeo.scrub.all", "")
+}

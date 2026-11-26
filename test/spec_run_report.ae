@@ -8,6 +8,7 @@ import std.fs
 import std.string (string_contains, string_length, string_trim, string_equals)
 import std.list
 import run_report
+import scrub
 
 _argv2(fmt: string, path: string) -> ptr {
     av = list_new()
@@ -88,8 +89,9 @@ main() {
                 run_report.begin("up")
                 run_report.declare("db", "container", "web")
                 run_report.declare("app", "container", "web")
-                run_report.withhold_env("db", "PGPASSWORD=hunter2-s3cret,PORT=5432,ON=1")
-                run_report.withhold("db", "tok-abcdef")
+                scrub.reset()
+                scrub.env("db", "PGPASSWORD=hunter2-s3cret,PORT=5432,ON=1")
+                scrub.value("db", "tok-abcdef")
                 run_report.node_start("db")
                 run_report.node_outcome("db", "failed", "build failed: + echo hunter2-s3cret tok-abcdef hunter2-s3cret on 1 node")
                 spec.expect_str(run_report.detail_of("db")).to_equal_str(
@@ -101,16 +103,17 @@ main() {
                 j = run_report.render_json()
                 spec.expect_int(string_contains(j, "hunter2-s3cret and")).to_equal(1)
                 spec.expect_int(string_contains(j, "echo hunter2")).to_equal(0)
-                run_report.begin("up")
-                run_report.declare("db", "container", "web")
-                run_report.node_note("db", "hunter2-s3cret")
-                spec.expect_str(run_report.detail_of("db")).to_equal_str("hunter2-s3cret",
-                    "a new run starts with nothing registered; the runner registers again")
+                scrub.everywhere("tok-global-1")
+                run_report.node_note("app", "sent tok-global-1")
+                spec.expect_str(run_report.detail_of("app")).to_equal_str("sent [withheld]",
+                    "a value registered for every node (a token the runner holds) is withheld from all of them")
+                scrub.reset()
             }
             spec.it("cuts a long reason to its head and tail, after withholding") callback {
                 run_report.begin("up")
                 run_report.declare("db", "container", "web")
-                run_report.withhold("db", "s3cret-in-the-middle")
+                scrub.reset()
+                scrub.value("db", "s3cret-in-the-middle")
                 chunk = "0123456789"
                 big = "HEAD-MARK "
                 i = 0
