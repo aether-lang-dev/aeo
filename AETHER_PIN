@@ -319,4 +319,16 @@
 # ghostbsd (FreeBSD 15.1, both bhyve guests up, the released 0.945.0, no environment
 # variable): all seven bin/ entry points build, test/security-posture.sh, strict-mode.sh
 # and compose-lint.sh pass, and `sh test/run-spec.sh` has 368 passing, 14 failing and 21 skipped, the same counts as 0.944.0 and 0.941.0; the 14 are the same two live Linux bhyve guest specs (7 each).
-0.945.0
+# Raised to 0.946.0 (2026-11-26): a tracking-only bump, no new primitive needed and
+# no source change. 0.946.0 fixes a discarded call's trailing block (`_ = f() { ... }`),
+# merges direct and transitive imports on one path, adds tcp.close_reset and checks that a
+# local lasts to the end of its function; aeo's source compiles unchanged. Verified on
+# ghostbsd (FreeBSD 15.1, both bhyve guests running, the released 0.946.0, no environment
+# variable): all seven bin/ entry points build, test/security-posture.sh, strict-mode.sh
+# and compose-lint.sh pass, and `sh test/run-spec.sh` has 420 passing, 14 failing and 44
+# skipped; the released 0.945.0 gives the same counts on the same tree and host, and the 14
+# are the same two live bhyve guest specs (7 each). On ae-x64 (Ubuntu 22.04 x86_64): the
+# same builds and three scripts pass, and run-spec has 413 passing, 7 failing, 14 skipped,
+# as on 0.945.0; the 7 are spec_running_nodes and spec_driver_loadbalancer_live (that
+# host's podman 3.4.4 cannot use a user network).
+0.946.0
