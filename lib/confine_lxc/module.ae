@@ -256,7 +256,8 @@ rules_seen(section: string, csv: string) -> string {
 // the caller gathers the facts (driver_lxc.seccomp_reported, the host's stock
 // profile, the node's profile file) and this decides. Returns (verdict, why):
 //   ("ok", "")         it runs under what `policy` renders over the stock now
-//   ("drift", why)     it does not: no filter, a denied rule not loaded, or
+//   ("drift", why)     it does not: no filter, a denied rule not loaded, init
+//                      not in aeo's start log (started by something else), or
 //                      the profile it was started with is not today's render
 //   ("unknown", why)   it cannot be told (start log unreadable, stock profile
 //                      unreadable). NOT drift: calling it drift would recreate
@@ -275,6 +276,12 @@ drift(policy: string, reported: string, stock: string, stock_err: string, on_dis
     }
     if string_starts_with(reported, "MISSING:") == 1 {
         return "drift", "seccomp: declared deny=${policy}, but the running container was started without: ${string_substring(reported, 8, string_length(reported))}"
+    }
+    if string_starts_with(reported, "UNRECORDED:") == 1 {
+        // The log was read fine and holds no start of this init. aeo's
+        // lxc-start always logs here, so something else started it (by hand,
+        // without aeo's profile): drift, and --converge puts it back.
+        return "drift", "seccomp: declared deny=${policy}, but ${string_substring(reported, 11, string_length(reported))}"
     }
     if string_starts_with(reported, "UNREADABLE:") == 1 {
         return "unknown", "seccomp: cannot tell what the running container loaded (${string_substring(reported, 11, string_length(reported))})"

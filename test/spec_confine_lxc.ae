@@ -253,6 +253,12 @@ main() {
                     "calling it drift would recreate the node on every --converge pass; calling it ok would be a claim nobody checked")
                 spec.expect_int(string_contains(why, "cannot tell what the running container loaded")).to_equal(1)
             }
+            spec.it("a readable start log with no record of this init is DRIFT: something else started it") callback {
+                v, why = drift("namespace", "UNRECORDED:init 42 is not in LXC's start log /x (a start aeo made is always there)", stock, "", "", "")
+                spec.expect_str(v).to_equal_str("drift",
+                    "found live on ae-x64: a container restarted by hand (default log) was reported unchecked, and --converge left it")
+                spec.expect_int(string_contains(why, "not in LXC's start log")).to_equal(1)
+            }
             spec.it("a stock profile that cannot be read is UNKNOWN too") callback {
                 v, _why = drift("namespace", "OK:fine", "", "cannot read the stock LXC seccomp profile", "x", "")
                 spec.expect_str(v).to_equal_str("unknown")

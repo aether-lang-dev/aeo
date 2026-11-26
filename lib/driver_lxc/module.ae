@@ -234,7 +234,9 @@ seccomp_prepare(res_name: string, policy: string) -> string {
 // with, checked against `policy`:
 //   ""             not running (nothing to probe)
 //   "NOFILTER:…"   init holds no seccomp filter at all
-//   "UNREADABLE:…" the start log cannot be read, or has no record of this init
+//   "UNREADABLE:…" the start log cannot be read
+//   "UNRECORDED:…" the log reads, but holds no start of this init: something
+//                  other than aeo started it
 //   "MISSING:a,b"  the start that launched this init did not load these
 //   "OK:…"         every denied rule was loaded when this init was started
 // lxc-info -c cannot do this: it reports the config file, not a value set
@@ -270,7 +272,7 @@ seccomp_reported(res_name: string, policy: string) -> string {
     }
     sec = start_section(lg, pid)
     if string_length(sec) == 0 {
-        return "UNREADABLE:LXC's start log ${lp} has no record of starting init ${ps}"
+        return "UNRECORDED:init ${ps} is not in LXC's start log ${lp}: it was not started by aeo's lxc-start (which always logs there)"
     }
     miss = rules_seen(sec, policy)
     if string_length(miss) > 0 {
