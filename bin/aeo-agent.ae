@@ -44,6 +44,7 @@ import driver_vm
 import driver_mac_exec
 import confine_landlock
 import sandbox_preload
+import audit
 import std.fs
 import driver_lxc
 import driver_nspawn
@@ -265,6 +266,45 @@ _run_http(me: string, token: string, port: int) {
     }
 }
 
+// Where THIS HOST's audit trail lives: $AEO_AUDIT, else $HOME/.aeo/agent-audit.log.
+// Not under the cwd (lib/audit's default): an agent's cwd is whatever started
+// it. "" if neither is set.
+_agent_audit_path() -> string {
+    a = _env_or("AEO_AUDIT", "")
+    if string_length(a) > 0 {
+        return a
+    }
+    h = _env_or("HOME", "")
+    if string_length(h) == 0 {
+        return ""
+    }
+    return "${h}/.aeo/agent-audit.log"
+}
+
+// Record a host-exec node's confinement decision in this host's audit trail:
+// event "confine" when it was launched under its grants, "confine-refuse" when
+// the launch was refused (nothing started). The grants and the launcher are
+// the record; the workload's command is not written (it can carry anything).
+// A trail that cannot be written is SAID, and does not undo the launch: the
+// node is what it is, and the parent still gets the truth in the report.
+_audit_confine(node: string, grants: string, launcher: string, err: string) {
+    ap = _agent_audit_path()
+    if string_length(ap) == 0 {
+        println("aeo-agent[${node}]: confinement decision NOT audited: neither AEO_AUDIT nor HOME is set")
+        return
+    }
+    _ = os.setenv("AEO_AUDIT", ap)
+    aerr = ""
+    if string_length(err) == 0 {
+        aerr = audit.record(node, "exec", "confine", "landlock grants=${grants} launcher=${launcher}")
+    } else {
+        aerr = audit.record(node, "exec", "confine-refuse", "landlock grants=${grants} launcher=${launcher}: ${err}")
+    }
+    if string_length(aerr) > 0 {
+        println("aeo-agent[${node}]: confinement decision NOT audited: ${aerr}")
+    }
+}
+
 // The path of this very binary, so the agent can be its own confinement
 // launcher. "" where there is no /proc/self/exe (then AEO_CONFINE_BIN, or
 // `aeo-confine` on PATH, is the launcher as before).
@@ -287,6 +327,26 @@ main() {
         sub = os.args_get(1)
         if string_equals(sub, "confine") == 1 {
             exit(confine_landlock.launch_from_args(2))
+        }
+        if string_equals(sub, "audit") == 1 {
+            // Verify this host's own audit trail. Exit 1 if the chain is broken.
+            ap = _agent_audit_path()
+            if string_length(ap) == 0 {
+                println("aeo-agent: no audit trail: neither AEO_AUDIT nor HOME is set")
+                exit(1)
+            }
+            println("aeo-agent: audit trail ${ap}")
+            if fs.exists(ap) == 0 {
+                println("  entries: 0 (nothing has been recorded on this host)")
+                exit(0)
+            }
+            v = audit.verify(ap)
+            if v != "" {
+                println("  chain:   ${v}")
+                exit(1)
+            }
+            println("  chain:   INTACT (tamper-evident hash chain verified)")
+            exit(0)
         }
         if string_equals(sub, "preload") == 1 {
             println("aeo-agent: sandbox library ${sandbox_preload.describe()}")
@@ -558,18 +618,24 @@ _boot_node(node: string, kind_override: string) -> string {
     if string_equals(kind, "exec") == 1 {
         grants = _env_or("AEO_EXEC_GRANTS", "")
         if string_length(grants) > 0 {
+            // The confinement decision is AUDITED on this host, launched or
+            // refused: which grants, through which launcher (_audit_confine).
+            bcmd = _env_or("AEO_BOOT_CMD", "sleep 600")
             other = _env_or("AEO_CONFINE_BIN", "")
             if string_length(other) > 0 {
-                return driver_mac_exec.up_confined(node,
-                    _env_or("AEO_BOOT_CMD", "sleep 600"), other, grants)
+                cerr = driver_mac_exec.up_confined(node, bcmd, other, grants)
+                _audit_confine(node, grants, other, cerr)
+                return cerr
             }
             me_exe = _self_exe()
             if string_length(me_exe) == 0 {
-                return driver_mac_exec.up_confined(node,
-                    _env_or("AEO_BOOT_CMD", "sleep 600"), "aeo-confine", grants)
+                cerr = driver_mac_exec.up_confined(node, bcmd, "aeo-confine", grants)
+                _audit_confine(node, grants, "aeo-confine", cerr)
+                return cerr
             }
-            return driver_mac_exec.up_confined_sub(node,
-                _env_or("AEO_BOOT_CMD", "sleep 600"), me_exe, "confine", grants)
+            cerr = driver_mac_exec.up_confined_sub(node, bcmd, me_exe, "confine", grants)
+            _audit_confine(node, grants, "aeo-agent confine", cerr)
+            return cerr
         }
         return driver_mac_exec.up(node,
             _env_or("AEO_BOOT_CMD", "sleep 600"),

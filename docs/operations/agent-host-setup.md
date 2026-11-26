@@ -110,6 +110,12 @@ The token grammar is in `lib/confine_landlock/module.ae`. Three things to know:
 - **It is not a network boundary.** TCP connects are kernel-held only from Linux
   6.7, and Landlock has no UDP rule at all. A node that must not phone home needs
   a container kind with `deny_egress()`.
+- **The decision is audited on the agent's host.** Every confined launch, and
+  every refused one, is one entry in `$HOME/.aeo/agent-audit.log` (or
+  `$AEO_AUDIT`): the node, the grants, the launcher, and for a refusal the
+  reason. The workload's command is not written. It is the same hash chain as
+  the operator's audit trail; `aeo-agent audit` verifies it and exits 1 if it
+  was edited. The entry stays on that host — it is not yet sent to the parent.
 
 **Status (2026-11-20): proven locally, not through an agent.** `aeo-confine` and
 `driver_mac_exec.up_confined` are live-tested on one box (Crostini, kernel 6.6,

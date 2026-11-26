@@ -182,6 +182,8 @@ lib/confine_landlock/  a HOST-EXEC node held by the kernel to a grant list (Land
                    is the AGENT ITSELF (`aeo-agent confine …`; `bin/aeo-confine`
                    is the same thing standalone, for specs).
                    Fail-closed. NOT a deny_egress renderer (Landlock has no UDP rule).
+                   Each launch or refusal is AUDITED on the agent's host
+                   ($HOME/.aeo/agent-audit.log; `aeo-agent audit` verifies it).
 lib/sandbox_preload/   Aether's libaether_sandbox.so CARRIED INSIDE the agent and put
                    at $HOME/.aeo/lib on first use (hash-checked, fail-closed), so a
                    fleet host still gets one file. lib/sandbox_preload_blob is the

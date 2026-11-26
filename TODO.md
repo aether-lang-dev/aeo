@@ -470,7 +470,19 @@ else. Start here, in this order:
 - [ ] musl hosts (Alpine): the preload library is untested there.
 - [ ] A compose-level surface. Today the grants are an agent env var; there is no
   `constrain{}` rendering and no runner path for an exec kind.
-- [ ] Audit: a confined launch and a refused one are not yet written to lib/audit.
+- [x] Audit (2026-11-26): a confined launch (`confine`) and a refused one
+  (`confine-refuse`) are written to the AGENT HOST's own chain,
+  `$HOME/.aeo/agent-audit.log` (or `AEO_AUDIT`): node, grants, launcher, and
+  the reason for a refusal; never the workload's command. `aeo-agent audit`
+  verifies it, exit 1 if broken. `test/agent-confine-live.sh` part 3, 11 new
+  assertions through a real agent on loopback http (29/29) — ONE box:
+  Crostini, kernel 6.6, x86_64, ae 0.927.0 (below the pin).
+- [ ] That trail stays on the agent's host. The parent sees `up`/`failed` in
+  the report, not the grants; nothing forwards or cross-checks the entry, and
+  an attacker with the agent user's rights can delete the whole file (a chain
+  catches edits, not removal). An UNCONFINED exec boot writes no entry.
+- [ ] lib/audit shells to `sha256sum`, which macOS and FreeBSD do not ship, so
+  `aeo-agent audit` is Linux-only in practice (the confined route is too).
 - [ ] FreeBSD peer (Capsicum) and macOS stay as they are: `spawn_socket` refuses
   on both, so `up_confined` is Linux-only by construction.
 

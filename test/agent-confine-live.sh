@@ -9,6 +9,8 @@
 # AETHER_SANDBOX_PRELOAD, from a scratch directory, i.e. as on a fleet host that
 # has never seen an Aether toolchain. Part 2 goes through a REAL agent over the
 # HTTP transport (boot -> probe -> halt), the route that had only been compiled.
+# Part 3: the confinement decision, launched or refused, is in the agent
+# host's own audit trail ($HOME/.aeo/agent-audit.log; `aeo-agent audit`).
 #
 # SKIPs (exit 0, saying why) where it cannot run: not Linux, no Landlock, no
 # toolchain library to embed. Not run by run-spec.sh (it builds two agents).
@@ -118,6 +120,42 @@ check $? "the kernel refused the file it was not granted"
 rep="$(curl -sS --max-time 20 -X POST --data "halt $TOK $NODE" "$BASE/dispatch" 2>/dev/null)"
 sleep 1
 ! kill -0 "$P" 2>/dev/null; check $? "halt stops it ('$rep')"
+
+echo "== 3. the confinement decision is in this host's audit trail"
+AUDF="$T/home/.aeo/agent-audit.log"
+grep -q "\"node\":\"$NODE\",\"kind\":\"exec\",\"event\":\"confine\",\"detail\":\"landlock grants=" "$AUDF" 2>/dev/null
+check $? "the confined launch is recorded"
+grep -q "fs_read:$T/data/allow.txt" "$AUDF" 2>/dev/null && grep -q "launcher=aeo-agent confine" "$AUDF" 2>/dev/null
+check $? "the entry names the grants and the launcher"
+! grep -q "deny.txt" "$AUDF" 2>/dev/null; check $? "the workload's command is not in the trail"
+[ "$(stat -c %a "$AUDF" 2>/dev/null)" = "600" ]; check $? "the trail is readable by its owner only"
+out="$($CLEAN "$T/full/aeo-agent" audit 2>&1)"; rc=$?
+[ $rc -eq 0 ] && echo "$out" | grep -q "chain:   INTACT"; check $? "aeo-agent audit: the chain verifies"
+
+kill "$APID" 2>/dev/null; wait "$APID" 2>/dev/null
+PORT2=$((PORT + 1)); BASE2="http://127.0.0.1:$PORT2"; NODE2="${NODE}r"
+env -i PATH=/usr/bin:/bin HOME="$T/home" AEO_TRANSPORT=http AEO_BIND=127.0.0.1 AEO_PORT="$PORT2" \
+    AEO_NODE="$NODE2" AEO_TOKEN="$TOK" AEO_BOOT_KIND=exec AEO_BOOT_CMD="$SLP 60" AEO_EXEC_GRANTS="exec:$SLP,bogus:x" \
+    "$T/full/aeo-agent" >"$T/agent2.log" 2>&1 &
+APID=$!
+i=0
+while ! curl -fsS "$BASE2/health" >/dev/null 2>&1; do
+    i=$((i+1)); [ "$i" -gt 50 ] && { echo "FAIL: second agent never came up"; cat "$T/agent2.log"; exit 1; }
+    sleep 0.1
+done
+rep="$(curl -sS --max-time 20 -X POST --data "boot $TOK $NODE2" "$BASE2/dispatch" 2>/dev/null)"
+[ "$rep" != "report $TOK $NODE2 up" ]; check $? "a boot with a grant the launcher does not know is not reported up ('$rep')"
+[ ! -f "/tmp/aeo-macexec-$NODE2.pid" ] || ! kill -0 "$(cat "/tmp/aeo-macexec-$NODE2.pid")" 2>/dev/null
+check $? "and nothing was started"
+grep -q "\"node\":\"$NODE2\",\"kind\":\"exec\",\"event\":\"confine-refuse\"" "$AUDF" 2>/dev/null
+check $? "the refusal is recorded"
+grep "confine-refuse" "$AUDF" 2>/dev/null | grep -q "bogus:x"; check $? "the entry says which grants were refused"
+out="$($CLEAN "$T/full/aeo-agent" audit 2>&1)"; rc=$?
+[ $rc -eq 0 ]; check $? "the chain still verifies with both entries"
+sed -i '1s/landlock grants=/landlock grants=fs:\/,/' "$AUDF"
+out="$($CLEAN "$T/full/aeo-agent" audit 2>&1)"; rc=$?
+[ $rc -ne 0 ] && echo "$out" | grep -q "CHAIN BROKEN"; check $? "an edited trail is caught, and aeo-agent audit exits non-zero"
+kill "$APID" 2>/dev/null; wait "$APID" 2>/dev/null
 
 echo
 echo "$pass passed, $fail failed  (kernel $(uname -r), $(uname -m), $(ae version | head -1))"
