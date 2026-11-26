@@ -19,6 +19,7 @@
 
 import std.config
 import std.fs
+import std.cryptography
 import std.string (string_length, string_substring, string_index_of, string_char_at, string_from_char, string_starts_with, string_equals)
 import std.list
 import driver_linux
@@ -842,6 +843,19 @@ _syscall_gate(nm: string, k: string) -> string {
     return ""
 }
 
+// sha256 of a file as hex, or "unreadable" — for audit entries, where an
+// empty field would read as "no hash was expected".
+_file_sha(path: string) -> string {
+    h, herr = cryptography.sha256_file(path)
+    if herr != "" {
+        return "unreadable"
+    }
+    if string_length(h) == 0 {
+        return "unreadable"
+    }
+    return h
+}
+
 // _syscall_flags(nm, k) — the engine flag that applies this node's syscall
 // policy: "" (none declared), "--security-opt seccomp=<file>", or "ERR:why".
 // Writes the profile and records what was applied.
@@ -859,7 +873,10 @@ _syscall_flags(nm: string, k: string) -> string {
         return path
     }
     src = seccomp_baseline.source()
-    _ = audit.record(nm, k, "syscall-policy", "deny=${pol} baseline=${src} profile=${path}")
+    // The entry carries the profile's sha256, so the trail says WHICH profile
+    // the node was started under, not only where it was put: the file can be
+    // rewritten later, the chained entry cannot.
+    _ = audit.record(nm, k, "syscall-policy", "deny=${pol} baseline=${src} profile=${path} sha256=${_file_sha(path)}")
     return "--security-opt seccomp=${path}"
 }
 
@@ -898,7 +915,7 @@ driver_up(nm: string, k: string) -> string {
         lerr = driver_lxc.up(nm, compose.get_image(nm), _shares_of(nm), lpol)
         if string_length(lpol) > 0 {
             if lerr == "" {
-                _ = audit.record(nm, k, "syscall-policy", "deny=${lpol} stock=${driver_lxc.seccomp_stock_path(nm)} profile=${confine_lxc.profile_path(nm)}")
+                _ = audit.record(nm, k, "syscall-policy", "deny=${lpol} stock=${driver_lxc.seccomp_stock_path(nm)} profile=${confine_lxc.profile_path(nm)} sha256=${_file_sha(confine_lxc.profile_path(nm))}")
             } else {
                 _ = audit.record(nm, k, "syscall-policy-refuse", lerr)
             }

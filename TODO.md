@@ -314,7 +314,10 @@ Found on the box (answers to the plan's open questions):
 - [ ] the cap-drop status row is not kind-aware: it reports "--cap-drop ALL"
       for an lxc node too. Older than this work; more visible now that
       deny_syscalls alone makes a node "constrained".
-- [ ] the profile file is not digested into the audit entry (path + policy are).
+- [x] the profile's sha256 is in its `syscall-policy` audit entry (2026-11-26),
+      container and lxc. Container: asserted live in syscall-policy-live.sh on
+      one box (Crostini, podman 4.3.1, ae 0.927.0). lxc: compiled only.
+      Nothing COMPARES it yet: reconcile still re-renders and compares files.
 - [ ] the cutover (blue->green) path applies the policy but was only compiled.
 
 ### Landlock for host-exec nodes (started 2026-11-20, on the Chromebook)

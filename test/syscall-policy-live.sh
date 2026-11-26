@@ -123,6 +123,8 @@ RC="$(aeo reconcile ok.ae)"
 wantno "$RC" "DRIFT" "after converge, no drift"
 AU="$(cat .aeo/audit.log 2>/dev/null)"
 want "$AU" '"event":"drift","detail":"seccomp:' "the drift is in the audit chain"
+PSHA="$(sha256sum "$PROFILE" | cut -d' ' -f1)"
+want "$AU" "profile=$PROFILE sha256=$PSHA" "the audit entry carries the sha256 of the profile the node was started under"
 
 echo "### 4. the profile no longer matches the declared policy"
 echo ' ' >> "$PROFILE"
