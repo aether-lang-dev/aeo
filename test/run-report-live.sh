@@ -16,6 +16,8 @@
 #   - a build that prints a node's env() value and fails: the value is in what
 #     the run printed and NOT in the report; the reason is cut to size; the
 #     reports are readable by their owner only;
+#   - a SUPERVISED down (the default path, through a real aeo-supervisord)
+#     writes a report from what the runner itself verified gone;
 #   - the audit chain carries each report's sha256, and still verifies.
 #
 # Needs podman and the test image present locally (AEO_SPEC_IMAGE, default
@@ -191,7 +193,31 @@ want "$AUD" "reports: CHANGED since they were recorded:" "audit: says a report w
 want "$AUD" "$LASTUP" "audit: names the changed report"
 [ "$ARC" -ne 0 ] && pass "audit: exits non-zero for a changed report ($ARC)" || fail "audit exited 0 with a changed report"
 
-echo "### 8. pruning, and a tampered chain"
+echo "### 8. a supervised down (the default path)"
+if ae build "$ROOT/bin/aeo-supervisord.ae" -o "$WORK/aeo-supervisord" --lib "$ROOT/lib" >"$WORK/sup-build.log" 2>&1; then
+    SPORT=$((20000 + $$ % 20000))
+    export AEO_SUP_TOKEN="runrep-$$" AEO_SUP_URL="http://127.0.0.1:$SPORT"
+    AEO_SUP_PORT=$SPORT AEO_SUP_WATCH=0 "$WORK/aeo-supervisord" >"$WORK/sup.log" 2>&1 &
+    SUP=$!
+    i=0; while [ $i -lt 40 ]; do curl -fsS --max-time 2 "$AEO_SUP_URL/health" >/dev/null 2>&1 && break; sleep 0.25; i=$((i + 1)); done
+    OUT="$(aeo up good.ae)"
+    want "$OUT" "run report: up ok" "supervised up: writes a report"
+    [ "$(podman ps -q --filter "name=^$N-" | wc -l)" -eq 2 ] && pass "supervised up: both nodes are running" || fail "supervised up did not start both nodes"
+    OUT="$(aeo down good.ae)"
+    want "$OUT" "torn down (via supervisor)" "the down went through the supervisor"
+    want "$OUT" "run report: down ok" "supervised down: writes a report"
+    J="$(aeo report --json)"
+    want "$J" '"command":"down","outcome":"ok"' "supervised down: the newest report is this down"
+    want "$J" "\"name\":\"$N-db\",\"system\":\"aeorunrep\",\"kind\":\"container\",\"outcome\":\"stopped\"" "supervised down: db was verified gone by the runner"
+    want "$J" '"counts":{"stopped":2}' "supervised down: both nodes stopped"
+    [ "$(podman ps -aq --filter "name=^$N-" | wc -l)" -eq 0 ] && pass "the report matches the host: nothing is left" || fail "containers are left after a supervised down"
+    kill "$SUP" 2>/dev/null; wait "$SUP" 2>/dev/null
+    unset AEO_SUP_TOKEN AEO_SUP_URL
+else
+    tail -5 "$WORK/sup-build.log"; fail "aeo-supervisord failed to build"
+fi
+
+echo "### 9. pruning, and a tampered chain"
 OUT="$(AEO_REPORT_KEEP=2 AEO_HOME="$ROOT" "$WORK/aeo" down good.ae --no-supervisor 2>&1)"
 LEFT="$(ls .aeo/reports/*.json | grep -vc last.json)"
 [ "$LEFT" -eq 2 ] && pass "AEO_REPORT_KEEP=2 leaves the two newest runs" || fail "$LEFT reports left, wanted 2"

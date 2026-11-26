@@ -530,8 +530,12 @@ report's sha256 in the audit chain (event `run-report`).
   spec only; no live run has produced one.
 - [ ] No "unchanged": a node that was already up is reported `started` (the
   drivers are idempotent and do not say which it was).
-- [ ] `aeo reconcile` / `watch` / `restart` / `cutover` write no report. A
-  supervised `aeo down` (released by the supervisor) writes none either.
+- [x] A supervised `aeo down` (the DEFAULT path) writes a report (2026-11-26).
+  The supervisor does the teardown; the runner verifies each declared node
+  gone itself and reports what it saw. Live: 8 assertions against a real
+  `aeo-supervisord` on loopback — one box, as above. A node the supervisor
+  held that the composition no longer declares is not in the report.
+- [ ] `aeo reconcile` / `watch` / `restart` / `cutover` write no report.
 - [x] Pruning (2026-11-26): each write keeps the newest `AEO_REPORT_KEEP` runs
   (default 200; 0 keeps all; anything not a plain number is the default).
   Only files aeo named are removed; the audit chain keeps a pruned report's
@@ -543,7 +547,7 @@ report's sha256 in the audit chain (event `run-report`).
   CHANGED. **`aeo audit` now exits 1** for a broken chain or a changed report
   (it used to print the verdict and exit 0). Paths are as recorded, so it must
   be run from the directory the runs were made in. Spec 8 cases; live script
-  60 assertions — one box, as above.
+  68 assertions — one box, as above.
 - [x] Checked, not changed: `aeo reconcile` already exits 1 when a converge
   fails (an earlier note here said 0; that was a misread pipeline status). The
   live script now asserts it.

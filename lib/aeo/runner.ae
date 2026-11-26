@@ -1580,6 +1580,35 @@ run_up() -> int {
     return ok
 }
 
+// A SUPERVISED down: the supervisor tears the tree down from its own registry.
+// The runner does not take its word for it — it verifies each node THIS
+// composition declares is gone, in the same poller a local down uses, and
+// writes the run report from what it saw. A node the supervisor held that the
+// composition no longer declares is not in the report (the report is of the
+// composition).
+run_down_supervised() {
+    _report_begin("down")
+    all = list_new()
+    n = compose.count()
+    i = 0
+    while i < n {
+        nm = compose.name_at(i)
+        run_report.node_start(nm)
+        list_add(all, nm)
+        i = i + 1
+    }
+    _ = _sup_release_all()
+    i = 0
+    while i < n {
+        run_report.node_booted(compose.name_at(i))
+        i = i + 1
+    }
+    _await_level_gone(all)
+    list_free(all)
+    run_report.close_unreported("halted", "halted")
+    _report_end("down")
+}
+
 run_down() {
     _report_begin("down")
     _run_down_engine()
@@ -4389,7 +4418,7 @@ main() {
         // or no supervisor answers (so --no-supervisor and supervisor-less hosts work).
         if _supervised() == 1 {
             if _sup_present() == 1 {
-                _ = _sup_release_all()
+                run_down_supervised()
                 println("aeo: torn down (via supervisor)")
                 return
             }
