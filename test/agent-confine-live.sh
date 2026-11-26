@@ -62,7 +62,9 @@ SHA="$("$T/full/aeo-agent" preload | sed -n 's/.*sha256:\([0-9a-f]*\).*/\1/p')"
 LIB="$T/home/.aeo/lib/libaether_sandbox-$(echo "$SHA" | cut -c1-16).so"
 [ -f "$LIB" ] && [ "$(sha256sum "$LIB" | cut -d' ' -f1)" = "$SHA" ]
 check $? "the gate launch put the library at \$HOME/.aeo/lib, byte for byte"
-[ ! -w "$LIB" ]; check $? "the extracted library is not writable"
+# By its mode bits, not `-w`: root may write any file whatever its mode, so
+# `[ ! -w ]` fails for root even on a 0555 file (seen in a root container).
+case "$(stat -c %A "$LIB" 2>/dev/null)" in -r-?r-?r-?) ok "the extracted library is not writable" ;; *) bad "the extracted library is not writable ($(stat -c %A "$LIB" 2>/dev/null))" ;; esac
 
 out="$($CLEAN "$T/full/aeo-agent" confine --pidfile "$T/a.pid" --grants "$GR" -- /bin/sh -c "exec </dev/null >/dev/null 2>&1; $WORK" 2>&1)"
 check $? "a granted workload starts ($out)"

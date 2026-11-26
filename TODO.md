@@ -426,6 +426,28 @@ else. Start here, in this order:
 - [x] **Dispatched through a real agent** — boot, probe of the pid, halt — but
   over the PLAINTEXT http transport on loopback (same script). Still not done:
   the SEALED channel, and any host other than this one.
+- [x] **Re-run at the pin, Aether 0.946.0, 2026-11-26, three more boxes** (agent
+  built by tools/build-agent.sh; Landlock ABI read with
+  `landlock_create_ruleset(NULL, 0, VERSION)`): `test/agent-confine-live.sh`
+  18 passed / 0 failed on each of
+  - *cachyos*: kernel 7.3.5-2-cachyos, x86_64, Landlock ABI 11;
+  - *ae-x64*: Ubuntu 22.04.5, kernel 6.8.0-149-generic, x86_64, ABI 4;
+  - *arm64*: the `aether-linux` container (Ubuntu 22.04 arm64, run as root)
+    on the Mac's podman machine, kernel 7.1.10-200.fc44.aarch64, ABI 9;
+    Aether 0.946.0 built from the v0.946.0 tag there (no linux-arm64 release
+    archive). The agent's embedded library is the linux-aarch64 one.
+  **Fixed on the way:** on arm64 the check "the extracted library is not
+  writable" FAILED: it used `[ ! -w ]`, which root passes for any file. It now
+  reads the mode bits (0555); re-run, 18/18 there and on cachyos.
+- [x] **The SEALED channel with `AEO_EXEC_GRANTS` set** (first time that route
+  was dispatched to), 2026-11-26: `test/agent-sealed-live.sh` (new, 11
+  assertions, run by hand; `test/sealer.ae` seals/opens frames; the PSK is a
+  per-run test value). boot/probe/halt as AE1: frames to a real agent: the
+  replies are sealed, boot reports up, the workload runs with the library
+  mapped and a seccomp filter, reads its granted file and is refused the
+  other by the kernel, a frame under the wrong key gets `unauthorized`, a
+  replayed frame is refused, halt stops it. 11/11 on cachyos, ae-x64 and the
+  arm64 container (boxes as above), loopback http only.
 - [ ] The release workflow change (both Linux agent jobs now call
   `tools/build-agent.sh` and run `preload`) has NOT run in CI yet. The arm64
   job has never embedded a library. FreeBSD and Windows agents carry none (and

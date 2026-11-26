@@ -1,0 +1,27 @@
+// test/sealer.ae — a test-only client for the sealed channel: seal a protocol line, or
+// open a sealed reply, under a TEST courier key. Built by test/agent-sealed-live.sh; not shipped.
+//   sealer seal <psk> <line>     -> AE1:... frame
+//   sealer open <psk> <frame>    -> plaintext, or "ERR:<reason>"
+import std.os (args_count, args_get)
+import secure_channel (seal_line, open_line_ex)
+
+main() {
+    if args_count() < 4 {
+        println("usage: sealer seal|open <psk> <text>")
+        return 2
+    }
+    mode = args_get(1)
+    psk = args_get(2)
+    txt = args_get(3)
+    if mode == "seal" {
+        println(seal_line(psk, txt))
+        return 0
+    }
+    cmd, _n, reason = open_line_ex(psk, txt)
+    if reason == "ok" {
+        println(cmd)
+        return 0
+    }
+    println("ERR:${reason}")
+    return 1
+}
