@@ -117,13 +117,14 @@ The token grammar is in `lib/confine_landlock/module.ae`. Three things to know:
   the operator's audit trail; `aeo-agent audit` verifies it and exits 1 if it
   was edited. The entry stays on that host — it is not yet sent to the parent.
 
-**Status (2026-11-20): proven locally, not through an agent.** `aeo-confine` and
-`driver_mac_exec.up_confined` are live-tested on one box (Crostini, kernel 6.6,
-x86_64: reads, writes and execs outside the grants refused). The agent's
-`AEO_EXEC_GRANTS` route compiles but has not been dispatched to over the sealed
-channel, and **it breaks the one-binary rule below**: the host needs `aeo-confine`
-and `libaether_sandbox.so` as well as the agent. How those two reach a fleet host
-is undecided.
+**Status (2026-11-26).** The agent is its own launcher (`aeo-agent confine`)
+and carries the sandbox library, so the one-binary rule below holds: build
+release agents with `tools/build-agent.sh`, and `aeo-agent preload` says whether
+a given binary carries the library. Proven on four Linux boxes (Crostini kernel
+6.6 x86_64 at ae 0.927.0; cachyos, ae-x64 and an arm64 container at 0.946.0),
+including dispatch over the sealed channel on loopback. Not proven: a
+release-workflow-built agent, the Pi fleet, a musl (Alpine) host. `TODO.md`
+("Landlock for host-exec nodes") has the per-box detail.
 
 ### How the *rest* of aeo gets to the host: it doesn't
 
