@@ -26,8 +26,8 @@ import std.string (string_length, string_contains)
 
 exports (
     name, available,
-    up, up_confined, down, probe, exec_capture,
-    pidfile_for, launch_script, launch_script_confined, confined_grants,
+    up, up_confined, up_confined_sub, down, probe, exec_capture,
+    pidfile_for, launch_script, launch_script_confined, launch_script_confined_sub, confined_grants,
     probe_script, down_script
 )
 
@@ -104,9 +104,20 @@ confined_grants(grants: string) -> string {
 //     launcher's own stdout stays readable while the workload still holds none
 //     of run_capture's pipe (the hang launch_script's comment describes).
 launch_script_confined(node: string, cmd: string, launcher: string, grants: string) -> string {
+    return launch_script_confined_sub(node, cmd, launcher, "", grants)
+}
+
+// The same, for a launcher that is a SUBCOMMAND of a bigger binary: the agent
+// is its own launcher (`aeo-agent confine …`), so a fleet host needs no second
+// file. `sub` is one bare word ("confine") or "".
+launch_script_confined_sub(node: string, cmd: string, launcher: string, sub: string, grants: string) -> string {
     pf = pidfile_for(node)
     g = confined_grants(grants)
-    return "'${launcher}' --pidfile '${pf}' --grants '${g}' -- /bin/sh -c 'exec </dev/null >/dev/null 2>&1; ${cmd}'"
+    head = "'${launcher}'"
+    if string_length(sub) > 0 {
+        head = "'${launcher}' ${sub}"
+    }
+    return "${head} --pidfile '${pf}' --grants '${g}' -- /bin/sh -c 'exec </dev/null >/dev/null 2>&1; ${cmd}'"
 }
 
 // Probe: pidfile exists AND its pid is alive (kill -0). Prints "up" or "down".
@@ -153,6 +164,11 @@ up(node: string, cmd: string, profile: string) -> string {
 // contain the child all return an error with NOTHING started — there is no
 // fallback to the unconfined up(). Returns "" on success.
 up_confined(node: string, cmd: string, launcher: string, grants: string) -> string {
+    return up_confined_sub(node, cmd, launcher, "", grants)
+}
+
+// up_confined with the launcher's subcommand named (see launch_script_confined_sub).
+up_confined_sub(node: string, cmd: string, launcher: string, sub: string, grants: string) -> string {
     if probe(node, "") == 1 {
         return ""                              // already running — idempotent
     }
@@ -167,7 +183,7 @@ up_confined(node: string, cmd: string, launcher: string, grants: string) -> stri
     }
     av = list_new()
     list_add(av, "-c")
-    list_add(av, launch_script_confined(node, cmd, launcher, grants))
+    list_add(av, launch_script_confined_sub(node, cmd, launcher, sub, grants))
     out, status, err = run_capture("/bin/sh", av, null)
     list_free(av)
     if err != "" {

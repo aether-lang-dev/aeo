@@ -178,9 +178,15 @@ lib/driver_vm/     KVM/qemu (Linux) + bhyve (FreeBSD).
 lib/driver_bsd/    FreeBSD jail (jail/jexec/jls over a ZFS dataset).
 lib/confine_linux/ limit{}/constrain{} -> cgroup/seccomp/network flags (the Linux peer).
 lib/confine_landlock/  a HOST-EXEC node held by the kernel to a grant list (Landlock +
-                   seccomp via std.sandbox.spawn_socket; no root). `bin/aeo-confine`
-                   is its launcher; driver_mac_exec.up_confined shells to it.
+                   seccomp via std.sandbox.spawn_socket; no root). The launcher
+                   is the AGENT ITSELF (`aeo-agent confine …`; `bin/aeo-confine`
+                   is the same thing standalone, for specs).
                    Fail-closed. NOT a deny_egress renderer (Landlock has no UDP rule).
+lib/sandbox_preload/   Aether's libaether_sandbox.so CARRIED INSIDE the agent and put
+                   at $HOME/.aeo/lib on first use (hash-checked, fail-closed), so a
+                   fleet host still gets one file. lib/sandbox_preload_blob is the
+                   bytes: an EMPTY STUB in git, filled in only by
+                   tools/build-agent.sh in a scratch copy. Never commit it filled.
 lib/syscall_policy/    deny_syscalls() -> a seccomp profile: classes ("debug", "mount",
                    "namespace", …) or sys:NAME, only ever TIGHTENING the baseline.
                    Pure. The runner REFUSES a node whose substrate cannot take it

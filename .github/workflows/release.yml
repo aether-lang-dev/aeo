@@ -88,8 +88,13 @@ jobs:
         # (Proven locally: AE_CC="gcc -static" -> "not a dynamic executable",
         # and the result serves /health in debian-slim, alpine AND busybox.)
         run: |
-          AE_CC="gcc -static" ae build bin/aeo-agent.ae -o aeo-agent-linux-x86_64-static --lib lib
+          # tools/build-agent.sh, not a bare `ae build`: it embeds this
+          # toolchain's libaether_sandbox.so, so the ONE binary can confine a
+          # host-exec node (`aeo-agent confine`) on a host with no Aether. It
+          # fails the build if the result reports no embedded library.
+          AE_CC="gcc -static" sh tools/build-agent.sh -o aeo-agent-linux-x86_64-static
           file aeo-agent-linux-x86_64-static
+          ./aeo-agent-linux-x86_64-static preload
           # ASSERT the name is honest: the asset says linux-x86_64-static, so fail
           # the build if it isn't. Static == no interpreter, no runtime .so deps —
           # the exact axis a dynamic build silently breaks on (the exit-127 trap).
@@ -371,8 +376,13 @@ jobs:
         # Native gcc -static on the arm64 runner — mirrors build-linux exactly. The
         # runner IS aarch64, so this is a native build, not a cross (no zig).
         run: |
-          AE_CC="gcc -static" ae build bin/aeo-agent.ae -o aeo-agent-linux-aarch64-static --lib lib
+          # tools/build-agent.sh, not a bare `ae build`: it embeds this
+          # toolchain's libaether_sandbox.so, so the ONE binary can confine a
+          # host-exec node (`aeo-agent confine`) on a host with no Aether. It
+          # fails the build if the result reports no embedded library.
+          AE_CC="gcc -static" sh tools/build-agent.sh -o aeo-agent-linux-aarch64-static
           file aeo-agent-linux-aarch64-static
+          ./aeo-agent-linux-aarch64-static preload
           # ASSERT the name is honest: aarch64 AND statically linked — the same two
           # lies the x86_64 job guards, on arm64.
           file aeo-agent-linux-aarch64-static | grep -q 'ELF 64-bit.*aarch64' \

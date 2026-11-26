@@ -36,6 +36,7 @@
 // forward TERM. The child's end of spawn_socket's channel is simply unused.
 
 import std.sandbox
+import sandbox_preload
 import std.list
 import std.fs
 import std.os (args_count, args_get)
@@ -206,6 +207,13 @@ grants_error(csv: string) -> string {
 // Start `prog argv…` confined to `grants_csv`, detached; write its pid to
 // `pidfile` (skipped when ""). "" on success, else why nothing was started.
 launch(pidfile: string, grants_csv: string, prog: string, argv: ptr) -> string {
+    // Put the library this binary carries (if it carries one) where
+    // spawn_socket will look. An error here means it carries a damaged one or
+    // has nowhere to write it: start nothing.
+    _lib, perr = sandbox_preload.ensure()
+    if perr != "" {
+        return "aeo-confine: ${perr}"
+    }
     perms = sandbox.new("aeo-exec") { }
     gerr = _apply_csv(perms, grants_csv)
     if gerr != "" {

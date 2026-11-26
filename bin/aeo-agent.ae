@@ -42,6 +42,9 @@ import driver_bsd
 import driver_bwrap
 import driver_vm
 import driver_mac_exec
+import confine_landlock
+import sandbox_preload
+import std.fs
 import driver_lxc
 import driver_nspawn
 import compose
@@ -262,7 +265,37 @@ _run_http(me: string, token: string, port: int) {
     }
 }
 
+// The path of this very binary, so the agent can be its own confinement
+// launcher. "" where there is no /proc/self/exe (then AEO_CONFINE_BIN, or
+// `aeo-confine` on PATH, is the launcher as before).
+_self_exe() -> string {
+    p, err = fs.readlink("/proc/self/exe")
+    if err != "" {
+        return ""
+    }
+    return p
+}
+
 main() {
+    // `aeo-agent confine …` — the agent as its OWN confinement launcher (what
+    // bin/aeo-confine is standalone): start one program held by the kernel to a
+    // grant list, detached, and leave. No AEO_NODE, no token, no listener: it
+    // is a different program that happens to live in this file, so that a fleet
+    // host is handed ONE binary. `aeo-agent preload` says whether this build
+    // carries the sandbox library (exit 0) or not (exit 1).
+    if os.args_count() > 1 {
+        sub = os.args_get(1)
+        if string_equals(sub, "confine") == 1 {
+            exit(confine_landlock.launch_from_args(2))
+        }
+        if string_equals(sub, "preload") == 1 {
+            println("aeo-agent: sandbox library ${sandbox_preload.describe()}")
+            if sandbox_preload.embedded() == 1 {
+                exit(0)
+            }
+            exit(1)
+        }
+    }
     me = _env_or("AEO_NODE", "")
     token = _env_or("AEO_TOKEN", "")
     if string_length(me) == 0 {
@@ -519,14 +552,24 @@ _boot_node(node: string, kind_override: string) -> string {
     // comma-separated) the KERNEL holds the process to — Landlock + seccomp, no
     // root. Set, it routes to up_confined, which FAILS CLOSED (no launcher, no
     // Landlock, a bad token -> nothing starts); unset, the process is unconfined
-    // as before. AEO_CONFINE_BIN names the launcher (default: aeo-confine on PATH).
+    // as before. The launcher is THIS BINARY (`aeo-agent confine`), which also
+    // carries the preload library (lib/sandbox_preload) — nothing else has to be
+    // on the host. AEO_CONFINE_BIN names a standalone aeo-confine instead.
     if string_equals(kind, "exec") == 1 {
         grants = _env_or("AEO_EXEC_GRANTS", "")
         if string_length(grants) > 0 {
-            return driver_mac_exec.up_confined(node,
-                _env_or("AEO_BOOT_CMD", "sleep 600"),
-                _env_or("AEO_CONFINE_BIN", "aeo-confine"),
-                grants)
+            other = _env_or("AEO_CONFINE_BIN", "")
+            if string_length(other) > 0 {
+                return driver_mac_exec.up_confined(node,
+                    _env_or("AEO_BOOT_CMD", "sleep 600"), other, grants)
+            }
+            me_exe = _self_exe()
+            if string_length(me_exe) == 0 {
+                return driver_mac_exec.up_confined(node,
+                    _env_or("AEO_BOOT_CMD", "sleep 600"), "aeo-confine", grants)
+            }
+            return driver_mac_exec.up_confined_sub(node,
+                _env_or("AEO_BOOT_CMD", "sleep 600"), me_exe, "confine", grants)
         }
         return driver_mac_exec.up(node,
             _env_or("AEO_BOOT_CMD", "sleep 600"),

@@ -88,13 +88,22 @@ namespace):
 AEO_BOOT_KIND=exec
 AEO_BOOT_CMD='/usr/bin/redis-server /etc/redis/redis.conf'
 AEO_EXEC_GRANTS='exec:/usr/bin/redis-server,fs_read:/etc/redis/*,fs:/var/lib/redis/*,tcp_listen'
-AEO_CONFINE_BIN=/opt/aeo/aeo-confine        # default: aeo-confine on PATH
 ```
+
+Nothing else has to be on the host. The agent is its own launcher
+(`aeo-agent confine …`) and a release agent carries Aether's
+`libaether_sandbox.so` inside it; the first confined launch writes it to
+`$HOME/.aeo/lib/libaether_sandbox-<hash>.so` and re-checks that hash before
+every later one. `aeo-agent preload` prints whether a given binary carries the
+library (exit 0) or not (exit 1) — an agent built with a bare `ae build`, not
+`tools/build-agent.sh`, does not. `AEO_CONFINE_BIN` names a standalone
+`aeo-confine` instead, and `AETHER_SANDBOX_PRELOAD` a library of your own.
+The agent needs `HOME` set; it will not fall back to `/tmp`.
 
 The token grammar is in `lib/confine_landlock/module.ae`. Three things to know:
 
-- **It fails closed.** No launcher, no Landlock in the kernel, no
-  `libaether_sandbox.so`, or a token the grammar does not know: nothing starts and
+- **It fails closed.** No Landlock in the kernel, no library (not embedded and
+  not found), no `HOME` to put it in, or a token the grammar does not know: nothing starts and
   the boot reports why. There is no fallback to the unconfined launch.
 - **`shell`, `fork` and `/dev/null` are implied**, because the command is a string
   run through `sh -c`. There is no fork ceiling on this substrate.

@@ -1,0 +1,129 @@
+// lib/sandbox_preload — make Aether's libaether_sandbox.so findable on a host
+// that has no Aether toolchain, from a copy carried INSIDE this binary.
+//
+// Why: lib/confine_landlock starts a host-exec workload through
+// std.sandbox.spawn_socket, which preloads that library over the child and
+// starts NOTHING when it cannot find it. A fleet host gets one file, the agent
+// (docs/operations/agent-host-setup.md); so the agent carries the library and
+// puts it on disk the first time it is needed. Decided 2026-11-26 (Paul):
+// "folded into agent".
+//
+// ensure() is the whole surface:
+//   - AETHER_SANDBOX_PRELOAD already set  -> left alone (the operator named one);
+//   - nothing embedded (a plain `ae build`) -> nothing done; Aether looks where
+//     it always did (beside the binary, under AETHER_HOME) and refuses if absent;
+//   - else the library is written to $HOME/.aeo/lib/libaether_sandbox-<hash>.so
+//     and AETHER_SANDBOX_PRELOAD is pointed at it.
+//
+// FAIL CLOSED: an embedded copy that does not decode to its recorded hash, or a
+// file on disk that cannot be made to match it, is an ERROR and the caller
+// starts nothing. A file already there is trusted only if its hash matches; any
+// other content is replaced. The name carries the hash, so two agents built
+// from different Aether versions never share (or fight over) a file.
+//
+// What this does NOT cover: the library is a glibc shared object. A workload
+// linked against musl (Alpine) cannot load it; that is untested and recorded in
+// TODO.md. The kernel layer (Landlock + seccomp) does not depend on it.
+
+import sandbox_preload_blob
+import std.fs
+import std.os
+import std.encoding
+import std.cryptography
+import std.string (bytes, string_length, string_substring, string_equals)
+
+exports ( embedded, describe, target_path, ensure )
+
+// 1 when this binary carries a library.
+embedded() -> int {
+    if string_length(sandbox_preload_blob.sha256()) == 0 {
+        return 0
+    }
+    return 1
+}
+
+// One line for a human or a build check.
+describe() -> string {
+    if embedded() == 0 {
+        return "not embedded"
+    }
+    h = sandbox_preload_blob.sha256()
+    src = sandbox_preload_blob.built_from()
+    return "embedded sha256:${h} (${src})"
+}
+
+// Where the embedded library is put. "" when nothing is embedded or HOME is
+// unset (there is deliberately no /tmp fallback: /tmp is world-writable and
+// often mounted noexec, and a library that cannot be mapped is silently not
+// preloaded).
+target_path() -> string {
+    if embedded() == 0 {
+        return ""
+    }
+    home = os.getenv("HOME")
+    if string_length(home) == 0 {
+        return ""
+    }
+    h = sandbox_preload_blob.sha256()
+    tag = string_substring(h, 0, 16)
+    return "${home}/.aeo/lib/libaether_sandbox-${tag}.so"
+}
+
+fn _file_matches(path: string, want: string) -> int {
+    if fs.exists(path) == 0 {
+        return 0
+    }
+    got, err = cryptography.sha256_file(path)
+    if err != "" {
+        return 0
+    }
+    return string_equals(got, want)
+}
+
+// Returns (path, err). path "" with err "" means "nothing for me to do" (see
+// the header); a non-empty err means the caller must not launch.
+ensure() -> (string, string) {
+    named = os.getenv("AETHER_SANDBOX_PRELOAD")
+    if string_length(named) > 0 {
+        return named, ""
+    }
+    if embedded() == 0 {
+        return "", ""
+    }
+    want = sandbox_preload_blob.sha256()
+    path = target_path()
+    if string_length(path) == 0 {
+        return "", "HOME is not set, so the embedded sandbox library has nowhere to go (set HOME or AETHER_SANDBOX_PRELOAD)"
+    }
+    if _file_matches(path, want) == 0 {
+        raw, derr = encoding.base64_decode(sandbox_preload_blob.b64())
+        if derr != "" {
+            return "", "the embedded sandbox library does not decode (${derr})"
+        }
+        got, herr = cryptography.sha256_hex(bytes(raw))
+        if herr != "" {
+            return "", "cannot hash the embedded sandbox library (${herr})"
+        }
+        if string_equals(got, want) == 0 {
+            return "", "the embedded sandbox library is damaged (sha256 ${got}, built as ${want})"
+        }
+        home = os.getenv("HOME")
+        merr = fs.mkdir_p("${home}/.aeo/lib")
+        if merr != "" {
+            return "", "cannot create ${home}/.aeo/lib (${merr})"
+        }
+        werr = fs.write_atomic(path, bytes(raw))
+        if werr != "" {
+            return "", "cannot write ${path} (${werr})"
+        }
+        fs.chmod(path, 365)                 // 0555: readable + mappable, not writable
+        if _file_matches(path, want) == 0 {
+            return "", "${path} does not hold what was written to it"
+        }
+    }
+    serr = os.setenv("AETHER_SANDBOX_PRELOAD", path)
+    if serr != "" {
+        return "", "cannot point AETHER_SANDBOX_PRELOAD at ${path}"
+    }
+    return path, ""
+}

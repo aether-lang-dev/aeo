@@ -6,7 +6,7 @@
 
 import std.spec
 import confine_landlock (name, token_error, grants_error)
-import driver_mac_exec (confined_grants, launch_script_confined)
+import driver_mac_exec (confined_grants, launch_script_confined, launch_script_confined_sub)
 
 main() {
     fw = spec.init()
@@ -96,6 +96,14 @@ main() {
             spec.it("implies shell, fork and /dev/null: the workload runs through sh -c, detached") callback {
                 spec.expect_str(confined_grants("")).to_equal_str("shell,fork,fs:/dev/null")
                 spec.expect_str(confined_grants("exec:/usr/bin/app")).to_equal_str("shell,fork,fs:/dev/null,exec:/usr/bin/app")
+            }
+            spec.it("names the launcher's subcommand when the launcher is the agent itself") callback {
+                got = launch_script_confined_sub("db", "sleep 600", "/opt/aeo/aeo-agent", "confine", "exec:/usr/bin/sleep")
+                want = "'/opt/aeo/aeo-agent' confine --pidfile '/tmp/aeo-macexec-db.pid' --grants 'shell,fork,fs:/dev/null,exec:/usr/bin/sleep' -- /bin/sh -c 'exec </dev/null >/dev/null 2>&1; sleep 600'"
+                spec.expect_str(got).to_equal_str(want,
+                    "one binary on a fleet host: the agent is its own launcher, so the subcommand sits outside the quoted path")
+                spec.expect_str(launch_script_confined_sub("db", "sleep 600", "/opt/aeo/aeo-confine", "", "exec:/usr/bin/sleep")).to_equal_str(launch_script_confined("db", "sleep 600", "/opt/aeo/aeo-confine", "exec:/usr/bin/sleep"),
+                    "no subcommand is the standalone launcher, unchanged")
             }
             spec.it("hands the launcher the pidfile and grants, and detaches the workload's stdio inside its own sh") callback {
                 got = launch_script_confined("db", "sleep 600", "/opt/aeo/aeo-confine", "exec:/usr/bin/sleep")

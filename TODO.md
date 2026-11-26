@@ -338,8 +338,10 @@ else. Start here, in this order:
      `anchor "aeo/*"`, so `aeo up` warns "pf policy NOT enforced" for both VMs.
      NB nothing in the ruleset filters inbound on ue0 (the blocks name em0 and
      wlan0 only).
-3. **Paul has not yet decided the shipping shape** (the one-binary question
-   below). Do not ship `aeo-confine` to fleet hosts until he has; ask.
+3. **Shipping shape: DECIDED 2026-11-26 (Paul): "folded into agent".** One
+   binary. `aeo-agent confine …` is the launcher, and the agent carries
+   `libaether_sandbox.so` (lib/sandbox_preload), written to `$HOME/.aeo/lib/`
+   on first use. Release agents are built by `tools/build-agent.sh`.
 4. **Then the fleet**, each as its own dated, named-box result (no "live" claim
    without one): Pi 5 and Bazzite first (kernels new enough for Landlock's TCP
    rules — check, don't assume), then the Pi Zero 2 W, which is the box host-exec
@@ -368,12 +370,26 @@ else. Start here, in this order:
   `test/spec_confine_landlock_live.ae` (7 cases: ungranted read, write and exec
   refused by the kernel). **Run on ONE box**: Crostini, kernel 6.6, x86_64,
   ae 0.912.0 and 0.927.0. Landlock ABI there has no network rules.
-- [ ] **Dispatch it through a real agent** over the sealed channel (the route
-  compiles; it has never been run that way).
-- [ ] **Decide how `aeo-confine` + `libaether_sandbox.so` reach a fleet host.**
-  The agent is a static binary and the one-binary rule is documented; the preload
-  library is a glibc shared object. Options: ship both beside the agent; or fold
-  the launcher into the agent as a subcommand and ship only the library.
+- [x] **One binary** (2026-11-26). `aeo-agent confine` + the embedded library;
+  `aeo-agent preload` says whether a build carries one. `test/agent-confine-live.sh`
+  (18 assertions, run by hand): from `env -i` with a scratch HOME and no Aether
+  in sight, a granted workload starts with the library mapped, ungranted read
+  and write are refused, a tampered library on disk is replaced, and no HOME /
+  no embedded library / an unknown grant each start nothing. **One box**:
+  Crostini, kernel 6.6, x86_64, ae 0.927.0 (below the pin). The `gcc -static`
+  build was also made and confined a child there.
+- [x] **Dispatched through a real agent** — boot, probe of the pid, halt — but
+  over the PLAINTEXT http transport on loopback (same script). Still not done:
+  the SEALED channel, and any host other than this one.
+- [ ] The release workflow change (both Linux agent jobs now call
+  `tools/build-agent.sh` and run `preload`) has NOT run in CI yet. The arm64
+  job has never embedded a library. FreeBSD and Windows agents carry none (and
+  now link lib/confine_landlock; std.sandbox has stubs there, but that link is
+  unproven until the workflow runs).
+- [ ] The extracted library lives under the agent user's HOME. The confined
+  workload cannot write it unless granted, but any OTHER process of that user
+  can; the launcher re-checks its hash before every launch, which closes
+  everything except a swap between the check and the exec.
 - [ ] Prove on the fleet: Pi 5 (arm64, Debian 13), Pi Zero 2 W (the box host-exec
   exists for), Bazzite. Check each kernel's Landlock ABI (network rules need 6.7).
 - [ ] musl hosts (Alpine): the preload library is untested there.

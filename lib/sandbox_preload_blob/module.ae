@@ -1,0 +1,26 @@
+// lib/sandbox_preload_blob — the bytes of Aether's libaether_sandbox.so, for a
+// binary that carries its own copy (see lib/sandbox_preload).
+//
+// THIS COMMITTED FILE IS THE EMPTY STUB: a plain `ae build` carries no library.
+// tools/build-agent.sh builds from a COPY of lib/ in which this file is
+// regenerated with the real bytes (base64, from the toolchain doing the build),
+// so the library in a release agent is always the one that matches the Aether
+// runtime linked into it. Never commit a filled-in copy: it is a build product,
+// one per architecture and per Aether version.
+
+exports ( b64, sha256, built_from )
+
+// The library, base64 (line breaks allowed). "" = none embedded.
+b64() -> string {
+    return ""
+}
+
+// sha256 of the DECODED library, lowercase hex. "" = none embedded.
+sha256() -> string {
+    return ""
+}
+
+// What it was taken from, for a human: "ae 0.945.0 linux-x86_64". "" = none.
+built_from() -> string {
+    return ""
+}
