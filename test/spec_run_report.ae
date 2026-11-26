@@ -1,0 +1,174 @@
+// spec_run_report — lib/run_report: the per-run, per-node record of what an
+// `aeo up` / `aeo down` did. Pure apart from the last group, which writes into
+// a scratch directory.
+
+import std.spec
+import std.os
+import std.fs
+import std.string (string_contains, string_length)
+import run_report
+
+main() {
+    fw = spec.init()
+
+    spec.describe(fw, "run_report") {
+
+        spec.describe(fw, "formatting") {
+            spec.it("renders milliseconds as tenths of a second") callback {
+                spec.expect_str(run_report.secs("1234")).to_equal_str("1.2s")
+                spec.expect_str(run_report.secs("950")).to_equal_str("0.9s")
+                spec.expect_str(run_report.secs("7")).to_equal_str("0.0s")
+                spec.expect_str(run_report.secs("61000")).to_equal_str("61.0s")
+                spec.expect_str(run_report.secs("")).to_equal_str("-",
+                    "a node that never reached a point has no time for it, not a zero")
+            }
+            spec.it("escapes what would break a JSON string") callback {
+                got = run_report.jq("a \"b\" c")
+                spec.expect_int(string_contains(got, "\\\"b\\\"")).to_equal(1)
+                spec.expect_int(string_length(run_report.jq("x"))).to_equal(1)
+            }
+        }
+
+        spec.describe(fw, "an up that goes well") {
+            spec.it("is ok, with every node started and timed") callback {
+                run_report.begin("up")
+                run_report.declare("db", "container", "web")
+                run_report.declare("app", "container", "web")
+                run_report.node_start("db")
+                run_report.node_booted("db")
+                run_report.node_outcome("db", "started", "")
+                run_report.node_start("app")
+                run_report.node_booted("app")
+                run_report.node_outcome("app", "started", "")
+                run_report.close_unreported("not-attempted", "abandoned")
+                spec.expect_str(run_report.overall()).to_equal_str("ok")
+                spec.expect_int(run_report.count_of("started")).to_equal(2)
+                j = run_report.render_json()
+                spec.expect_int(string_contains(j, "\"schema\":1")).to_equal(1)
+                spec.expect_int(string_contains(j, "\"command\":\"up\"")).to_equal(1)
+                spec.expect_int(string_contains(j, "\"outcome\":\"ok\"")).to_equal(1)
+                spec.expect_int(string_contains(j, "\"counts\":{\"started\":2}")).to_equal(1)
+                spec.expect_int(string_contains(j, "\"name\":\"db\",\"system\":\"web\",\"kind\":\"container\",\"outcome\":\"started\"")).to_equal(1)
+                spec.expect_int(string_contains(j, "\"call_ms\":null")).to_equal(0,
+                    "a node whose boot call returned has a call time")
+            }
+        }
+
+        spec.describe(fw, "an up that goes badly") {
+            spec.it("is failed, and says which node and why") callback {
+                run_report.begin("up")
+                run_report.declare("db", "container", "web")
+                run_report.declare("app", "container", "web")
+                run_report.declare("edge", "container", "web")
+                run_report.node_start("db")
+                run_report.node_outcome("db", "failed", "image digest does not match attest()")
+                run_report.close_unreported("not-attempted", "abandoned")
+                spec.expect_str(run_report.overall()).to_equal_str("failed")
+                spec.expect_str(run_report.outcome_of("app")).to_equal_str("not-attempted",
+                    "a node behind a failed dependency was never dispatched; the report says so rather than leaving it out")
+                spec.expect_int(run_report.count_of("not-attempted")).to_equal(2)
+                j = run_report.render_json()
+                spec.expect_int(string_contains(j, "\"detail\":\"image digest does not match attest()\"")).to_equal(1)
+                spec.expect_int(string_contains(j, "\"name\":\"app\",\"system\":\"web\",\"kind\":\"container\",\"outcome\":\"not-attempted\",\"call_ms\":null,\"done_ms\":null")).to_equal(1)
+                t = run_report.render_text()
+                spec.expect_int(string_contains(t, "up failed in")).to_equal(1)
+                spec.expect_int(string_contains(t, "1 failed, 2 not-attempted")).to_equal(1)
+                spec.expect_int(string_contains(t, "image digest does not match")).to_equal(1)
+            }
+            spec.it("keeps the FIRST outcome: a boot failure is not overwritten by the later timeout") callback {
+                run_report.begin("up")
+                run_report.declare("db", "container", "web")
+                run_report.node_start("db")
+                run_report.node_outcome("db", "failed", "no such image")
+                run_report.node_outcome("db", "timeout", "state=failed")
+                spec.expect_str(run_report.outcome_of("db")).to_equal_str("failed")
+                spec.expect_int(string_contains(run_report.render_json(), "no such image")).to_equal(1)
+            }
+            spec.it("tells a node that was dispatched and left from one never dispatched") callback {
+                run_report.begin("up")
+                run_report.declare("a", "container", "web")
+                run_report.declare("b", "container", "web")
+                run_report.declare("c", "container", "web")
+                run_report.node_start("a")
+                run_report.node_outcome("a", "failed", "boom")
+                run_report.node_start("b")
+                run_report.node_booted("b")
+                run_report.close_unreported("not-attempted", "abandoned")
+                spec.expect_str(run_report.outcome_of("b")).to_equal_str("abandoned",
+                    "b was booting in the same level when a failed and the run stopped; it may well be running")
+                spec.expect_str(run_report.outcome_of("c")).to_equal_str("not-attempted")
+                spec.expect_str(run_report.overall()).to_equal_str("failed")
+            }
+            spec.it("does not round a timeout up to ok") callback {
+                run_report.begin("up")
+                run_report.declare("db", "container", "web")
+                run_report.node_start("db")
+                run_report.node_booted("db")
+                run_report.node_outcome("db", "timeout", "state=booting")
+                spec.expect_str(run_report.overall()).to_equal_str("failed")
+            }
+        }
+
+        spec.describe(fw, "a down") {
+            spec.it("tells verified-gone from merely signalled, and lingering fails the run") callback {
+                run_report.begin("down")
+                run_report.declare("app", "container", "web")
+                run_report.declare("db", "container", "web")
+                run_report.declare("vm", "kvm_vm", "web")
+                run_report.node_start("app")
+                run_report.node_outcome("app", "stopped", "")
+                run_report.node_start("db")
+                run_report.close_unreported("halted", "halted")
+                spec.expect_str(run_report.outcome_of("db")).to_equal_str("halted")
+                spec.expect_str(run_report.overall()).to_equal_str("ok")
+
+                run_report.begin("down")
+                run_report.declare("app", "container", "web")
+                run_report.node_start("app")
+                run_report.node_outcome("app", "lingering", "still present after 10000ms")
+                spec.expect_str(run_report.overall()).to_equal_str("failed")
+            }
+            spec.it("a down call that errored and was never verified gone is failed") callback {
+                run_report.begin("down")
+                run_report.declare("db", "jail", "web")
+                run_report.node_start("db")
+                run_report.node_note("db", "jail -r refused")
+                run_report.close_unreported("halted", "halted")
+                spec.expect_str(run_report.outcome_of("db")).to_equal_str("failed")
+            }
+            spec.it("a new run forgets the previous run's nodes") callback {
+                run_report.begin("up")
+                run_report.declare("only", "container", "s")
+                spec.expect_int(string_contains(run_report.render_json(), "\"name\":\"app\"")).to_equal(0)
+                spec.expect_str(run_report.outcome_of("db")).to_equal_str("")
+            }
+        }
+
+        spec.describe(fw, "on disk") {
+            spec.it("writes the run and last.*, and reads the last one back") callback {
+                d = "/tmp/aeo-spec-run-report-${os.getpid()}"
+                _ = fs.remove_tree(d)
+                _ = os.setenv("AEO_REPORT_DIR", d)
+                run_report.begin("up")
+                run_report.declare("db", "container", "web")
+                run_report.node_start("db")
+                run_report.node_booted("db")
+                run_report.node_outcome("db", "started", "")
+                path, sha, err = run_report.write()
+                spec.expect_str(err).to_equal_str("")
+                spec.expect_int(fs.exists(path)).to_equal(1)
+                spec.expect_int(string_length(sha)).to_equal(64,
+                    "the hash is what the runner writes into the audit chain")
+                j, jerr = run_report.read_last(1)
+                spec.expect_str(jerr).to_equal_str("")
+                spec.expect_int(string_contains(j, "\"outcome\":\"ok\"")).to_equal(1)
+                t, _ = run_report.read_last(0)
+                spec.expect_int(string_contains(t, "1 started")).to_equal(1)
+                _ = fs.remove_tree(d)
+                _, gone = run_report.read_last(0)
+                spec.expect_int(string_contains(gone, "no run report at")).to_equal(1)
+            }
+        }
+    }
+    return spec.run_summary(fw)
+}

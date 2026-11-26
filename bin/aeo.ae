@@ -32,6 +32,7 @@ import std.os
 import host (family, profile)
 import driver_linux (engine_resolve)
 import secrets
+import run_report
 import std.fs (write_atomic, mkdir_p, path_dirname, realpath)
 import std.list
 import std.string (string_length, string_concat, string_trim, string_char_at, string_substring, bytes)
@@ -64,7 +65,11 @@ main() {
                 if a1 == "doctor" {
                     cmd = "doctor"
                 } else {
-                    compose_path = a1
+                    if a1 == "report" {
+                        cmd = "report"
+                    } else {
+                        compose_path = a1
+                    }
                 }
             }
         }
@@ -149,6 +154,12 @@ main() {
     if cmd == "doctor" {
         exit(_doctor())
     }
+    // report: print the newest run report (what the last `aeo up` / `aeo down`
+    // in this directory did, node by node). Compose-less: it reads a file the
+    // runner wrote. `aeo report --json` prints the JSON form.
+    if cmd == "report" {
+        exit(_report_cmd(compose_path))
+    }
 
     // extract/inventory walk LIVE host state and need no composition (inventory
     // takes one OPTIONALLY, for its "declared?" column). If none was given, stage an
@@ -160,7 +171,7 @@ main() {
     }
     if compose_path == "" {
         if stub_compose == 0 {
-            _diag("usage: aeo [up|down|status|check|smoke|suite|dry-run|snapshot|rollback|exec|restart|cutover|backup|prune|audit|pasta|reconcile|watch|apply-node|extract|inventory] <compose.ae> [tag|node cmd...]  |  aeo doctor  |  aeo secrets keygen|seal|unseal")
+            _diag("usage: aeo [up|down|status|check|smoke|suite|dry-run|snapshot|rollback|exec|restart|cutover|backup|prune|audit|pasta|reconcile|watch|apply-node|extract|inventory] <compose.ae> [tag|node cmd...]  |  aeo doctor  |  aeo report [--json]  |  aeo secrets keygen|seal|unseal")
             exit(2)
         }
     }
@@ -414,6 +425,26 @@ main() {
         exit(code)
     }
     exit(code)
+}
+
+// aeo report [--json] — the newest run report, to STDOUT (data). 0 shown, 1 none.
+_report_cmd(flag: string) -> int {
+    as_json = 0
+    if flag == "--json" {
+        as_json = 1
+    } else {
+        if flag != "" {
+            _diag("usage: aeo report [--json]")
+            return 2
+        }
+    }
+    text, err = run_report.read_last(as_json)
+    if err != "" {
+        _diag("aeo: ${err}")
+        return 1
+    }
+    println(string_trim(text))
+    return 0
 }
 
 // aeo secrets <action> [value] — the operator door to lib/secrets. Envelope /

@@ -200,6 +200,12 @@ lib/seccomp_baseline/  DERIVED (containers/common) — the stock container sysca
 lib/rctl/ lib/pf/  FreeBSD confinement: rctl caps + pf network policy.
 lib/attest/        image attestation (verify-before-boot, 3 greppable states).
 lib/audit/         tamper-evident hash-chained audit trail.
+lib/run_report/    what one `aeo up`/`aeo down` DID, node by node (outcome from a
+                   closed set, call time, time to healthy/gone, reason). Written to
+                   .aeo/reports/ after every run; `aeo report [--json]` prints the
+                   newest. NOT the audit trail (that is security decisions) — but
+                   each report's sha256 is recorded in it. A report never rounds
+                   up: anything but all-started / all-stopped is "failed".
 lib/secrets/       SEALED values (aeo1 envelope): ciphertext in state/env/logs,
                    plaintext only at the use boundary via resolve(), fail-closed.
                    `aeo secrets keygen|seal|unseal`. NB `seal` is RESERVED —

@@ -1,0 +1,490 @@
+// lib/run_report — what one `aeo up` / `aeo down` actually DID, node by node:
+// the outcome, how long the boot call took, how long until it was healthy (or
+// verified gone), and the reason when it was not. Written as a file after every
+// run, so "what happened last night" has an answer that is not scrollback.
+//
+// This is NOT the audit trail. lib/audit is the tamper-evident record of
+// SECURITY decisions (attest verdicts, refusals, profiles); a run report is the
+// operational record of a run. They are tied together one way only: the runner
+// writes the report's sha256 into the audit chain, so a report edited afterwards
+// no longer matches what the chain says was written.
+//
+// Outcomes (a closed set, so a reader can count them):
+//   up:    started        the boot call returned and the node became healthy
+//          failed         the boot call itself refused or errored (detail = why)
+//          timeout        booted, but not healthy inside its window
+//          abandoned      dispatched, but the run stopped (another node
+//                         failed) before this one was seen healthy
+//          not-attempted  never dispatched: a dependency did not come up, or the
+//                         run stopped first
+//   down:  stopped        signalled and VERIFIED gone
+//          halted         signalled; this kind/window has no gone-check
+//          lingering      still present after its window
+//          failed         the down call errored and it was never verified gone
+//
+// State lives in std.config (the actor that boots a node and the engine that
+// promotes it are different threads; AGENTS.md: never a module var). Files go
+// to $AEO_REPORT_DIR, else .aeo/reports under the cwd, beside the audit log:
+//   <UTC stamp>-<cmd>.json / .txt, and last.json / last.txt (the newest).
+
+import std.config
+import std.fs
+import std.os
+import std.cryptography
+import std.string (bytes, string_length, string_char_at, string_from_char,
+                   string_equals, string_split, string_array_size,
+                   string_array_get, string_array_free, string_substring,
+                   string_from_int, to_long)
+
+exports (
+    begin, declare, node_start, node_booted, node_outcome, node_note,
+    has_outcome, outcome_of, close_unreported, overall, count_of,
+    render_json, render_text, dir, write, read_last, secs, jq
+)
+
+fn _k(nm: string, field: string) -> string {
+    return "aeo.rr.n.${nm}.${field}"
+}
+
+fn _now() -> string {
+    t = os.now_monotonic_ms()
+    return "${t}"
+}
+
+// ms from the stamp `t0` (a _now() string) to now, as a decimal string. "" when
+// there is no stamp.
+fn _since(t0: string) -> string {
+    if string_length(t0) == 0 {
+        return ""
+    }
+    a, err = to_long(t0)
+    if err != "" {
+        return ""
+    }
+    d = os.now_monotonic_ms() - a
+    return "${d}"
+}
+
+// "1234" -> "1.2s"; "" -> "-". Pure.
+secs(ms: string) -> string {
+    n = string_length(ms)
+    if n == 0 {
+        return "-"
+    }
+    if n <= 2 {
+        return "0.0s"
+    }
+    if n == 3 {
+        return "0.${string_substring(ms, 0, 1)}s"
+    }
+    return "${string_substring(ms, 0, n - 3)}.${string_substring(ms, n - 3, n - 2)}s"
+}
+
+// JSON string escape, by char code (34 ", 92 \, 10 newline, 9 tab); any other
+// control character becomes a space. Pure.
+jq(s: string) -> string {
+    out = ""
+    n = string_length(s)
+    i = 0
+    while i < n {
+        c = string_char_at(s, i)
+        if c == 34 {
+            out = "${out}${string_from_char(92)}${string_from_char(34)}"
+        } else {
+            if c == 92 {
+                out = "${out}${string_from_char(92)}${string_from_char(92)}"
+            } else {
+                if c == 10 {
+                    out = "${out}${string_from_char(92)}n"
+                } else {
+                    if c < 32 {
+                        out = "${out} "
+                    } else {
+                        out = "${out}${string_from_char(c)}"
+                    }
+                }
+            }
+        }
+        i = i + 1
+    }
+    return out
+}
+
+// Start a report for one run. Forgets the previous run's nodes.
+begin(cmd: string) {
+    old = config.get("aeo.rr.names")
+    if string_length(old) > 0 {
+        parts = string_split(old, ",")
+        n = string_array_size(parts)
+        i = 0
+        while i < n {
+            nm = string_array_get(parts, i)
+            config.put(_k(nm, "t0"), "")
+            config.put(_k(nm, "boot_ms"), "")
+            config.put(_k(nm, "ready_ms"), "")
+            config.put(_k(nm, "outcome"), "")
+            config.put(_k(nm, "detail"), "")
+            i = i + 1
+        }
+        string_array_free(parts)
+    }
+    config.put("aeo.rr.names", "")
+    config.put("aeo.rr.cmd", cmd)
+    config.put("aeo.rr.t0", _now())
+    config.put("aeo.rr.started", os.now_utc_iso8601())
+}
+
+// Name a node the run covers, in declaration order. A node declared and never
+// reported is what close_unreported() turns into "not-attempted".
+declare(nm: string, kind: string, system: string) {
+    names = config.get("aeo.rr.names")
+    if string_length(names) == 0 {
+        config.put("aeo.rr.names", nm)
+    } else {
+        config.put("aeo.rr.names", "${names},${nm}")
+    }
+    config.put(_k(nm, "kind"), kind)
+    config.put(_k(nm, "system"), system)
+}
+
+// The clock starts when the node is dispatched.
+node_start(nm: string) {
+    config.put(_k(nm, "t0"), _now())
+}
+
+// The boot (or down) CALL returned without error; readiness is still ahead.
+node_booted(nm: string) {
+    config.put(_k(nm, "boot_ms"), _since(config.get(_k(nm, "t0"))))
+}
+
+// A reason that is not (yet) an outcome: a down call that errored may still be
+// verified gone.
+node_note(nm: string, detail: string) {
+    config.put(_k(nm, "detail"), detail)
+}
+
+// The node's final outcome. FIRST ONE WINS: a node that failed its boot call
+// and is then also seen "not up" at the level timeout stays "failed", with the
+// boot error as its reason.
+node_outcome(nm: string, outcome: string, detail: string) {
+    if string_length(config.get(_k(nm, "outcome"))) > 0 {
+        return
+    }
+    config.put(_k(nm, "outcome"), outcome)
+    config.put(_k(nm, "ready_ms"), _since(config.get(_k(nm, "t0"))))
+    if string_length(detail) > 0 {
+        config.put(_k(nm, "detail"), detail)
+    }
+}
+
+has_outcome(nm: string) -> int {
+    if string_length(config.get(_k(nm, "outcome"))) > 0 {
+        return 1
+    }
+    return 0
+}
+
+outcome_of(nm: string) -> string {
+    return config.get(_k(nm, "outcome"))
+}
+
+// Close the report: every declared node still without an outcome gets one.
+// `never` is for a node that was never dispatched ("not-attempted" after an up,
+// "halted" after a down); `begun` for one that was dispatched and not seen to
+// finish ("abandoned" after an up, "halted" after a down). A node that has a
+// noted reason but no outcome becomes "failed" instead: something went wrong
+// with it and nothing later showed otherwise.
+close_unreported(never: string, begun: string) {
+    names = config.get("aeo.rr.names")
+    if string_length(names) == 0 {
+        return
+    }
+    parts = string_split(names, ",")
+    n = string_array_size(parts)
+    i = 0
+    while i < n {
+        nm = string_array_get(parts, i)
+        if string_length(config.get(_k(nm, "outcome"))) == 0 {
+            if string_length(config.get(_k(nm, "detail"))) > 0 {
+                config.put(_k(nm, "outcome"), "failed")
+            } else {
+                if string_length(config.get(_k(nm, "t0"))) > 0 {
+                    config.put(_k(nm, "outcome"), begun)
+                } else {
+                    config.put(_k(nm, "outcome"), never)
+                }
+            }
+        }
+        i = i + 1
+    }
+    string_array_free(parts)
+}
+
+// How many declared nodes ended with `outcome`.
+count_of(outcome: string) -> int {
+    names = config.get("aeo.rr.names")
+    if string_length(names) == 0 {
+        return 0
+    }
+    parts = string_split(names, ",")
+    n = string_array_size(parts)
+    c = 0
+    i = 0
+    while i < n {
+        nm = string_array_get(parts, i)
+        if string_equals(config.get(_k(nm, "outcome")), outcome) == 1 {
+            c = c + 1
+        }
+        i = i + 1
+    }
+    string_array_free(parts)
+    return c
+}
+
+// "ok" only when every node ended well: all "started" after an up; all
+// "stopped" or "halted" after a down. Anything else, or a node with no outcome
+// at all, is "failed" — a report never rounds up.
+overall() -> string {
+    names = config.get("aeo.rr.names")
+    if string_length(names) == 0 {
+        return "ok"                       // an empty composition did nothing wrong
+    }
+    parts = string_split(names, ",")
+    n = string_array_size(parts)
+    bad = 0
+    i = 0
+    while i < n {
+        nm = string_array_get(parts, i)
+        o = config.get(_k(nm, "outcome"))
+        good = 0
+        if string_equals(o, "started") == 1 { good = 1 }
+        if string_equals(o, "stopped") == 1 { good = 1 }
+        if string_equals(o, "halted") == 1 { good = 1 }
+        if good == 0 {
+            bad = bad + 1
+        }
+        i = i + 1
+    }
+    string_array_free(parts)
+    if bad > 0 {
+        return "failed"
+    }
+    return "ok"
+}
+
+fn _counts_json() -> string {
+    q = string_from_char(34)
+    out = ""
+    all = "started,failed,timeout,abandoned,not-attempted,stopped,halted,lingering"
+    parts = string_split(all, ",")
+    n = string_array_size(parts)
+    i = 0
+    while i < n {
+        o = string_array_get(parts, i)
+        c = count_of(o)
+        if c > 0 {
+            if string_length(out) > 0 {
+                out = "${out},"
+            }
+            out = "${out}${q}${o}${q}:${string_from_int(c)}"
+        }
+        i = i + 1
+    }
+    string_array_free(parts)
+    return "{${out}}"
+}
+
+fn _num(ms: string) -> string {
+    if string_length(ms) == 0 {
+        return "null"
+    }
+    return ms
+}
+
+// The report as one JSON object (schema 1). Durations are milliseconds, null
+// where the node never reached that point.
+render_json() -> string {
+    q = string_from_char(34)
+    cmd = config.get("aeo.rr.cmd")
+    started = config.get("aeo.rr.started")
+    dur = _num(_since(config.get("aeo.rr.t0")))
+    nodes = ""
+    names = config.get("aeo.rr.names")
+    if string_length(names) > 0 {
+        parts = string_split(names, ",")
+        n = string_array_size(parts)
+        i = 0
+        while i < n {
+            nm = string_array_get(parts, i)
+            kind = jq(config.get(_k(nm, "kind")))
+            sys = jq(config.get(_k(nm, "system")))
+            o = jq(config.get(_k(nm, "outcome")))
+            b = _num(config.get(_k(nm, "boot_ms")))
+            r = _num(config.get(_k(nm, "ready_ms")))
+            d = jq(config.get(_k(nm, "detail")))
+            jn = jq(nm)
+            row = "{${q}name${q}:${q}${jn}${q},${q}system${q}:${q}${sys}${q},${q}kind${q}:${q}${kind}${q},${q}outcome${q}:${q}${o}${q},${q}call_ms${q}:${b},${q}done_ms${q}:${r},${q}detail${q}:${q}${d}${q}}"
+            if string_length(nodes) > 0 {
+                nodes = "${nodes},"
+            }
+            nodes = "${nodes}${row}"
+            i = i + 1
+        }
+        string_array_free(parts)
+    }
+    ov = overall()
+    cj = _counts_json()
+    jc = jq(cmd)
+    return "{${q}schema${q}:1,${q}command${q}:${q}${jc}${q},${q}outcome${q}:${q}${ov}${q},${q}started${q}:${q}${started}${q},${q}duration_ms${q}:${dur},${q}counts${q}:${cj},${q}nodes${q}:[${nodes}]}"
+}
+
+fn _pad(s: string, w: int) -> string {
+    out = s
+    n = string_length(s)
+    while n < w {
+        out = "${out} "
+        n = n + 1
+    }
+    return out
+}
+
+// The same report for a person. One line per node; the reason, when there is
+// one, on the line beneath it.
+render_text() -> string {
+    nl = string_from_char(10)
+    cmd = config.get("aeo.rr.cmd")
+    started = config.get("aeo.rr.started")
+    total = secs(_since(config.get("aeo.rr.t0")))
+    ov = overall()
+    out = "aeo run report: ${cmd} ${ov} in ${total} (started ${started})${nl}"
+    names = config.get("aeo.rr.names")
+    tally = ""
+    if string_length(names) > 0 {
+        parts = string_split(names, ",")
+        n = string_array_size(parts)
+        w = 4
+        i = 0
+        while i < n {
+            l = string_length(string_array_get(parts, i))
+            if l > w { w = l }
+            i = i + 1
+        }
+        i = 0
+        while i < n {
+            nm = string_array_get(parts, i)
+            pn = _pad(nm, w)
+            pk = _pad(config.get(_k(nm, "kind")), 12)
+            po = _pad(config.get(_k(nm, "outcome")), 13)
+            b = secs(config.get(_k(nm, "boot_ms")))
+            r = secs(config.get(_k(nm, "ready_ms")))
+            out = "${out}  ${pn}  ${pk}  ${po}  call ${b}  done ${r}${nl}"
+            d = config.get(_k(nm, "detail"))
+            if string_length(d) > 0 {
+                out = "${out}      ${d}${nl}"
+            }
+            i = i + 1
+        }
+        string_array_free(parts)
+        all = "started,failed,timeout,abandoned,not-attempted,stopped,halted,lingering"
+        ps = string_split(all, ",")
+        m = string_array_size(ps)
+        j = 0
+        while j < m {
+            o = string_array_get(ps, j)
+            c = count_of(o)
+            if c > 0 {
+                if string_length(tally) > 0 {
+                    tally = "${tally}, "
+                }
+                tally = "${tally}${string_from_int(c)} ${o}"
+            }
+            j = j + 1
+        }
+        string_array_free(ps)
+    }
+    if string_length(tally) == 0 {
+        tally = "no nodes"
+    }
+    return "${out}  ${tally}${nl}"
+}
+
+// Where reports go.
+dir() -> string {
+    d = os.getenv("AEO_REPORT_DIR")
+    if string_length(d) == 0 {
+        return ".aeo/reports"
+    }
+    return d
+}
+
+// "2026-11-26T06:20:11Z" -> "20261126T062011Z" (digits, T and Z only), so the
+// name sorts by time and has nothing a filesystem dislikes.
+fn _stamp(iso: string) -> string {
+    out = ""
+    n = string_length(iso)
+    i = 0
+    while i < n {
+        c = string_char_at(iso, i)
+        keep = 0
+        if c >= 48 { if c <= 57 { keep = 1 } }
+        if c == 84 { keep = 1 }
+        if c == 90 { keep = 1 }
+        if keep == 1 {
+            out = "${out}${string_from_char(c)}"
+        }
+        i = i + 1
+    }
+    return out
+}
+
+// Write the report (JSON and text), and the same two as last.*.
+// Returns (json path, sha256 of the JSON, err).
+write() -> (string, string, string) {
+    d = dir()
+    merr = fs.mkdir_p(d)
+    if merr != "" {
+        return "", "", "cannot create ${d} (${merr})"
+    }
+    cmd = config.get("aeo.rr.cmd")
+    base = "${d}/${_stamp(config.get("aeo.rr.started"))}-${cmd}"
+    json = render_json()
+    text = render_text()
+    jp = "${base}.json"
+    e1 = fs.write_atomic(jp, bytes(json))
+    if e1 != "" {
+        return "", "", "cannot write ${jp} (${e1})"
+    }
+    e2 = fs.write_atomic("${base}.txt", bytes(text))
+    if e2 != "" {
+        return "", "", "cannot write ${base}.txt (${e2})"
+    }
+    e3 = fs.write_atomic("${d}/last.json", bytes(json))
+    if e3 != "" {
+        return "", "", "cannot write ${d}/last.json (${e3})"
+    }
+    e4 = fs.write_atomic("${d}/last.txt", bytes(text))
+    if e4 != "" {
+        return "", "", "cannot write ${d}/last.txt (${e4})"
+    }
+    h, herr = cryptography.sha256_hex(bytes(json))
+    if herr != "" {
+        return jp, "", ""
+    }
+    return jp, h, ""
+}
+
+// The newest report: its JSON (as_json 1) or its text. (content, err).
+read_last(as_json: int) -> (string, string) {
+    p = "${dir()}/last.txt"
+    if as_json == 1 {
+        p = "${dir()}/last.json"
+    }
+    if fs.exists(p) == 0 {
+        return "", "no run report at ${p} (one is written by every `aeo up` and `aeo down`)"
+    }
+    c, err = fs.read(p)
+    if err != "" {
+        return "", "cannot read ${p} (${err})"
+    }
+    return c, ""
+}

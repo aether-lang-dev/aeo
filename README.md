@@ -38,6 +38,7 @@ aeo check    compose.ae      # run the composition's declared check() specs, NO 
 aeo smoke    compose.ae      # deploy + run smoke() specs, leave the tree STANDING
 aeo suite    compose.ae      # deploy + run suite() specs, then TEAR DOWN (the CI shape)
 aeo audit    compose.ae      # verify the hash-chained audit trail
+aeo report   [--json]        # what the last up/down here did, node by node: outcome, timings, reason
 aeo cutover  compose.ae node  # zero-downtime blue-green: green up + confined + health-gated, alias-swap, retire blue
 aeo reconcile compose.ae      # one-shot drift check: live probes vs the composition (exit 1 on drift); --converge to fix
 aeo watch    compose.ae       # reconcile on a loop (default 30s) — aeo's life between up and down; --converge to act
@@ -509,6 +510,7 @@ lib/confine_linux/    Linux confinement renderer: limit{}/constrain{} → cgroup
 lib/rctl/  lib/pf/     FreeBSD confinement: rctl resource caps + pf network policy
 lib/attest/           image attestation (verify-before-boot, fail-closed; 3 greppable states)
 lib/audit/            tamper-evident hash-chained audit trail (`aeo audit`)
+lib/run_report/       per-run, per-node record of what an up/down did (`aeo report`); its hash goes in the audit chain
 lib/secrets/          sealed values (`aeo secrets`): ciphertext-throughout, decrypt-at-boundary
 lib/snapshot/  lib/snapshot_linux/   lifecycle ops: ZFS (jail/bhyve) + podman/qemu-img/lxc
 lib/host/             host-profile probe + capsicum/casper gating

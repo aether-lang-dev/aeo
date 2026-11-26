@@ -48,6 +48,7 @@ import extract
 import transport_http (post_path, probe_health)
 import attest
 import audit
+import run_report
 import secrets
 import std.intarr
 import resource (set_state, get_state, STATE_DOWN, STATE_BOOTING, STATE_UP, STATE_FAILED)
@@ -90,10 +91,14 @@ actor Resource {
         }
         Boot -> {
             set_state(nm, STATE_BOOTING())
+            run_report.node_start(nm)
             err = driver_up(nm, kind)
             if err != "" {
                 println("aeo: [${nm}] up failed: ${err}")
+                run_report.node_outcome(nm, "failed", _strip_err(err))
                 set_state(nm, STATE_FAILED())
+            } else {
+                run_report.node_booted(nm)
             }
             // Readiness is polled by the ENGINE (run_up's single per-level poller),
             // NOT blocked-on here: a per-actor health poll would serialize a whole
@@ -105,6 +110,9 @@ actor Resource {
             err = driver_down(nm, kind)
             if err != "" {
                 println("aeo: [${nm}] down failed: ${err}")
+                run_report.node_note(nm, _strip_err(err))
+            } else {
+                run_report.node_booted(nm)
             }
             set_state(nm, STATE_DOWN())
         }
@@ -161,6 +169,7 @@ _await_level(booted: ptr, min_secs: int) -> int {
                     }
                     if ready == 1 {
                         set_state(bn, STATE_UP())
+                        run_report.node_outcome(bn, "started", "")
                         println("aeo: [${bn}] up")
                         // Linux reporting only: on FreeBSD the pf anchor was
                         // ALREADY loaded before the node existed (A3,
@@ -305,9 +314,11 @@ _diag_level_not_up(booted: ptr, budget: int) {
             }
             if string_length(verdict) > 0 {
                 println("aeo: [${bn}] NOT UP at level timeout — state=${sn}; kernel verdict: ${verdict}")
+                run_report.node_outcome(bn, "timeout", "not healthy inside its window; kernel verdict: ${verdict}")
                 _ = audit.record(bn, k, "death", verdict)
             } else {
                 println("aeo: [${bn}] NOT UP at level timeout — state=${sn}")
+                run_report.node_outcome(bn, "timeout", "not healthy inside its window (state=${sn})")
             }
         }
         i = i + 1
@@ -1501,7 +1512,53 @@ _strip_err(s: string) -> string {
 // depends() target isn't up yet), blocking on each until up or failed.
 // Returns 1 if every resource reached up, else 0 (partial bring-up; caller
 // should tear down).
+// ---- run reports (lib/run_report) ----
+// Every run_up / run_down leaves a report of what it did to each node. The
+// wrappers own the report's lifetime; the engine and the actor only record
+// outcomes into it. A report that cannot be written is said so and does NOT
+// fail the run (the nodes are what they are); its hash goes into the audit
+// chain so a report edited later no longer matches.
+_report_begin(cmd: string) {
+    run_report.begin(cmd)
+    n = compose.count()
+    i = 0
+    while i < n {
+        nm = compose.name_at(i)
+        run_report.declare(nm, compose.get_kind(nm), compose.get_system(nm))
+        i = i + 1
+    }
+}
+
+_report_end(cmd: string) {
+    path, sha, err = run_report.write()
+    if err != "" {
+        println("aeo: run report NOT written: ${err}")
+        return
+    }
+    ov = run_report.overall()
+    println("aeo: run report: ${cmd} ${ov} -> ${path}")
+    if compose.count() > 0 {
+        sys = compose.get_system(compose.name_at(0))
+        _ = audit.record(sys, "system", "run-report", "${cmd} ${ov} sha256:${sha} ${path}")
+    }
+}
+
 run_up() -> int {
+    _report_begin("up")
+    ok = _run_up_engine()
+    run_report.close_unreported("not-attempted", "abandoned")
+    _report_end("up")
+    return ok
+}
+
+run_down() {
+    _report_begin("down")
+    _run_down_engine()
+    run_report.close_unreported("halted", "halted")
+    _report_end("down")
+}
+
+_run_up_engine() -> int {
     n = compose.count()
     // LEVEL-PARALLEL bring-up. Each pass boots a whole TOPOLOGICAL LEVEL — every
     // node whose depends() target is already up — CONCURRENTLY, then a single
@@ -1809,7 +1866,7 @@ _surface_lb_weight_ignored(nm: string) {
 //      STATE_DOWN before Halt even runs);
 //   5. ONE level poller verifies disappearance — the without() windows run
 //      CONCURRENTLY, so a level of lingering nodes costs max(window), not sum.
-run_down() {
+_run_down_engine() {
     n = compose.count()
     // Depths computed ONCE into an int array (indexed by declaration order) —
     // the level loop reads them instead of re-walking the parent chains.
@@ -1852,6 +1909,7 @@ run_down() {
                     a ! Configure { in_name: nm, in_kind: compose.get_kind(nm) }
                     a ! Halt {}
                 }
+                run_report.node_start(nm)
                 _ = list_add(halted, nm)
             }
             i = i - 1
@@ -2080,12 +2138,14 @@ _await_level_gone(halted: ptr) {
                 }
                 if gone == 1 {
                     _mark_gone(nm)
+                    run_report.node_outcome(nm, "stopped", "")
                     println("aeo: [${nm}] gone (verified within without window)")
                 } else {
                     if waited + step >= w {
                         // this node's own window is exhausted — report + stop
                         // polling it; the level keeps verifying the others.
                         _mark_gone(nm)
+                        run_report.node_outcome(nm, "lingering", "still present after its ${string_from_int(w)}ms window")
                         println("aeo: [${nm}] WARNING still present after without window (${string_from_int(w)}ms) — lingering")
                     } else {
                         pending = 1

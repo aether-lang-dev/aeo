@@ -399,6 +399,35 @@ else. Start here, in this order:
 - [ ] FreeBSD peer (Capsicum) and macOS stay as they are: `spawn_socket` refuses
   on both, so `up_confined` is Linux-only by construction.
 
+### Run reports (started 2026-11-26, on the Chromebook)
+Original work (no foreign source read; the idea is Puppet's, from its public
+docs). Every `aeo up` / `aeo down` writes `.aeo/reports/<UTC>-<cmd>.json` + `.txt`
+and `last.*`; `aeo report [--json]` prints the newest; the runner records each
+report's sha256 in the audit chain (event `run-report`).
+- [x] `lib/run_report` + `test/spec_run_report.ae` (11 cases, pure bar one that
+  writes a scratch dir). Outcomes: started / failed / timeout / abandoned /
+  not-attempted (up); stopped / halted / lingering / failed (down).
+- [x] Runner wiring (the actor, the level poller, the gone-verifier) and
+  `aeo report`. `test/run-report-live.sh`, 28 assertions through the front
+  door with real containers, run by hand: healthy up, plain down, a node
+  refused at boot with its dependent not-attempted, the teardown's own report,
+  audit entries, an edited report not matching the chain. **One box**: Crostini,
+  kernel 6.6, x86_64, podman 4.3.1, ae 0.927.0 (below the pin).
+- [ ] Only `container` nodes have been through it live. The hooks are
+  kind-agnostic (they sit in the actor and the two level loops), but no lxc /
+  kvm / jail / bhyve / proxmox run has produced a report yet.
+- [ ] `timeout`, `abandoned`, `lingering` and `halted` are covered by the pure
+  spec only; no live run has produced one.
+- [ ] No "unchanged": a node that was already up is reported `started` (the
+  drivers are idempotent and do not say which it was).
+- [ ] `aeo reconcile` / `watch` / `restart` / `cutover` write no report. A
+  supervised `aeo down` (released by the supervisor) writes none either.
+- [ ] Reports accumulate; nothing prunes `.aeo/reports/`.
+- [ ] No sink (HTTP, syslog) — files only. Agent-dispatched children appear as
+  their parent node's outcome, not as rows of their own.
+- [ ] `aeo audit` verifies the chain but does not re-hash the report files
+  against their `run-report` entries; that check is by hand today.
+
 ### Strands-inspired honesty track
 This section is the record for the aeo track (self-contained — the original
 cross-repo planning doc, strand/strands_inspired_plan_for_aether_and_aeo.md, is now
