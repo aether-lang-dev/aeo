@@ -89,6 +89,10 @@ echo "### 1. a node up under deny_syscalls(\"namespace\") is coherent"
 OUT="$(aeo up node.ae)"
 if printf '%s\n' "$OUT" | grep -qFx "aeo: [$N] up"; then pass "aeo up brings the lxc node up"
 else fail "aeo up brings the lxc node up"; printf '%s\n' "$OUT" | grep -F "[$N]" | head -5 | sed 's/^/  got:    /'; fi
+AU="$(cat .aeo/audit.log 2>/dev/null)"
+want "$AU" "\"event\":\"syscall-policy\",\"detail\":\"deny=namespace stock=" "the lxc syscall-policy audit entry is written"
+PSHA="$(sha256sum "$HOME/.aeo/seccomp/$N.lxc" 2>/dev/null | cut -d' ' -f1)"
+want "$AU" "sha256=$PSHA\"" "the audit entry ends with the sha256 of the profile on disk"
 PID="$(init_pid)"
 # what reconcile reads without sudo: the init's /proc status and aeo's start log
 if [ -n "$PID" ] && grep -q '^Seccomp:' "/proc/$PID/status" 2>/dev/null; then pass "FINDING: /proc/<init>/status is readable without sudo"
