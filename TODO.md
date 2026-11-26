@@ -359,7 +359,10 @@ Found on the box (answers to the plan's open questions):
       deny_syscalls alone makes a node "constrained".
 - [x] the profile's sha256 is in its `syscall-policy` audit entry (2026-11-26),
       container and lxc. Container: asserted live in syscall-policy-live.sh on
-      one box (Crostini, podman 4.3.1, ae 0.927.0). lxc: compiled only.
+      one box (Crostini, podman 4.3.1, ae 0.927.0). lxc: asserted live by the
+      Mac session in lxc-drift-live.sh at 11ac612 (ae-x64, Ubuntu 22.04.5,
+      kernel 6.8.0-149, LXC 5.0.0, ae 0.946.0): the entry's sha256 equals
+      sha256sum of ~/.aeo/seccomp/<node>.lxc.
       Nothing COMPARES it yet: reconcile still re-renders and compares files.
 - [ ] the cutover (blue->green) path applies the policy but was only compiled.
 
