@@ -10,10 +10,13 @@ import std.list
 import run_report
 import scrub
 
-_argv2(fmt: string, path: string) -> ptr {
+// argv for `sh -c SCRIPT sh PATH`: the octal mode of PATH, by GNU stat (-c %a)
+// or, where that is refused, BSD stat (-f %Lp), so the check runs on both.
+_mode_argv(path: string) -> ptr {
     av = list_new()
     list_add(av, "-c")
-    list_add(av, fmt)
+    list_add(av, "stat -c %a \"$1\" 2>/dev/null || stat -f %Lp \"$1\"")
+    list_add(av, "sh")
     list_add(av, path)
     return av
 }
@@ -287,8 +290,8 @@ main() {
                 path, sha, err = run_report.write()
                 spec.expect_str(err).to_equal_str("")
                 spec.expect_int(fs.exists(path)).to_equal(1)
-                mode_dir, _s1, _e1 = os.run_capture("stat", _argv2("%a", d), null)
-                mode_file, _s2, _e2 = os.run_capture("stat", _argv2("%a", path), null)
+                mode_dir, _s1, _e1 = os.run_capture("sh", _mode_argv(d), null)
+                mode_file, _s2, _e2 = os.run_capture("sh", _mode_argv(path), null)
                 spec.expect_str(string_trim(mode_dir)).to_equal_str("700",
                     "a report can quote engine output; other users of the host do not get to read it")
                 spec.expect_str(string_trim(mode_file)).to_equal_str("600")

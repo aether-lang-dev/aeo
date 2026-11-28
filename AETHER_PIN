@@ -331,4 +331,15 @@
 # same builds and three scripts pass, and run-spec has 413 passing, 7 failing, 14 skipped,
 # as on 0.945.0; the 7 are spec_running_nodes and spec_driver_loadbalancer_live (that
 # host's podman 3.4.4 cannot use a user network).
-0.946.0
+# Raised to 0.949.0 (2026-11-28): a tracking-only bump, no new primitive needed and
+# no source change. 0.947.0 to 0.949.0 rename string.to_double to string.to_float (aeo uses
+# neither name), make it a correctly rounded 64-bit parse, check os.which/os.getcwd against
+# the sandbox and make a wrong-count multi-value return E0200; aeo's source compiles
+# unchanged. Verified on ghostbsd (FreeBSD 15.1, the released 0.949.0): all seven bin/
+# entry points build, test/security-posture.sh, strict-mode.sh and compose-lint.sh pass,
+# and `sh test/run-spec.sh` passes everything except the two live bhyve guest specs
+# (spec_capsicum_bhyvevm_selfreport, spec_containment_linux_vm: the guests did not answer
+# in this run; the released 0.946.0 fails the same two the same way, 7 each). The one
+# other failure, spec_run_report, was a test bug (GNU `stat -c` on FreeBSD) and is fixed
+# here to try `stat -c` then `stat -f %Lp`.
+0.949.0
